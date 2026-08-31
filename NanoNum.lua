@@ -3,7 +3,7 @@
 
 local NanoFormat = {}
 
-NanoFormat.VERSION = "0.3.2"
+NanoFormat.VERSION = "0.3.3"
 NanoFormat.MAX_LAYER = 1e308
 NanoFormat.MAX_LAYER_LOG10 = 1e308
 NanoFormat.NORMAL_SIGNIFICAND_BITS = 16
@@ -2390,7 +2390,7 @@ local function decodeAt(data: buffer, bitOffset: number)
 		if nextBit > totalBits then error("NanoFormat: truncated layer top") end
 		return {
 			Kind = "Layer", Negative = negative, Reciprocal = reciprocal,
-			Layer = layerIsLog and nil or layer,
+			Layer = layerIsLog:: any and nil:: any or layer:: any,
 			LayerLog10 = layerIsLog and layer or nil,
 			LayerIsLog = layerIsLog, Top = top,
 		}, nextBit
@@ -3142,7 +3142,7 @@ function NanoFormat.inspect(value: buffer)
 	}
 end
 
-NanoFormat.LB_SCOPE_VERSION = 1
+NanoFormat.LB_SCOPE_VERSION = 2
 
 (function()
 
@@ -3909,6 +3909,657 @@ NanoFormat.LB_SCOPE_VERSION = 1
 		return 0
 	end
 
+end)();
+
+(function()
+	local LB2_VERSION = 2
+	local LB2_MAX = NanoFormat.LB_MAX
+	local LB2_FINITE_MAX = NanoFormat.LB_FINITE_MAX
+	local LB2_ONE = NanoFormat.LB_ONE
+	local LB2_POSITIVE_SPAN = NanoFormat.LB_POSITIVE_SPAN
+	local LB2_MAX_FINITE_NUMBER = 1.7976931348623157e308
+	local LB2_FINITE_LOG_MAX = log10(LB2_MAX_FINITE_NUMBER)
+	local LB2_INTEGER_EXACT_MAX = 2097151
+	local LB2_SCALAR_EXACT_MAX = SCALAR_EXACT_VALUE_MAX
+	local LB2_NORMAL_STRIDE = NORMAL_MANT_MAX + 1
+	local LB2_SCALAR_STRIDE = SCALAR_MANT_MAX + 1
+	local LB2_NORMAL_LAST_MANT = floor(
+		((LB2_MAX_FINITE_NUMBER / 1e308 - 1) / 9) * NORMAL_MANT_MAX
+	)
+	local LB2_SCALAR_LAST_MANT = floor(
+		((LB2_MAX_FINITE_NUMBER / 1e308 - 1) / 9) * SCALAR_MANT_MAX
+	)
+	local LB2_NORMAL_FULL_EXP_COUNT = 308
+	local LB2_SCALAR_FULL_EXP_COUNT = SCALAR_EXP_MAX - SCALAR_EXP_MIN
+	local LB2_NORMAL_APPROX_COUNT =
+		LB2_NORMAL_FULL_EXP_COUNT * LB2_NORMAL_STRIDE + LB2_NORMAL_LAST_MANT + 1
+	local LB2_SCALAR_APPROX_COUNT =
+		LB2_SCALAR_FULL_EXP_COUNT * LB2_SCALAR_STRIDE + LB2_SCALAR_LAST_MANT + 1
+	local LB2_FINITE_CAP = LB2_NORMAL_APPROX_COUNT + LB2_INTEGER_EXACT_MAX + 4
+	local LB2_SCALAR_CAP = LB2_SCALAR_APPROX_COUNT + LB2_SCALAR_EXACT_MAX + 4
+	local LB2_LOG_OFFSET = LB2_FINITE_CAP
+	local LB2_LAYER_OFFSET = LB2_LOG_OFFSET + LB2_SCALAR_CAP
+	local LB2_LAYER_CAP = LB2_SCALAR_CAP * LB2_SCALAR_CAP
+	local LB2_LOG_LAYER_OFFSET = LB2_LAYER_OFFSET + LB2_LAYER_CAP
+	local LB2_LOG_LAYER_CAP = LB2_LAYER_CAP
+	local LB2_USED_END = LB2_LOG_LAYER_OFFSET + LB2_LOG_LAYER_CAP - 1
+
+	if LB2_USED_END > LB2_POSITIVE_SPAN then
+		error("NanoFormat: LB V2 layout exceeds exact integer range")
+	end
+
+	NanoFormat.LB_VERSION = LB2_VERSION
+	NanoFormat.LB_SCOPE_VERSION = 2
+	NanoFormat.LB_V2_FINITE_CAP = LB2_FINITE_CAP
+	NanoFormat.LB_V2_SCALAR_CAP = LB2_SCALAR_CAP
+	NanoFormat.LB_V2_USED_SPAN = LB2_USED_END
+	NanoFormat.LB_V2_REVERSIBLE = true
+
+	local function lb2Coerce(value: any): buffer
+		local kind = typeof(value)
+		if kind == "buffer" then
+			return value
+		elseif kind == "number" then
+			return NanoFormat.fromNumber(value)
+		elseif kind == "string" then
+			return NanoFormat.fromString(value)
+		end
+		return makeSpecial(SPECIAL_NAN)
+	end
+
+	local function lb2NormalValueFromIndex(index: number): number?
+		if index < 0 or index >= LB2_NORMAL_APPROX_COUNT then
+			return nil
+		end
+		local full = LB2_NORMAL_FULL_EXP_COUNT * LB2_NORMAL_STRIDE
+		local exponent
+		local mantCode
+		if index < full then
+			exponent = floor(index / LB2_NORMAL_STRIDE)
+			mantCode = index - exponent * LB2_NORMAL_STRIDE
+		else
+			exponent = 308
+			mantCode = index - full
+			if mantCode > LB2_NORMAL_LAST_MANT then
+				return nil
+			end
+		end
+		return decodeMantissa(mantCode, NORMAL_MANT_MAX) * (10 ^ exponent)
+	end
+
+	local function lb2NormalIndexFromValue(value: number): number?
+		if value < 1 or value > LB2_MAX_FINITE_NUMBER or value ~= value then
+			return nil
+		end
+		local exponent = floor(log10(value))
+		if exponent < 0 or exponent > 308 then
+			return nil
+		end
+		local mantissa = value / (10 ^ exponent)
+		local mantCode = quantizeMantissa(mantissa, NORMAL_MANT_MAX)
+		if exponent == 308 and mantCode > LB2_NORMAL_LAST_MANT then
+			return nil
+		end
+		return exponent * LB2_NORMAL_STRIDE + mantCode
+	end
+
+	local function lb2NormalLowerBound(value: number): number
+		local lo = 0
+		local hi = LB2_NORMAL_APPROX_COUNT
+		while lo < hi do
+			local mid = floor((lo + hi) / 2)
+			local candidate = lb2NormalValueFromIndex(mid)
+			if candidate ~= nil and candidate < value then
+				lo = mid + 1
+			else
+				hi = mid
+			end
+		end
+		return lo
+	end
+
+	local function lb2FiniteRank(value: number): number?
+		if value < 1 or value > LB2_MAX_FINITE_NUMBER or value ~= value then
+			return nil
+		end
+		if value <= LB2_INTEGER_EXACT_MAX and value == floor(value) then
+			return lb2NormalLowerBound(value) + value - 1
+		end
+		local index = lb2NormalIndexFromValue(value)
+		if index == nil then
+			return nil
+		end
+		local exactLE = min(LB2_INTEGER_EXACT_MAX, floor(value))
+		return index + exactLE
+	end
+
+	local function lb2FiniteApproxRank(index: number): (number?, number?)
+		local value = lb2NormalValueFromIndex(index)
+		if value == nil then
+			return nil, nil
+		end
+		local exactLE = min(LB2_INTEGER_EXACT_MAX, floor(value))
+		return index + exactLE, value
+	end
+
+	local function lb2FiniteValueFromRank(rank: number): number?
+		if rank < 0 or rank >= LB2_FINITE_CAP then
+			return nil
+		end
+		local lo = 0
+		local hi = LB2_NORMAL_APPROX_COUNT
+		while lo < hi do
+			local mid = floor((lo + hi) / 2)
+			local approxRank = lb2FiniteApproxRank(mid)
+			if approxRank ~= nil and approxRank < rank then
+				lo = mid + 1
+			else
+				hi = mid
+			end
+		end
+		local index = lo
+		if index < LB2_NORMAL_APPROX_COUNT then
+			local approxRank, value = lb2FiniteApproxRank(index)
+			if approxRank == rank and value ~= nil then
+				local canonical = lb2FiniteRank(value)
+				if canonical == rank then
+					return value
+				end
+			end
+		end
+		local integer = rank - index + 1
+		if integer >= 1 and integer <= LB2_INTEGER_EXACT_MAX then
+			local canonical = lb2FiniteRank(integer)
+			if canonical == rank then
+				return integer
+			end
+		end
+		return nil
+	end
+
+	local function lb2ScalarValueFromIndex(index: number): number?
+		if index < 0 or index >= LB2_SCALAR_APPROX_COUNT then
+			return nil
+		end
+		local full = LB2_SCALAR_FULL_EXP_COUNT * LB2_SCALAR_STRIDE
+		local exponent
+		local mantCode
+		if index < full then
+			local expIndex = floor(index / LB2_SCALAR_STRIDE)
+			exponent = SCALAR_EXP_MIN + expIndex
+			mantCode = index - expIndex * LB2_SCALAR_STRIDE
+		else
+			exponent = 308
+			mantCode = index - full
+			if mantCode > LB2_SCALAR_LAST_MANT then
+				return nil
+			end
+		end
+		return decodeMantissa(mantCode, SCALAR_MANT_MAX) * (10 ^ exponent)
+	end
+
+	local function lb2ScalarIndexFromValue(value: number): number?
+		if value <= 0 or value > LB2_MAX_FINITE_NUMBER or value ~= value then
+			return nil
+		end
+		local lg = log10(value)
+		local exponent = floor(lg)
+		if exponent < SCALAR_EXP_MIN then
+			exponent = SCALAR_EXP_MIN
+		elseif exponent > 308 then
+			return nil
+		end
+		local mantissa = 10 ^ (lg - exponent)
+		local mantCode = quantizeMantissa(mantissa, SCALAR_MANT_MAX)
+		if exponent == 308 and mantCode > LB2_SCALAR_LAST_MANT then
+			return nil
+		end
+		return (exponent - SCALAR_EXP_MIN) * LB2_SCALAR_STRIDE + mantCode
+	end
+
+	local function lb2ScalarLowerBound(value: number): number
+		local lo = 0
+		local hi = LB2_SCALAR_APPROX_COUNT
+		while lo < hi do
+			local mid = floor((lo + hi) / 2)
+			local candidate = lb2ScalarValueFromIndex(mid)
+			if candidate ~= nil and candidate < value then
+				lo = mid + 1
+			else
+				hi = mid
+			end
+		end
+		return lo
+	end
+
+	local function lb2ScalarRank(value: number): number?
+		if value < 0 or value > LB2_MAX_FINITE_NUMBER or value ~= value then
+			return nil
+		end
+		if value <= LB2_SCALAR_EXACT_MAX and value == floor(value) then
+			return lb2ScalarLowerBound(value) + value
+		end
+		local index = lb2ScalarIndexFromValue(value)
+		if index == nil then
+			return nil
+		end
+		local exactLE = min(LB2_SCALAR_EXACT_MAX + 1, floor(value) + 1)
+		return index + exactLE
+	end
+
+	local function lb2ScalarApproxRank(index: number): (number?, number?)
+		local value = lb2ScalarValueFromIndex(index)
+		if value == nil then
+			return nil, nil
+		end
+		local exactLE = min(LB2_SCALAR_EXACT_MAX + 1, floor(value) + 1)
+		return index + exactLE, value
+	end
+
+	local function lb2ScalarValueFromRank(rank: number): number?
+		if rank < 0 or rank >= LB2_SCALAR_CAP then
+			return nil
+		end
+		local lo = 0
+		local hi = LB2_SCALAR_APPROX_COUNT
+		while lo < hi do
+			local mid = floor((lo + hi) / 2)
+			local approxRank = lb2ScalarApproxRank(mid)
+			if approxRank ~= nil and approxRank < rank then
+				lo = mid + 1
+			else
+				hi = mid
+			end
+		end
+		local index = lo
+		if index < LB2_SCALAR_APPROX_COUNT then
+			local approxRank, value = lb2ScalarApproxRank(index)
+			if approxRank == rank and value ~= nil then
+				local canonical = lb2ScalarRank(value)
+				if canonical == rank then
+					return value
+				end
+			end
+		end
+		local integer = rank - index
+		if integer >= 0 and integer <= LB2_SCALAR_EXACT_MAX then
+			local canonical = lb2ScalarRank(integer)
+			if canonical == rank then
+				return integer
+			end
+		end
+		return nil
+	end
+
+	local function lb2DeltaFromLogDistance(top: number): number?
+		if top ~= top or top < 0 then
+			return nil
+		end
+		if top <= LB2_FINITE_LOG_MAX then
+			local distance = 10 ^ top
+			if distance ~= huge and distance <= LB2_MAX_FINITE_NUMBER then
+				return lb2FiniteRank(distance)
+			end
+		end
+		local scalarRank = lb2ScalarRank(top)
+		if scalarRank == nil then
+			return nil
+		end
+		return LB2_LOG_OFFSET + scalarRank
+	end
+
+	local function lb2LayerPairRank(layer: number, top: number): number?
+		local layerRank = lb2ScalarRank(layer)
+		local topRank = lb2ScalarRank(top)
+		if layerRank == nil or topRank == nil then
+			return nil
+		end
+		return layerRank * LB2_SCALAR_CAP + topRank
+	end
+
+	local function lb2Finalize(delta: number, negative: boolean, reciprocal: boolean): number?
+		if delta < 0 or delta > LB2_USED_END then
+			return nil
+		end
+		if delta == 0 then
+			return negative and -LB2_ONE or LB2_ONE
+		end
+		local code = reciprocal and (LB2_ONE - delta) or (LB2_ONE + delta)
+		if code < 1 or code > LB2_FINITE_MAX then
+			return nil
+		end
+		code = floor(code)
+		return negative and -code or code
+	end
+
+	local function lb2EncodeBuffer(value: buffer): (number, boolean, string)
+		local data = decodeAt(value, 0)
+		if data.Kind == "NaN" or data.Kind == "Reserved" then
+			return 0, false, "nan"
+		end
+		if data.Kind == "Infinity" then
+			return data.Negative and -LB2_MAX or LB2_MAX, true, "infinity"
+		end
+		if data.Kind == "Integer" and data.Value == 0 then
+			return 0, true, "zero"
+		end
+
+		local negative = false
+		local reciprocal = false
+		local delta
+		local band = "finite"
+
+		if data.Kind == "Integer" then
+			negative = data.Value < 0
+			local magnitude = abs(data.Value)
+			delta = lb2FiniteRank(magnitude)
+		elseif data.Kind == "Normal" then
+			negative = data.Negative == true
+			local magnitude = data.Mantissa * (10 ^ data.Exponent)
+			if magnitude == 0 then
+				return 0, true, "zero"
+			end
+			if magnitude < 1 then
+				reciprocal = true
+				local distance = 1 / magnitude
+				if distance ~= huge and distance <= LB2_MAX_FINITE_NUMBER then
+					delta = lb2FiniteRank(distance)
+				else
+					delta = lb2DeltaFromLogDistance(-log10(magnitude))
+					band = "log"
+				end
+			else
+				delta = lb2FiniteRank(magnitude)
+			end
+		elseif data.Kind == "Log" then
+			negative = data.Negative == true
+			reciprocal = data.Reciprocal == true
+			delta = lb2DeltaFromLogDistance(data.Top)
+			band = data.Top <= LB2_FINITE_LOG_MAX and "finite" or "log"
+		elseif data.Kind == "Layer" then
+			negative = data.Negative == true
+			reciprocal = data.Reciprocal == true
+			if data.LayerIsLog then
+				if data.LayerLog10 <= 308 then
+					local layer, top = normalizeLayerInput(10 ^ data.LayerLog10, data.Top, false)
+					if layer < 2 then
+						delta = lb2DeltaFromLogDistance(top)
+						band = "log"
+					else
+						local pair = lb2LayerPairRank(layer, top)
+						delta = pair and (LB2_LAYER_OFFSET + pair) or nil
+						band = "layer"
+					end
+				else
+					local pair = lb2LayerPairRank(data.LayerLog10, data.Top)
+					delta = pair and (LB2_LOG_LAYER_OFFSET + pair) or nil
+					band = "log-layer"
+				end
+			else
+				local layer, top = normalizeLayerInput(data.Layer, data.Top, false)
+				if layer < 2 then
+					delta = lb2DeltaFromLogDistance(top)
+					band = "log"
+				else
+					local pair = lb2LayerPairRank(layer, top)
+					delta = pair and (LB2_LAYER_OFFSET + pair) or nil
+					band = "layer"
+				end
+			end
+		else
+			return 0, false, "nan"
+		end
+
+		if delta == nil then
+			return 0, false, band
+		end
+		local code = lb2Finalize(delta, negative, reciprocal)
+		if code == nil then
+			return 0, false, band
+		end
+		return code, true, band
+	end
+
+	local function lb2DecodeFinite(rank: number, reciprocal: boolean, negative: boolean): buffer?
+		local distance = lb2FiniteValueFromRank(rank)
+		if distance == nil then
+			return nil
+		end
+		local magnitude = reciprocal and (1 / distance) or distance
+		if magnitude == 0 then
+			local top = log10(distance)
+			return NanoFormat.fromLog10(-top, negative)
+		end
+		return NanoFormat.fromNumber(negative and -magnitude or magnitude)
+	end
+
+	local function lb2DecodeLog(rank: number, reciprocal: boolean, negative: boolean): buffer?
+		local top = lb2ScalarValueFromRank(rank)
+		if top == nil or top <= LB2_FINITE_LOG_MAX then
+			return nil
+		end
+		return NanoFormat.fromLog10(reciprocal and -top or top, negative)
+	end
+
+	local function lb2DecodePair(pair: number, layerIsLog: boolean, reciprocal: boolean, negative: boolean): buffer?
+		if pair < 0 or pair >= LB2_LAYER_CAP then
+			return nil
+		end
+		local layerRank = floor(pair / LB2_SCALAR_CAP)
+		local topRank = pair - layerRank * LB2_SCALAR_CAP
+		local layer = lb2ScalarValueFromRank(layerRank)
+		local top = lb2ScalarValueFromRank(topRank)
+		if layer == nil or top == nil then
+			return nil
+		end
+		if layerIsLog then
+			if layer <= 308 then
+				return nil
+			end
+			return NanoFormat.fromLayerLog10(layer, top, negative, reciprocal)
+		end
+		if layer < 2 then
+			return nil
+		end
+		return NanoFormat.fromLayer(layer, top, negative, reciprocal)
+	end
+
+	local function lb2DecodeCore(encoded: number): buffer
+		if encoded ~= encoded or encoded > LB2_MAX or encoded < -LB2_MAX or encoded ~= floor(encoded) then
+			return makeSpecial(SPECIAL_NAN)
+		end
+		if encoded == 0 then
+			return NanoFormat.fromNumber(0)
+		end
+		if encoded == LB2_MAX then
+			return makeSpecial(SPECIAL_POS_INF)
+		elseif encoded == -LB2_MAX then
+			return makeSpecial(SPECIAL_NEG_INF)
+		end
+
+		local negative = encoded < 0
+		local code = negative and -encoded or encoded
+		if code < 1 or code > LB2_FINITE_MAX then
+			return makeSpecial(SPECIAL_NAN)
+		end
+		if code == LB2_ONE then
+			return NanoFormat.fromNumber(negative and -1 or 1)
+		end
+
+		local reciprocal = code < LB2_ONE
+		local delta = reciprocal and (LB2_ONE - code) or (code - LB2_ONE)
+		if delta < 0 or delta > LB2_USED_END then
+			return makeSpecial(SPECIAL_NAN)
+		end
+
+		local result
+		if delta < LB2_LOG_OFFSET then
+			result = lb2DecodeFinite(delta, reciprocal, negative)
+		elseif delta < LB2_LAYER_OFFSET then
+			result = lb2DecodeLog(delta - LB2_LOG_OFFSET, reciprocal, negative)
+		elseif delta < LB2_LOG_LAYER_OFFSET then
+			result = lb2DecodePair(delta - LB2_LAYER_OFFSET, false, reciprocal, negative)
+		else
+			result = lb2DecodePair(delta - LB2_LOG_LAYER_OFFSET, true, reciprocal, negative)
+		end
+		if result == nil then
+			return makeSpecial(SPECIAL_NAN)
+		end
+
+		local roundCode, valid = lb2EncodeBuffer(result)
+		if not valid or roundCode ~= encoded then
+			return makeSpecial(SPECIAL_NAN)
+		end
+		return result
+	end
+
+	local function lb2IsCode(encoded: number): boolean
+		local decoded = lb2DecodeCore(encoded)
+		local data = decodeAt(decoded, 0)
+		return data.Kind ~= "NaN" and data.Kind ~= "Reserved"
+	end
+
+	function NanoFormat.tryLBEncode(value: any): (boolean, number)
+		local source = lb2Coerce(value)
+		local ok, code, valid = fastPcall(lb2EncodeBuffer, source)
+		if not ok or not valid then
+			return false, 0
+		end
+		return true, code
+	end
+
+	function NanoFormat.lbencodeV2(value: any): number
+		local code = lb2EncodeBuffer(lb2Coerce(value))
+		return code
+	end
+
+	function NanoFormat.lbdecodeV2(encoded: number): buffer
+		return lb2DecodeCore(encoded)
+	end
+
+	function NanoFormat.lbencode(value: any): number
+		return NanoFormat.lbencodeV2(value)
+	end
+
+	function NanoFormat.lbdecode(encoded: number, version: number?): buffer
+		if version == 1 then
+			return NanoFormat.lbdecodeV1(encoded)
+		end
+		if version ~= nil and version ~= LB2_VERSION then
+			return makeSpecial(SPECIAL_NAN)
+		end
+		return NanoFormat.lbdecodeV2(encoded)
+	end
+
+	function NanoFormat.lbcodecVersion(): number
+		return LB2_VERSION
+	end
+
+	NanoFormat.isLBCode = lb2IsCode
+
+	function NanoFormat.lbpack(value: any): {[string]: number}
+		return {
+			v = LB2_VERSION,
+			c = NanoFormat.lbencodeV2(value),
+		}
+	end
+
+	function NanoFormat.lbunpack(data: any): buffer
+		if typeof(data) ~= "table" then
+			return makeSpecial(SPECIAL_NAN)
+		end
+		local version = toNumber((data :: any).v or (data :: any).version)
+		local code = toNumber((data :: any).c or (data :: any).code)
+		if version == nil or code == nil then
+			return makeSpecial(SPECIAL_NAN)
+		end
+		return NanoFormat.lbdecode(code, version)
+	end
+
+	function NanoFormat.lbinfo(value: any)
+		local code, valid, band = lb2EncodeBuffer(lb2Coerce(value))
+		if not valid then
+			return {
+				version = LB2_VERSION,
+				code = 0,
+				band = "nan",
+				negative = false,
+				reciprocal = false,
+				distanceFromOne = 0,
+				reversible = false,
+			}
+		end
+		if code == 0 then
+			return {
+				version = LB2_VERSION,
+				code = 0,
+				band = "zero",
+				negative = false,
+				reciprocal = false,
+				distanceFromOne = LB2_ONE,
+				reversible = true,
+			}
+		end
+		if code == LB2_MAX or code == -LB2_MAX then
+			return {
+				version = LB2_VERSION,
+				code = code,
+				band = "infinity",
+				negative = code < 0,
+				reciprocal = false,
+				distanceFromOne = LB2_POSITIVE_SPAN,
+				reversible = true,
+			}
+		end
+		local absCode = abs(code)
+		return {
+			version = LB2_VERSION,
+			code = code,
+			band = band,
+			negative = code < 0,
+			reciprocal = absCode < LB2_ONE,
+			distanceFromOne = abs(absCode - LB2_ONE),
+			reversible = true,
+		}
+	end
+
+	function NanoFormat.lbquantize(value: any): buffer
+		local ok, code = NanoFormat.tryLBEncode(value)
+		if not ok then
+			return makeSpecial(SPECIAL_NAN)
+		end
+		return NanoFormat.lbdecodeV2(code)
+	end
+
+	function NanoFormat.lbSameBucket(a: any, b: any): boolean
+		local okA, codeA = NanoFormat.tryLBEncode(a)
+		local okB, codeB = NanoFormat.tryLBEncode(b)
+		return okA and okB and codeA == codeB
+	end
+
+	function NanoFormat.lbRoundTripStable(value: any): boolean
+		local ok, code = NanoFormat.tryLBEncode(value)
+		if not ok then
+			return false
+		end
+		local decoded = NanoFormat.lbdecodeV2(code)
+		local ok2, code2 = NanoFormat.tryLBEncode(decoded)
+		return ok2 and code2 == code
+	end
+
+	function NanoFormat.lbCompare(a: any, b: any): number
+		local okA, codeA = NanoFormat.tryLBEncode(a)
+		local okB, codeB = NanoFormat.tryLBEncode(b)
+		if not okA or not okB then
+			return 0 / 0
+		end
+		if codeA < codeB then
+			return -1
+		elseif codeA > codeB then
+			return 1
+		end
+		return 0
+	end
 end)()
 
 NanoFormat.MATH_SCOPE_VERSION = 1
@@ -5884,18 +6535,14 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			local expCode = floor(header15 / 32)
 			local mantCode = bufferReadBits(value, 15, NORMAL_MANT_BITS)
 			local mantissa = decodeMantissa(mantCode, NORMAL_MANT_MAX)
-			return true,negative,(expCode - NORMAL_EXP_BIAS) + log10(mantissa),
-			false
+			return true,negative,(expCode - NORMAL_EXP_BIAS) + log10(mantissa),	false
 		end
 
 		if band(header8, 31) == 15 then
 			local negative = band(header8, 32) ~= 0
 			local reciprocal = band(header8, 64) ~= 0
 			local top = readScalarAtFast(value, 7)
-			return true,
-			negative,
-			reciprocal and -top or top,
-			false
+			return true,negative,reciprocal and -top or top,false
 		end
 
 		return false, false, 0, false
@@ -8456,8 +9103,10 @@ end)()
 
 NanoFormat.LBEncode = NanoFormat.lbencode
 NanoFormat.LBDecode = NanoFormat.lbdecode
-NanoFormat.LBEncodeV1 = NanoFormat.lbencode
-NanoFormat.LBDecodeV1 = NanoFormat.lbdecode
+NanoFormat.LBEncodeV1 = NanoFormat.lbencodeV1
+NanoFormat.LBDecodeV1 = NanoFormat.lbdecodeV1
+NanoFormat.LBEncodeV2 = NanoFormat.lbencodeV2
+NanoFormat.LBDecodeV2 = NanoFormat.lbdecodeV2
 NanoFormat.LBCompare = NanoFormat.lbCompare
 NanoFormat.LBRoundTripStable = NanoFormat.lbRoundTripStable
 
