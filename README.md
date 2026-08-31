@@ -6,7 +6,7 @@ It is designed for simulator/clicker-style games that need to **store, compare, 
 
 NanoNum uses an **adaptive bit-packed `buffer` representation**. Small integers can use one byte, larger finite values use compact integer/normal records, huge values switch to logarithmic storage, and astronomical values use layered storage. Multiple NanoNums can also be packed into one shared bitstream so record padding is not repeated.
 
-> Current release: **V0.3.2**  
+> Current release: **V0.3.3**  
 > Parser: **V9**  
 > Suffix codec: **V5**  
 > Performance layout: **V7**  
@@ -19,7 +19,7 @@ NanoNum uses an **adaptive bit-packed `buffer` representation**. Small integers 
 > Decimal tetration: **V1**  
 > Slog: **V2**  
 > Gamma/Beta: **V2**  
-> Leaderboard codec: **LB V1**
+> Leaderboard codec: **LB V2**
 
 ---
 
@@ -39,7 +39,7 @@ NanoNum uses an **adaptive bit-packed `buffer` representation**. Small integers 
 - Compact exponent notation such as `E3,000` and exponent suffix compaction such as `E1M`
 - Bit-level `packMany` / `unpackMany`
 - Structural validation and protected decode helpers
-- Monotonic OrderedDataStore-friendly **LB V1**
+- Monotonic OrderedDataStore-friendly **LB V2** with reversible canonical decode
 - Full mixed-type math API for `number`, `buffer`, and `string`
 - Direct typed math calls through `NanoNum.fast`
 - `compile`, `bindBinary`, and `bindRight` for hot loops
@@ -273,7 +273,9 @@ Special records represent:
 
 # Number Range
 
-NanoNum exposes:
+NanoNum separates its **finite carrier limits** from its **conceptual huge-number range**.
+
+The current implementation exposes finite scalar/layer carrier constants:
 
 ```lua
 NanoNum.MAX_LAYER
@@ -283,23 +285,58 @@ NanoNum.MAX_LAYER_LOG10
 -- 1e308
 ```
 
-A direct layer value can therefore reach the direct layer envelope, while `fromLayerLog10()` can represent a layer count whose **base-10 logarithm** is itself as large as `1e308`.
+Those constants are not meant to say that NanoNum's final value range stops at `1e308`. They are finite fields used to describe layer counts, layer logarithms, and top scalars inside the compact representation.
 
-```lua
-local direct = NanoNum.fromLayer(1e308, 5)
-local logHeight = NanoNum.fromLayerLog10(1e308, 5)
-```
+## Conceptual Maximum
 
-The second form conceptually describes a layer height around:
+NanoNum's intended maximum scale is:
 
 ```text
-10^(1e308)
+10 ↑↑ (10 ↑ (2^1024))
 ```
 
-This is symbolic compact huge-number storage, not an exact arbitrary-precision integer rank.
+Equivalently:
+
+```text
+10 tetrated to height 10^(2^1024)
+```
+
+where:
+
+```text
+↑   = exponentiation
+↑↑  = tetration
+```
+
+The important idea is that NanoNum does **not** attempt to materialize that tetration height as a normal Luau `number`. It represents astronomical heights symbolically through the layer/log-layer system.
+
+Conceptually:
+
+```text
+height = 10^(2^1024)
+value  = 10 ↑↑ height
+```
+
+For example, log-layer storage describes the logarithm of a layer count instead of allocating or iterating through every layer:
+
+```lua
+local value = NanoNum.fromLayerLog10(1e308, 10)
+print(NanoNum.format(value))
+```
+
+The formatter uses NanoNum's compact layer notation for values in this region, such as:
+
+```text
+L(10^...) ...
+```
+
+### About `MAX - 1`
+
+At this scale, expressions such as `2^1024 - 1`, `1e308 - 1`, or "one layer below the maximum" cannot be represented exactly with an ordinary IEEE-754 Luau `number`. Boundary tests should therefore use NanoNum's symbolic layer/log-layer representation instead of subtracting `1` from a native floating-point value.
+
+This maximum describes NanoNum's huge-number/layer envelope. NanoNum is still a compact, quantized representation rather than an exact arbitrary-precision integer engine.
 
 ---
-
 # Constructors
 
 ## `fromNumber`
@@ -318,7 +355,7 @@ NanoNum.fromNumber(math.huge)
 NanoNum.fromNumber(-math.huge)
 ```
 
-The V0.3.2 path includes dedicated hot paths for zero, positive one-byte integers, negative one-byte integers, exact safe integers, powers of ten, and ordinary normal values.
+The V0.3.3 path includes dedicated hot paths for zero, positive one-byte integers, negative one-byte integers, exact safe integers, powers of ten, and ordinary normal values.
 
 ---
 
@@ -499,7 +536,7 @@ NanoNum.formatEngineering(value, precision?)
 
 # Suffix Types
 
-NanoNum V0.3.2 exposes eight suffix modes:
+NanoNum V0.3.3 exposes eight suffix modes:
 
 ```text
 standard
@@ -949,16 +986,16 @@ end
 
 ---
 
-# Leaderboard Codec — LB V1
+# Leaderboard Codec — LB V2
 
-NanoNum includes a monotonic signed integer codec intended for Roblox OrderedDataStore-style ranking.
+NanoNum includes a monotonic signed integer codec intended for Roblox `OrderedDataStore` ranking.
 
 ```lua
 NanoNum.LB_VERSION
--- 1
+-- 2
 ```
 
-Exact integer envelope:
+LB V2 keeps every leaderboard key inside the exact integer range of an IEEE-754 double:
 
 ```lua
 NanoNum.LB_MAX
@@ -972,82 +1009,152 @@ NanoNum.LB_ONE
 -- 4503599627370496
 ```
 
-The code layout is symmetric around zero/sign and uses several ranking bands:
+## What LB V2 fixes
+
+LB V1 was primarily a ranking/quantization codec. It could preserve ordering while decoding a value back to the representative of a leaderboard bucket rather than the original canonical NanoNum.
+
+LB V2 changes the layout so supported canonical NanoNums are encoded into reversible ordered ranges. The decoder reconstructs the canonical NanoNum carried by the key instead of using the old coarse bucket reconstruction.
+
+The main V2 regions are conceptually:
 
 ```text
-ordinary-exact
-ordinary-log
-huge-log
-low-layer-exact
-high-layer
-log-layer
+finite / normal values
+        ↓
+huge logarithmic values
+        ↓
+direct layered values
+        ↓
+log-layer values
 ```
 
-LB V1 is a **ranking/quantization codec**. It is monotonic, but it is not intended to preserve arbitrary precision through every encode/decode round trip.
+Sign and reciprocal ordering remain symmetric around `LB_ONE`, so the integer key can still be used directly for leaderboard sorting.
+
+The module exposes:
+
+```lua
+NanoNum.LB_V2_REVERSIBLE
+-- true
+
+NanoNum.LB_V2_FINITE_CAP
+NanoNum.LB_V2_SCALAR_CAP
+NanoNum.LB_V2_USED_SPAN
+```
 
 ---
 
-## LB Encode
+## LB Encode / Decode
 
 ```lua
-local value = NanoNum.fromString("1e1000")
-local code = NanoNum.lbencode(value)
+local original = NanoNum.fromString("1.123e30")
 
-print(code)
+local code = NanoNum.lbencode(original)
+local restored = NanoNum.lbdecode(code)
+
+print("Before:", NanoNum.format(original))
+print("LB Code:", code)
+print("Decode:", NanoNum.format(restored))
+print("Stable:", NanoNum.lbRoundTripStable(original))
 ```
 
-Numbers and strings are accepted too:
+The LB code is a sortable integer key. Do **not** convert the LB code back through `fromNumber()` just to display it as a NanoNum currency value:
+
+```lua
+-- Correct
+print(code)
+
+-- Wrong meaning: this treats the leaderboard key itself as a currency value
+print(NanoNum.format(NanoNum.fromNumber(code)))
+```
+
+Numbers, strings, and NanoNum buffers are accepted:
 
 ```lua
 NanoNum.lbencode(1000)
 NanoNum.lbencode("1e1000")
+NanoNum.lbencode(NanoNum.fromString("1.123e30"))
 ```
 
-Buffers use the direct path.
-
----
-
-## Safe LB Encode
+For protected input handling:
 
 ```lua
 local ok, code = NanoNum.tryLBEncode(value)
 
 if ok then
-    print(code)
+    local restored = NanoNum.lbdecode(code)
 end
 ```
 
 ---
 
-## LB Decode
+## Huge-Value Round Trip
+
+LB V2 is designed to work with NanoNum's huge logarithmic and layered records as well as ordinary decimals.
 
 ```lua
-local restored = NanoNum.lbdecode(code)
-print(NanoNum.format(restored))
+local exponent = NanoNum.fromString("1.5e308")
+local original = NanoNum.pow10(exponent)
+
+local ok, code = NanoNum.tryLBEncode(original)
+
+if ok then
+    local restored = NanoNum.lbdecode(code)
+
+    print("Before:", NanoNum.format(original))
+    print("LB Code:", code)
+    print("Decode:", NanoNum.format(restored))
+    print("Stable:", NanoNum.lbRoundTripStable(original))
+end
 ```
 
-A mismatched explicit codec version decodes as NaN instead of silently interpreting the code under another mapping.
+`lbRoundTripStable()` verifies that an accepted value encodes, decodes, and re-encodes to the same LB V2 key.
 
 ---
 
 ## LB Pack / Unpack
 
-Persist the codec version with the code:
+Persist the codec version alongside the key:
 
 ```lua
 local packed = NanoNum.lbpack(value)
 
 print(packed.v)
+-- 2
+
 print(packed.c)
 ```
 
-Decode:
+Decode later:
 
 ```lua
 local restored = NanoNum.lbunpack(packed)
 ```
 
-This is the recommended leaderboard persistence pattern.
+This is the recommended persistence pattern because the version travels with the leaderboard key.
+
+---
+
+## LB V1 Backward Compatibility
+
+LB V2 does not silently reinterpret an old V1 key. NanoNum keeps the V1 decoder so old persisted leaderboard data can still be read.
+
+```lua
+local oldValue = NanoNum.lbdecode(oldCode, 1)
+
+-- Explicit compatibility APIs
+local oldCode2 = NanoNum.lbencodeV1(value)
+local oldValue2 = NanoNum.lbdecodeV1(oldCode2)
+```
+
+Current/default APIs use V2:
+
+```lua
+NanoNum.lbencode(value)
+NanoNum.lbdecode(code)
+NanoNum.lbencodeV2(value)
+NanoNum.lbdecodeV2(code)
+```
+
+A mismatched unknown explicit version decodes as NaN instead of silently interpreting the code under the wrong mapping.
 
 ---
 
@@ -1062,22 +1169,23 @@ NanoNum.lbRoundTripStable(value)
 NanoNum.lbCompare(a, b)
 ```
 
-Compatibility aliases:
+Compatibility aliases include:
 
 ```lua
 NanoNum.LBEncode
 NanoNum.LBDecode
 NanoNum.LBEncodeV1
 NanoNum.LBDecodeV1
+NanoNum.LBEncodeV2
+NanoNum.LBDecodeV2
 NanoNum.LBCompare
 NanoNum.LBRoundTripStable
 ```
 
 ---
-
 # Math V7
 
-NanoNum V0.3.2 is no longer only a formatter/serializer. It contains a large mixed-type math layer.
+NanoNum V0.3.3 is no longer only a formatter/serializer. It contains a large mixed-type math layer.
 
 Main binary operations accept combinations of:
 
@@ -1865,7 +1973,7 @@ NanoNum.callPerfInfo()
 
 ```lua
 print(NanoNum.VERSION)
--- 0.3.2
+-- 0.3.3
 
 print(NanoNum.PARSER_VERSION)
 -- 9
@@ -1883,7 +1991,7 @@ print(NanoNum.NOTATION_VERSION)
 -- 2
 
 print(NanoNum.LB_VERSION)
--- 1
+-- 2
 
 print(NanoNum.MATH_VERSION)
 -- 7
@@ -1949,6 +2057,13 @@ NanoNum.LB_MAX
 NanoNum.LB_FINITE_MAX
 NanoNum.LB_ONE
 NanoNum.LB_POSITIVE_SPAN
+
+NanoNum.LB_V2_REVERSIBLE
+NanoNum.LB_V2_FINITE_CAP
+NanoNum.LB_V2_SCALAR_CAP
+NanoNum.LB_V2_USED_SPAN
+
+-- Legacy LB V1 layout constants remain available for compatibility
 NanoNum.LB_ORDINARY_EXACT_MAX
 NanoNum.LB_ORDINARY_SUBSLOTS
 NanoNum.LB_ORDINARY_LOG_SHARE
@@ -2251,12 +2366,13 @@ A faster result is useful only if the value, parser, formatting, and math regres
 
 If your README still describes V0.1.0, the main documentation changes for the current module are:
 
-- release metadata is now **V0.3.2**
+- release metadata is now **V0.3.3**
 - Parser **V3 -> V9**
 - Suffix **V3 -> V5**
 - Perf **V5 -> V7**
 - Path **V1 -> V4**
 - Notation **V2** is now exposed
+- conceptual maximum is documented as **10 ↑↑ (10 ↑ (2^1024))**
 - Standard suffix capacity is now **999 suffix indices**
 - `extended` currently shares Standard's suffix table/cutoff
 - Hybrid is the mode that continues into generated alphabetic suffixes after the Standard table
@@ -2268,7 +2384,7 @@ If your README still describes V0.1.0, the main documentation changes for the cu
 - `compile`, `bindBinary`, and `bindRight` are available for hot paths
 - simulator economy helpers are built in
 - decimal tetration, slog, gamma, and beta functions are included
-- LB remains **V1**, so leaderboard persistence semantics stay explicitly versioned
+- leaderboard default is now **LB V2**; LB V1 decode remains available for old persisted keys
 
 ---
 
