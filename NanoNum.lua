@@ -10,15 +10,13 @@ export type BindOperation = MathBinaryOperation | "compare"
 export type DirectValueType = "number" | "buffer" | "string" | "N" | "B" | "S"
 export type MathValueArray = {MathValue}
 
-export type SuffixType =
-	"standard" | "extended" | "hybrid" | "alphabetic" | "metric"
+export type SuffixType = "standard" | "extended" | "hybrid" | "alphabetic" | "metric"
 | "exponent" | "scientific" | "engineering" | "roman" | "romanextended"
 export type SuffixName = SuffixType
 | "short" | "ext" | "compact" | "mixed" | "alpha" | "letters"
 | "si" | "exp" | "enotation" | "sci" | "eng"
 | "romanx" | "roman_ext"
-export type TimeStyle =
-	"compact" | "long" | "clock" | "seconds"
+export type TimeStyle = "compact" | "long" | "clock" | "seconds"
 | "raw" | "timer" | "words"
 
 export type DecodedInteger = {
@@ -51,8 +49,7 @@ export type DecodedLayer = {
 export type DecodedInfinity = {Kind: "Infinity", Negative: boolean}
 export type DecodedNaN = {Kind: "NaN", Negative: boolean}
 export type DecodedReserved = {Kind: "Reserved", Negative: boolean}
-export type DecodedValue =
-	DecodedInteger | DecodedNormal | DecodedLog | DecodedLayer
+export type DecodedValue = DecodedInteger | DecodedNormal | DecodedLog | DecodedLayer
 | DecodedInfinity | DecodedNaN | DecodedReserved
 
 export type InspectInfo = {
@@ -472,8 +469,7 @@ export type NanoNumMetadata = {
 	MATH_SAFETY_VERSION: number,
 }
 
-export type NanoNumModule =
-	NanoNumCore
+export type NanoNumModule = NanoNumCore
 & NanoNumFormatting
 & NanoNumPacking
 & NanoNumLeaderboard
@@ -862,8 +858,7 @@ function NanoFormat.getSuffix(index: number, suffixType: string?): string?
 			return STANDARD_SUFFIXES[i]
 		end
 		return alphabeticSuffix(i - 101)
-	elseif kind == "exponent" or kind == "scientific" or kind == "engineering"
-		or kind == "roman" or kind == "romanextended" then
+	elseif kind == "exponent" or kind == "scientific" or kind == "engineering" or kind == "roman" or kind == "romanextended" then
 		return nil
 	end
 	-- PATH 1: aliases / mixed-case suffix type.
@@ -898,8 +893,7 @@ function NanoFormat.suffixIndex(suffix: string, suffixType: string?): number?
 		end
 		local alpha = alphabeticSuffixIndex(lower(suffix))
 		return alpha and (alpha + 101) or nil
-	elseif kind == "exponent" or kind == "scientific" or kind == "engineering"
-		or kind == "roman" or kind == "romanextended" then
+	elseif kind == "exponent" or kind == "scientific" or kind == "engineering" or kind == "roman" or kind == "romanextended" then
 		return nil
 	end
 
@@ -938,9 +932,7 @@ local function bitsRequired(value: number): number
 end
 
 local function isSafeInteger(value: number): boolean
-	return value >= 0
-		and value <= 9007199254740991
-		and value == floor(value)
+	return value >= 0 and value <= 9007199254740991 and value == floor(value)
 end
 
 local function ceilBytes(bits: number): number
@@ -1111,10 +1103,7 @@ local function makeNormal(value: number): buffer
 	local data = bufferCreate(4)
 
 	-- 4-bit prefix + sign + 10-bit exponent + 16-bit mantissa = 31 bits.
-	local packed = 7
-		+ (negative and 16 or 0)
-		+ expCode * 32
-		+ mantCode * 32768
+	local packed = 7 + (negative and 16 or 0) + expCode * 32 + mantCode * 32768
 	bufferWriteBits(data, 0, NORMAL_BITS, packed)
 
 	BIT_LENGTH_CACHE[data] = NORMAL_BITS
@@ -1128,12 +1117,7 @@ local function makeLog(exponent: number, negative: boolean): buffer
 	local data = bufferCreate(ceilBytes(bits))
 
 	-- Prefix + number sign + reciprocal direction occupy seven bits.
-	bufferWriteBits(
-		data,
-		0,
-		7,
-		15 + (negative and 32 or 0) + (reciprocal and 64 or 0)
-	)
+	bufferWriteBits(data, 0, 7, 15 + (negative and 32 or 0) + (reciprocal and 64 or 0))
 	writeScalarAtFast(data, 7, magnitude)
 
 	if band(bits, 7) ~= 0 then
@@ -1306,10 +1290,7 @@ function NanoFormat.fromNumber(value: number): buffer
 	local expCode = exponentNormal + NORMAL_EXP_BIAS
 	local mantCode = quantizeMantissa(mantissa, NORMAL_MANT_MAX)
 	local data = bufferCreate(4)
-	local packed = 7
-		+ (negative and 16 or 0)
-		+ expCode * 32
-		+ mantCode * 32768
+	local packed = 7 + (negative and 16 or 0) + expCode * 32 + mantCode * 32768
 	bufferWriteBits(data, 0, NORMAL_BITS, packed)
 	BIT_LENGTH_CACHE[data] = NORMAL_BITS
 	return data
@@ -1333,12 +1314,7 @@ function NanoFormat.fromLog10(exponent: number, negative: boolean?): buffer
 	local magnitude = abs(exponent)
 	local bits = logRecordBits(magnitude)
 	local data = bufferCreate(ceilBytes(bits))
-	bufferWriteBits(
-		data,
-		0,
-		7,
-		15 + (negative == true and 32 or 0) + (reciprocal and 64 or 0)
-	)
+	bufferWriteBits(data, 0, 7, 15 + (negative == true and 32 or 0) + (reciprocal and 64 or 0))
 	writeScalarAtFast(data, 7, magnitude)
 	if band(bits, 7) ~= 0 then
 		BIT_LENGTH_CACHE[data] = bits
@@ -1371,8 +1347,7 @@ function NanoFormat.fromLayer(layer: number, top: number, negative: boolean?, re
 	end
 
 	-- PATH 1: values that need full canonicalization.
-	local normalizedLayer, normalizedTop =
-		normalizeLayerInput(layer, top, false)
+	local normalizedLayer, normalizedTop = normalizeLayerInput(layer, top, false)
 
 	if normalizedLayer <= 0 then
 		local v = normalizedTop
@@ -1407,18 +1382,11 @@ function NanoFormat.fromLayerLog10(layerLog10: number, top: number, negative: bo
 	-- PATH 0: genuinely logarithmic heights never need conversion back to a
 	-- direct layer count.
 	if layerLog10 > DIRECT_LAYER_LOG10_MAX then
-		return makeLayer(
-			clamp(layerLog10, 0, NanoFormat.MAX_LAYER_LOG10),
-			top,
-			negative == true,
-			reciprocal == true,
-			true
-		)
+		return makeLayer(clamp(layerLog10, 0, NanoFormat.MAX_LAYER_LOG10), top, negative == true, reciprocal == true, true)
 	end
 
 	-- PATH 1: small log-heights canonicalize to the direct-layer representation.
-	local normalizedLayer, normalizedTop, layerIsLog =
-		normalizeLayerInput(clamp(layerLog10, 0, NanoFormat.MAX_LAYER_LOG10), top, true)
+	local normalizedLayer, normalizedTop, layerIsLog = normalizeLayerInput(clamp(layerLog10, 0, NanoFormat.MAX_LAYER_LOG10), top, true)
 
 	if not layerIsLog then
 		return NanoFormat.fromLayer(normalizedLayer, normalizedTop, negative, reciprocal)
@@ -1466,12 +1434,7 @@ end
 -- Decimal scanner used by the slow/symbolic path. It performs no substring
 -- allocations and returns the decimal logarithm even when the value itself is
 -- outside IEEE-754 range.
-local function parseDecimalRange(
-	value: string,
-	first: number,
-	last: number,
-	reconstructDirect: boolean?
-): (boolean, boolean, boolean, number?, number?)
+local function parseDecimalRange(value: string, first: number, last: number, reconstructDirect: boolean?): (boolean, boolean, boolean, number?, number?)
 	if first > last then
 		return false, false, false, nil, nil
 	end
@@ -1535,10 +1498,7 @@ local function parseDecimalRange(
 
 	-- Reconstruct only while the result is representable. Keeping the logarithm
 	-- separately prevents huge values becoming inf and tiny values becoming 0.
-	if reconstructDirect ~= false
-		and logAbs <= 308.25471555991675
-		and logAbs >= -323.3062153431158
-	then
+	if reconstructDirect ~= false and logAbs <= 308.25471555991675 and logAbs >= -323.3062153431158 then
 		local candidate = 10 ^ logAbs
 		if candidate ~= 0 and candidate ~= huge then
 			directAbs = candidate
@@ -1551,11 +1511,7 @@ end
 -- Exponents in scientific notation are integers. Small/normal exponents are
 -- accumulated directly; enormous exponent strings return log10(abs(exp)) so
 -- the caller can promote the value to a higher NanoFormat layer.
-local function parseScientificExponentRange(
-	value: string,
-	first: number,
-	last: number
-): (number?, number?, number?)
+local function parseScientificExponentRange(value: string, first: number, last: number): (number?, number?, number?)
 	if first > last then
 		return nil, nil, nil
 	end
@@ -1630,11 +1586,7 @@ end
 
 -- Parses a finite numeric token used by NanoFormat's own layered text output.
 -- Scientific notation is supported because formatLargeScalar() emits it.
-local function parseFiniteNumericRange(
-	value: string,
-	first: number,
-	last: number
-): (boolean, number?, number?)
+local function parseFiniteNumericRange(value: string, first: number, last: number): (boolean, number?, number?)
 	if first > last then
 		return false, nil, nil
 	end
@@ -1695,8 +1647,7 @@ local function parseFiniteNumericRange(
 			valid = false
 		end
 	else
-		local parsedValid, parsedNegative, parsedZero, _, parsedLog =
-			parseDecimalRange(value, first, mantissaLast, false)
+		local parsedValid, parsedNegative, parsedZero, _, parsedLog = parseDecimalRange(value, first, mantissaLast, false)
 		valid = parsedValid
 		mantissaNegative = parsedNegative
 		zero = parsedZero
@@ -1802,12 +1753,7 @@ local function shortSuffixKeyRange(value: string, first: number, last: number): 
 	return key
 end
 
-local function suffixIndexRange(
-	value: string,
-	first: number,
-	last: number,
-	suffixType: string
-): number?
+local function suffixIndexRange(value: string, first: number, last: number, suffixType: string): number?
 	if suffixType == "alphabetic" then
 		return alphabeticSuffixIndexRange(value, first, last)
 	end
@@ -2026,11 +1972,7 @@ local function fromSignedLogSmart(logMagnitude: number, negative: boolean): buff
 	return NanoFormat.fromLog10(logMagnitude, negative)
 end
 
-local function scientificExponentNeedsSymbolic(
-	value: string,
-	ePos: number,
-	last: number
-): boolean
+local function scientificExponentNeedsSymbolic(value: string, ePos: number, last: number): boolean
 	local p = ePos + 1
 	if p > last then
 		return false
@@ -2185,11 +2127,7 @@ function NanoFormat.fromString(value: string, suffixType: SuffixName?): buffer
 		local tokenStart = first + 1
 
 		if byte(value, tokenStart) == 40 then
-			if tokenStart + 3 <= last
-				and byte(value, tokenStart + 1) == 49
-				and byte(value, tokenStart + 2) == 48
-				and byte(value, tokenStart + 3) == 94
-			then
+			if tokenStart + 3 <= last and byte(value, tokenStart + 1) == 49 and byte(value, tokenStart + 2) == 48 and byte(value, tokenStart + 3) == 94 then
 				local layerStart = tokenStart + 4
 				local close = 0
 				for i = layerStart, last do
@@ -2211,14 +2149,10 @@ function NanoFormat.fromString(value: string, suffixType: SuffixName?): buffer
 					end
 
 					if topStart <= last then
-						local layerLog =
-							parseCompactLayerScalarRange(value, layerStart, close - 1)
-						local top =
-							parseCompactLayerScalarRange(value, topStart, last)
+						local layerLog = parseCompactLayerScalarRange(value, layerStart, close - 1)
+						local top = parseCompactLayerScalarRange(value, topStart, last)
 						if layerLog ~= nil and top ~= nil then
-							return NanoFormat.fromLayerLog10(
-								layerLog, top, negative, reciprocal
-							)
+							return NanoFormat.fromLayerLog10(layerLog, top, negative, reciprocal)
 						end
 					end
 				end
@@ -2245,14 +2179,10 @@ function NanoFormat.fromString(value: string, suffixType: SuffixName?): buffer
 				end
 
 				if topStart <= last then
-					local layer =
-						parseCompactLayerScalarRange(value, tokenStart, split - 1)
-					local top =
-						parseCompactLayerScalarRange(value, topStart, last)
+					local layer = parseCompactLayerScalarRange(value, tokenStart, split - 1)
+					local top = parseCompactLayerScalarRange(value, topStart, last)
 					if layer ~= nil and top ~= nil then
-						return NanoFormat.fromLayer(
-							layer, top, negative, reciprocal
-						)
+						return NanoFormat.fromLayer(layer, top, negative, reciprocal)
 					end
 				end
 			end
@@ -2281,8 +2211,7 @@ function NanoFormat.fromString(value: string, suffixType: SuffixName?): buffer
 			local zero = false
 
 			if displayEPos > first then
-				local valid, innerNegative, innerZero, _, innerLog =
-					parseDecimalRange(value, first, displayEPos - 1, false)
+				local valid, innerNegative, innerZero, _, innerLog = parseDecimalRange(value, first, displayEPos - 1, false)
 				if not valid or innerLog == nil then
 					return makeSpecial(SPECIAL_NAN)
 				end
@@ -2309,8 +2238,7 @@ function NanoFormat.fromString(value: string, suffixType: SuffixName?): buffer
 	if asciiLowerByte(byte(value, first)) == 101 and first < last then
 		local nextByte = byte(value, first + 1)
 		if (nextByte >= 48 and nextByte <= 57) or nextByte == 43 or nextByte == 45 then
-			local directExponent, exponentSign, exponentLog10 =
-				parseScientificExponentRange(value, first + 1, last)
+			local directExponent, exponentSign, exponentLog10 = parseScientificExponentRange(value, first + 1, last)
 			if directExponent ~= nil then
 				local totalLog = reciprocal and -directExponent or directExponent
 				return fromSignedLogSmart(totalLog, negative)
@@ -2339,11 +2267,7 @@ function NanoFormat.fromString(value: string, suffixType: SuffixName?): buffer
 				while tokenStart <= last and isWhitespaceByte(byte(value, tokenStart)) do
 					tokenStart += 1
 				end
-				if tokenStart + 2 <= last
-					and byte(value, tokenStart) == 49
-					and byte(value, tokenStart + 1) == 48
-					and byte(value, tokenStart + 2) == 94
-				then
+				if tokenStart + 2 <= last and byte(value, tokenStart) == 49 and byte(value, tokenStart + 1) == 48 and byte(value, tokenStart + 2) == 94 then
 					local layerStart = tokenStart + 3
 					local close = 0
 					for i = layerStart, last do
@@ -2431,8 +2355,7 @@ function NanoFormat.fromString(value: string, suffixType: SuffixName?): buffer
 			if suffixStart <= last and suffixStart > first then
 				local index = suffixIndexRange(value, suffixStart, last, suffixKind)
 				if index ~= nil then
-					local valid, mantissaNegative, zero, _, mantissaLog =
-						parseDecimalRange(value, first, suffixStart - 1, false)
+					local valid, mantissaNegative, zero, _, mantissaLog = parseDecimalRange(value, first, suffixStart - 1, false)
 					if valid and mantissaLog ~= nil then
 						local finalNegative = negative ~= mantissaNegative
 						if zero then
@@ -2493,8 +2416,7 @@ function NanoFormat.fromString(value: string, suffixType: SuffixName?): buffer
 				valid = false
 			end
 		else
-			local parsedValid, parsedNegative, parsedZero, _, parsedLog =
-				parseDecimalRange(value, first, ePos - 1, false)
+			local parsedValid, parsedNegative, parsedZero, _, parsedLog = parseDecimalRange(value, first, ePos - 1, false)
 			valid = parsedValid
 			mantissaNegative = parsedNegative
 			zero = parsedZero
@@ -2512,8 +2434,7 @@ function NanoFormat.fromString(value: string, suffixType: SuffixName?): buffer
 			return makeTiny(0)
 		end
 
-		local directExponent, exponentSign, exponentLog10 =
-			parseScientificExponentRange(value, ePos + 1, last)
+		local directExponent, exponentSign, exponentLog10 = parseScientificExponentRange(value, ePos + 1, last)
 
 		if directExponent ~= nil then
 			local totalLog = directExponent + mantissaLog
@@ -2536,8 +2457,7 @@ function NanoFormat.fromString(value: string, suffixType: SuffixName?): buffer
 
 	-- Plain decimal fallback. Unlike tonumber(), this preserves values beyond
 	-- normal floating-point range by converting them to a logarithmic record.
-	local valid, innerNegative, zero, directAbs, decimalLog =
-		parseDecimalRange(value, first, last)
+	local valid, innerNegative, zero, directAbs, decimalLog = parseDecimalRange(value, first, last)
 	if not valid or decimalLog == nil then
 		return makeSpecial(SPECIAL_NAN)
 	end
@@ -2971,9 +2891,7 @@ function NanoFormat.tryDecodeAt(data: buffer, bitOffset: number?): (boolean, Dec
 	local offset: any = if bitOffset == nil then 0 else bitOffset
 	-- V0.5.2: try* APIs must never throw just because a dynamically-typed caller
 	-- supplied a bad offset. Reject NaN/fractional/non-number offsets up front.
-	if typeof(offset) ~= "number" or offset ~= offset or offset ~= floor(offset)
-		or offset < 0 or offset >= bufferLen(data) * 8
-	then
+	if typeof(offset) ~= "number" or offset ~= offset or offset ~= floor(offset) or offset < 0 or offset >= bufferLen(data) * 8 then
 		return false, nil, nil
 	end
 	local ok, decoded, nextBit = fastPcall(decodeAt, data, offset)
@@ -3168,17 +3086,10 @@ NanoFormat.FORMAT_SCOPE_VERSION = 1
 			exponent += 1
 		end
 
-		return (rendered == "1" and "" or rendered)
-			.. "E"
-			.. compactExponentValueText(exponent, precision)
+		return (rendered == "1" and "" or rendered) .. "E" .. compactExponentValueText(exponent, precision)
 	end
 
-	local function suffixText(
-		mantissa: number,
-		exponent: number,
-		precision: number,
-		suffixType: string
-	): string?
+	local function suffixText(mantissa: number, exponent: number, precision: number, suffixType: string): string?
 		if exponent < 3 then
 			return nil
 		end
@@ -3249,12 +3160,7 @@ NanoFormat.FORMAT_SCOPE_VERSION = 1
 		return scientificText(mantissa, integerExponent, precision)
 	end
 
-	local function formatNormalParts(
-		mantissa: number,
-		exponent: number,
-		precision: number,
-		suffixType: string
-	): string
+	local function formatNormalParts(mantissa: number, exponent: number, precision: number, suffixType: string): string
 		if suffixType == "exponent" then
 			return exponentCompactText(mantissa, exponent, precision)
 		elseif (suffixType == "standard" or suffixType == "extended") and exponent >= NanoFormat.E_NOTATION_START then
@@ -3313,9 +3219,7 @@ NanoFormat.FORMAT_SCOPE_VERSION = 1
 		local magnitude = abs(value)
 
 		if magnitude < 1000 then
-			local body = if magnitude == floor(magnitude)
-				then toString(magnitude)
-				else shortNumber(magnitude, precision)
+			local body = if magnitude == floor(magnitude) then toString(magnitude) else shortNumber(magnitude, precision)
 			return negative and ("-" .. body) or body
 		end
 
@@ -3337,31 +3241,18 @@ NanoFormat.FORMAT_SCOPE_VERSION = 1
 			return negative and ("-" .. body) or body
 		end
 
-		local body = scientificText(
-			magnitude / (10 ^ exponent), exponent, precision
-		)
+		local body = scientificText(magnitude / (10 ^ exponent), exponent, precision)
 		return negative and ("-" .. body) or body
 	end
 
-	local function layerNotationText(
-		layer: number,
-		layerIsLog: boolean,
-		top: number,
-		precision: number
-	): string
+	local function layerNotationText(layer: number, layerIsLog: boolean, top: number, precision: number): string
 		local topText = compactLayerScalarText(top, precision)
 
 		if layerIsLog then
-			return "L(10^"
-				.. compactLayerScalarText(layer, precision)
-				.. ") "
-				.. topText
+			return "L(10^" .. compactLayerScalarText(layer, precision) .. ") " .. topText
 		end
 
-		return "L"
-			.. compactLayerScalarText(layer, precision)
-			.. " "
-			.. topText
+		return "L" .. compactLayerScalarText(layer, precision) .. " " .. topText
 	end
 
 
@@ -3458,9 +3349,7 @@ NanoFormat.FORMAT_SCOPE_VERSION = 1
 				return nil
 			end
 
-			local rendered = if extended
-				then extendedPositive(magnitude)
-				else classicalPositive(magnitude)
+			local rendered = if extended then extendedPositive(magnitude) else classicalPositive(magnitude)
 
 			return negative and ("-" .. rendered) or rendered
 		end
@@ -3580,10 +3469,7 @@ NanoFormat.FORMAT_SCOPE_VERSION = 1
 			local top = readScalarAtFast(value, nextBit)
 			local rendered
 
-			if suffixKind == "standard"
-				or suffixKind == "extended"
-				or suffixKind == "exponent"
-			then
+			if suffixKind == "standard" or suffixKind == "extended" or suffixKind == "exponent" then
 				rendered = layerNotationText(layer, layerIsLog, top, precision)
 			elseif layerIsLog then
 				rendered = "e^(10^" .. formatLargeScalar(layer, precision) .. ") " .. formatLargeScalar(top, precision)
@@ -3947,9 +3833,7 @@ NanoFormat.UTILITY_SCOPE_VERSION = 1
 			end
 			-- Rightmost seconds/minutes are base-60. Four fields use d:h:m:s,
 			-- so the hour field is additionally constrained to 0..23.
-			if numbers[#fields] >= 60 or (#fields >= 3 and numbers[#fields - 1] >= 60)
-				or (#fields == 4 and numbers[2] >= 24)
-			then
+			if numbers[#fields] >= 60 or (#fields >= 3 and numbers[#fields - 1] >= 60) or (#fields == 4 and numbers[2] >= 24) then
 				return makeSpecial(SPECIAL_NAN)
 			end
 			local total = 0
@@ -4014,9 +3898,7 @@ NanoFormat.UTILITY_SCOPE_VERSION = 1
 		local negative = n < 0
 		local magnitude = abs(n)
 		local base = binary and 1024 or 1000
-		local units = if binary
-			then {"B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB", "ZiB", "YiB"}
-			else {"B", "kB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"}
+		local units = if binary then {"B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB", "ZiB", "YiB"} else {"B", "kB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"}
 		local index = 1
 		while magnitude >= base and index < #units do
 			magnitude /= base
@@ -4221,16 +4103,12 @@ NanoFormat.PACK_SCOPE_VERSION = 1
 	function NanoFormat.tryUnpackMany(packed: buffer, count: number, totalBits: number?): (boolean, {buffer}?)
 		-- V0.5.2 runtime hardening: this remains non-throwing even when called
 		-- through an `any` value with malformed arguments.
-		if typeof(packed) ~= "buffer" or typeof(count) ~= "number"
-			or count ~= count or count < 0 or count ~= floor(count)
-		then
+		if typeof(packed) ~= "buffer" or typeof(count) ~= "number" or count ~= count or count < 0 or count ~= floor(count) then
 			return false, nil
 		end
 		local physicalBits = bufferLen(packed) * 8
 		local limit: any = if totalBits == nil then physicalBits else totalBits
-		if typeof(limit) ~= "number" or limit ~= limit or limit ~= floor(limit)
-			or limit < 0 or limit > physicalBits
-		then
+		if typeof(limit) ~= "number" or limit ~= limit or limit ~= floor(limit) or limit < 0 or limit > physicalBits then
 			return false, nil
 		end
 
@@ -4275,10 +4153,7 @@ NanoFormat.LB_SCOPE_VERSION = 1
 	local LB_MAX = 9007199254740991
 	local LB_FINITE_MAX = LB_MAX - 1
 	local LB_ONE = 4503599627370496
-	local LB_POSITIVE_SPAN = min(
-		LB_ONE - 1,
-		LB_FINITE_MAX - LB_ONE
-	)
+	local LB_POSITIVE_SPAN = min(LB_ONE - 1, LB_FINITE_MAX - LB_ONE)
 
 	NanoFormat.LB_VERSION = LB_VERSION
 	NanoFormat.LB_MAX = LB_MAX
@@ -4295,24 +4170,17 @@ NanoFormat.LB_SCOPE_VERSION = 1
 	NanoFormat.LB_HIGH_LAYER_SHARE = 0.25
 
 	local LB_ORDINARY_EXACT_LOG10 = log10(NanoFormat.LB_ORDINARY_EXACT_MAX)
-	local LB_ORDINARY_EXACT_SPAN =
-		floor((NanoFormat.LB_ORDINARY_EXACT_MAX - 1) * NanoFormat.LB_ORDINARY_SUBSLOTS)
+	local LB_ORDINARY_EXACT_SPAN = floor((NanoFormat.LB_ORDINARY_EXACT_MAX - 1) * NanoFormat.LB_ORDINARY_SUBSLOTS)
 
-	local LB_ORDINARY_LOG_SPAN =
-		max(1, floor(NanoFormat.LB_POSITIVE_SPAN * NanoFormat.LB_ORDINARY_LOG_SHARE))
-	local LB_HUGE_LOG_SPAN =
-		max(1, floor(NanoFormat.LB_POSITIVE_SPAN * NanoFormat.LB_HUGE_LOG_SHARE))
+	local LB_ORDINARY_LOG_SPAN = max(1, floor(NanoFormat.LB_POSITIVE_SPAN * NanoFormat.LB_ORDINARY_LOG_SHARE))
+	local LB_HUGE_LOG_SPAN = max(1, floor(NanoFormat.LB_POSITIVE_SPAN * NanoFormat.LB_HUGE_LOG_SHARE))
 
 	local LB_LOW_LAYER_COUNT = NanoFormat.LB_LOW_LAYER_MAX - 1
-	local LB_LOW_LAYER_SPAN =
-		LB_LOW_LAYER_COUNT * NanoFormat.LB_LAYER_TOP_BUCKETS
+	local LB_LOW_LAYER_SPAN = LB_LOW_LAYER_COUNT * NanoFormat.LB_LAYER_TOP_BUCKETS
 
-	local LB_HIGH_LAYER_RESERVED_SPAN =
-		max(1, floor(NanoFormat.LB_POSITIVE_SPAN * NanoFormat.LB_HIGH_LAYER_SHARE))
-	local LB_HIGH_LAYER_BUCKET_COUNT =
-		max(1, floor(LB_HIGH_LAYER_RESERVED_SPAN / NanoFormat.LB_LAYER_TOP_BUCKETS))
-	local LB_HIGH_LAYER_SPAN =
-		LB_HIGH_LAYER_BUCKET_COUNT * NanoFormat.LB_LAYER_TOP_BUCKETS
+	local LB_HIGH_LAYER_RESERVED_SPAN = max(1, floor(NanoFormat.LB_POSITIVE_SPAN * NanoFormat.LB_HIGH_LAYER_SHARE))
+	local LB_HIGH_LAYER_BUCKET_COUNT = max(1, floor(LB_HIGH_LAYER_RESERVED_SPAN / NanoFormat.LB_LAYER_TOP_BUCKETS))
+	local LB_HIGH_LAYER_SPAN = LB_HIGH_LAYER_BUCKET_COUNT * NanoFormat.LB_LAYER_TOP_BUCKETS
 
 	local LB_ORDINARY_EXACT_START = 1
 	local LB_ORDINARY_EXACT_END = LB_ORDINARY_EXACT_SPAN
@@ -4330,12 +4198,9 @@ NanoFormat.LB_SCOPE_VERSION = 1
 	local LB_HIGH_LAYER_END = LB_HIGH_LAYER_START + LB_HIGH_LAYER_SPAN - 1
 
 	local LB_LOG_LAYER_START = LB_HIGH_LAYER_END + 1
-	local LB_LOG_LAYER_SPAN =
-		max(1, NanoFormat.LB_POSITIVE_SPAN - LB_LOG_LAYER_START + 1)
-	local LB_LOG_LAYER_BUCKET_COUNT =
-		max(1, floor(LB_LOG_LAYER_SPAN / NanoFormat.LB_LAYER_TOP_BUCKETS))
-	local LB_LOG_LAYER_USED_SPAN =
-		LB_LOG_LAYER_BUCKET_COUNT * NanoFormat.LB_LAYER_TOP_BUCKETS
+	local LB_LOG_LAYER_SPAN = max(1, NanoFormat.LB_POSITIVE_SPAN - LB_LOG_LAYER_START + 1)
+	local LB_LOG_LAYER_BUCKET_COUNT = max(1, floor(LB_LOG_LAYER_SPAN / NanoFormat.LB_LAYER_TOP_BUCKETS))
+	local LB_LOG_LAYER_USED_SPAN = LB_LOG_LAYER_BUCKET_COUNT * NanoFormat.LB_LAYER_TOP_BUCKETS
 	local LB_LOG_LAYER_END = LB_LOG_LAYER_START + LB_LOG_LAYER_USED_SPAN - 1
 
 	local LB_ORDINARY_LOG_DENOM = 308 - LB_ORDINARY_EXACT_LOG10
@@ -4535,17 +4400,13 @@ NanoFormat.LB_SCOPE_VERSION = 1
 		if layer <= NanoFormat.LB_LOW_LAYER_MAX then
 			local layerIndex = max(0, floor(layer + 0.001) - 2)
 			local topBucket = lbDirectTopBucket(top)
-			return LB_LOW_LAYER_START
-				+ layerIndex * NanoFormat.LB_LAYER_TOP_BUCKETS
-				+ topBucket
+			return LB_LOW_LAYER_START + layerIndex * NanoFormat.LB_LAYER_TOP_BUCKETS + topBucket
 		end
 
 		local unit = (log10(min(layer, 1e308)) - LB_HIGH_LAYER_LOG_MIN) / LB_HIGH_LAYER_LOG_DENOM
 		local layerSlot = lbQuantizeUnit(unit, LB_HIGH_LAYER_BUCKET_COUNT)
 		local topBucket = lbDirectTopBucket(top)
-		return LB_HIGH_LAYER_START
-			+ layerSlot * NanoFormat.LB_LAYER_TOP_BUCKETS
-			+ topBucket
+		return LB_HIGH_LAYER_START + layerSlot * NanoFormat.LB_LAYER_TOP_BUCKETS + topBucket
 	end
 
 	local function lbEncodeLogLayer(layerLog10: number, top: number): number
@@ -4553,9 +4414,7 @@ NanoFormat.LB_SCOPE_VERSION = 1
 		local unit = log10(capped / LB_LOG_LAYER_MIN) / LB_LOG_LAYER_DENOM
 		local layerSlot = lbQuantizeUnit(unit, LB_LOG_LAYER_BUCKET_COUNT)
 		local topBucket = lbLogLayerTopBucket(top)
-		return LB_LOG_LAYER_START
-			+ layerSlot * NanoFormat.LB_LAYER_TOP_BUCKETS
-			+ topBucket
+		return LB_LOG_LAYER_START + layerSlot * NanoFormat.LB_LAYER_TOP_BUCKETS + topBucket
 	end
 
 	local function lbPositiveDeltaDescriptor(descriptor): (number?, boolean?, boolean?)
@@ -5143,9 +5002,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			return NanoFormat.fromNumber(0)
 		end
 
-		if logMagnitude <= MATH_DIRECT_LOG_MAX
-			and logMagnitude >= MATH_DIRECT_LOG_MIN
-		then
+		if logMagnitude <= MATH_DIRECT_LOG_MAX and logMagnitude >= MATH_DIRECT_LOG_MIN then
 			local magnitude = 10 ^ logMagnitude
 			if magnitude ~= 0 and magnitude ~= huge then
 				return NanoFormat.fromNumber(negative and -magnitude or magnitude)
@@ -5155,10 +5012,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		return NanoFormat.fromLog10(logMagnitude, negative)
 	end
 
-	local function mathScalarAdd(
-		a: number,
-		b: number
-	): (number?, number?, boolean?)
+	local function mathScalarAdd(a: number, b: number): (number?, number?, boolean?)
 		local direct = a + b
 		if direct ~= huge and direct ~= -huge then
 			return direct, nil, nil
@@ -5173,22 +5027,12 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		return nil, top, negative
 	end
 
-	local function mathResultFromLogScalar(
-		direct: number?,
-		top: number?,
-		scalarNegative: boolean?,
-		numberNegative: boolean
-	): buffer
+	local function mathResultFromLogScalar(direct: number?, top: number?, scalarNegative: boolean?, numberNegative: boolean): buffer
 		if direct ~= nil then
 			return mathFromSignedLog(direct, numberNegative)
 		end
 
-		return NanoFormat.fromLayer(
-			2,
-			top or 0,
-			numberNegative,
-			scalarNegative == true
-		)
+		return NanoFormat.fromLayer(2, top or 0, numberNegative, scalarNegative == true)
 	end
 
 	local function mathLayerTowerCompare(a, b): number
@@ -5246,20 +5090,10 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		local r = if reciprocal == nil then data.Reciprocal == true else reciprocal
 
 		if data.LayerIsLog then
-			return NanoFormat.fromLayerLog10(
-				data.LayerLog10,
-				data.Top,
-				negative,
-				r
-			)
+			return NanoFormat.fromLayerLog10(data.LayerLog10, data.Top, negative, r)
 		end
 
-		return NanoFormat.fromLayer(
-			data.Layer,
-			data.Top,
-			negative,
-			r
-		)
+		return NanoFormat.fromLayer(data.Layer, data.Top, negative, r)
 	end
 
 	local function mathWithSignData(data, negative: boolean): buffer
@@ -5270,10 +5104,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		elseif data.Kind == "Integer" then
 			return NanoFormat.fromNumber(negative and -abs(data.Value) or abs(data.Value))
 		elseif data.Kind == "Normal" then
-			return mathFromSignedLog(
-				data.Exponent + log10(data.Mantissa),
-				negative
-			)
+			return mathFromSignedLog(data.Exponent + log10(data.Mantissa), negative)
 		elseif data.Kind == "Log" then
 			local exponent = data.Reciprocal and -data.Top or data.Top
 			return NanoFormat.fromLog10(exponent, negative)
@@ -5303,9 +5134,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 	end
 
 	local function mathCompareData(a, b): number
-		if a.Kind == "NaN" or a.Kind == "Reserved"
-			or b.Kind == "NaN" or b.Kind == "Reserved"
-		then
+		if a.Kind == "NaN" or a.Kind == "Reserved" or b.Kind == "NaN" or b.Kind == "Reserved" then
 			return MATH_NAN
 		end
 
@@ -5387,16 +5216,12 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		local ba, da = mathDecode(a)
 		local bb, db = mathDecode(b)
 
-		if da.Kind == "NaN" or da.Kind == "Reserved"
-			or db.Kind == "NaN" or db.Kind == "Reserved"
-		then
+		if da.Kind == "NaN" or da.Kind == "Reserved" or db.Kind == "NaN" or db.Kind == "Reserved" then
 			return makeSpecial(SPECIAL_NAN)
 		end
 
 		if da.Kind == "Infinity" or db.Kind == "Infinity" then
-			if da.Kind == "Infinity" and db.Kind == "Infinity"
-				and da.Negative ~= db.Negative
-			then
+			if da.Kind == "Infinity" and db.Kind == "Infinity" and da.Negative ~= db.Negative then
 				return makeSpecial(SPECIAL_NAN)
 			end
 			if da.Kind == "Infinity" then return ba end
@@ -5480,30 +5305,17 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		return NanoFormat.add(a, NanoFormat.neg(b))
 	end
 
-	local function mathMulLayerAndLog(
-		layerData,
-		otherLog: number,
-		negative: boolean
-	): buffer
+	local function mathMulLayerAndLog(layerData, otherLog: number, negative: boolean): buffer
 
-		if not layerData.LayerIsLog
-			and layerData.Layer == 2
-			and layerData.Top <= MATH_DIRECT_LOG_MAX
-		then
+		if not layerData.LayerIsLog and layerData.Layer == 2 and layerData.Top <= MATH_DIRECT_LOG_MAX then
 			local towerExponent = 10 ^ layerData.Top
 			if layerData.Reciprocal then
 				towerExponent = -towerExponent
 			end
 
-			local direct, top, scalarNegative =
-				mathScalarAdd(towerExponent, otherLog)
+			local direct, top, scalarNegative = mathScalarAdd(towerExponent, otherLog)
 
-			return mathResultFromLogScalar(
-				direct,
-				top,
-				scalarNegative,
-				negative
-			)
+			return mathResultFromLogScalar(direct, top, scalarNegative, negative)
 		end
 
 		return mathBuildLayer(layerData, negative)
@@ -5513,9 +5325,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		local _, da = mathDecode(a)
 		local _, db = mathDecode(b)
 
-		if da.Kind == "NaN" or da.Kind == "Reserved"
-			or db.Kind == "NaN" or db.Kind == "Reserved"
-		then
+		if da.Kind == "NaN" or da.Kind == "Reserved" or db.Kind == "NaN" or db.Kind == "Reserved" then
 			return makeSpecial(SPECIAL_NAN)
 		end
 
@@ -5547,28 +5357,16 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			end
 
 			local direct, top, scalarNegative = mathScalarAdd(la, lb)
-			return mathResultFromLogScalar(
-				direct, top, scalarNegative, negative
-			)
+			return mathResultFromLogScalar(direct, top, scalarNegative, negative)
 		end
 
 		if aLayer and not bLayer then
-			return mathMulLayerAndLog(
-				da,
-				mathAbsLogData(db) or 0,
-				negative
-			)
+			return mathMulLayerAndLog(da, mathAbsLogData(db) or 0, negative)
 		elseif bLayer and not aLayer then
-			return mathMulLayerAndLog(
-				db,
-				mathAbsLogData(da) or 0,
-				negative
-			)
+			return mathMulLayerAndLog(db, mathAbsLogData(da) or 0, negative)
 		end
 
-		if not da.LayerIsLog and not db.LayerIsLog
-			and da.Layer == 2 and db.Layer == 2
-		then
+		if not da.LayerIsLog and not db.LayerIsLog and da.Layer == 2 and db.Layer == 2 then
 			local ta = da.Top
 			local tb = db.Top
 			local sa = da.Reciprocal and -1 or 1
@@ -5640,33 +5438,18 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		elseif data.Kind == "Integer" or data.Kind == "Normal" then
 			return NanoFormat.fromNumber(mathAbsLogData(data) or -huge)
 		elseif data.Kind == "Log" then
-			return NanoFormat.fromNumber(
-				data.Reciprocal and -data.Top or data.Top
-			)
+			return NanoFormat.fromNumber(data.Reciprocal and -data.Top or data.Top)
 		elseif data.Kind == "Layer" then
 			if data.LayerIsLog then
 
-				return NanoFormat.fromLayerLog10(
-					data.LayerLog10,
-					data.Top,
-					data.Reciprocal,
-					false
-				)
+				return NanoFormat.fromLayerLog10(data.LayerLog10, data.Top, data.Reciprocal, false)
 			end
 
 			if data.Layer == 2 then
-				return NanoFormat.fromLog10(
-					data.Top,
-					data.Reciprocal
-				)
+				return NanoFormat.fromLog10(data.Top, data.Reciprocal)
 			end
 
-			return NanoFormat.fromLayer(
-				data.Layer - 1,
-				data.Top,
-				data.Reciprocal,
-				false
-			)
+			return NanoFormat.fromLayer(data.Layer - 1, data.Top, data.Reciprocal, false)
 		end
 
 		return makeSpecial(SPECIAL_NAN)
@@ -5685,17 +5468,11 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			return NanoFormat.ln(value)
 		end
 
-		if NanoFormat.isNaN(base)
-			or NanoFormat.lte(base, 0)
-			or NanoFormat.eq(base, 1)
-		then
+		if NanoFormat.isNaN(base) or NanoFormat.lte(base, 0) or NanoFormat.eq(base, 1) then
 			return makeSpecial(SPECIAL_NAN)
 		end
 
-		return NanoFormat.div(
-			NanoFormat.log10(value),
-			NanoFormat.log10(base)
-		)
+		return NanoFormat.div(NanoFormat.log10(value), NanoFormat.log10(base))
 	end
 
 	local function mathSlowPow10(value: any): buffer
@@ -5704,9 +5481,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		if data.Kind == "NaN" or data.Kind == "Reserved" then
 			return makeSpecial(SPECIAL_NAN)
 		elseif data.Kind == "Infinity" then
-			return data.Negative
-				and NanoFormat.fromNumber(0)
-				or makeSpecial(SPECIAL_POS_INF)
+			return data.Negative and NanoFormat.fromNumber(0) or makeSpecial(SPECIAL_POS_INF)
 		end
 
 		local direct = mathFiniteNumberData(data)
@@ -5723,12 +5498,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 				return NanoFormat.fromNumber(1)
 			end
 
-			return NanoFormat.fromLayer(
-				2,
-				data.Top,
-				false,
-				data.Negative
-			)
+			return NanoFormat.fromLayer(2, data.Top, false, data.Negative)
 		elseif data.Kind == "Layer" then
 
 			if data.Reciprocal then
@@ -5736,12 +5506,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			end
 
 			if data.LayerIsLog then
-				return NanoFormat.fromLayerLog10(
-					data.LayerLog10,
-					data.Top,
-					false,
-					data.Negative
-				)
+				return NanoFormat.fromLayerLog10(data.LayerLog10, data.Top, false, data.Negative)
 			end
 
 			local nextLayer = data.Layer + 1
@@ -5749,12 +5514,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 				nextLayer = NanoFormat.MAX_LAYER
 			end
 
-			return NanoFormat.fromLayer(
-				nextLayer,
-				data.Top,
-				false,
-				data.Negative
-			)
+			return NanoFormat.fromLayer(nextLayer, data.Top, false, data.Negative)
 		end
 
 		return makeSpecial(SPECIAL_NAN)
@@ -5771,12 +5531,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 
 	local function mathExactSafeInteger(value: any): number?
 		if typeof(value) == "number" then
-			if value == value
-				and value ~= huge
-				and value ~= -huge
-				and value == floor(value)
-				and abs(value) <= MATH_SAFE_INTEGER
-			then
+			if value == value and value ~= huge and value ~= -huge and value == floor(value) and abs(value) <= MATH_SAFE_INTEGER then
 				return value
 			end
 			return nil
@@ -5792,12 +5547,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			return nil
 		end
 
-		if data.Kind == "Log"
-			and not data.Reciprocal
-			and data.Top >= 0
-			and data.Top == floor(data.Top)
-			and data.Top <= 15
-		then
+		if data.Kind == "Log" and not data.Reciprocal and data.Top >= 0 and data.Top == floor(data.Top) and data.Top <= 15 then
 			local n = 10 ^ data.Top
 			if n <= MATH_SAFE_INTEGER then
 				return data.Negative and -n or n
@@ -5808,28 +5558,17 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 	end
 
 	function NanoFormat.root(value: MathValue, degree: MathValue): buffer
-		if NanoFormat.isNaN(value)
-			or NanoFormat.isNaN(degree)
-			or NanoFormat.eq(degree, 0)
-		then
+		if NanoFormat.isNaN(value) or NanoFormat.isNaN(degree) or NanoFormat.eq(degree, 0) then
 			return makeSpecial(SPECIAL_NAN)
 		end
 
 		if NanoFormat.lt(value, 0) then
 			local integerDegree = mathExactSafeInteger(degree)
-			if integerDegree == nil
-				or integerDegree == 0
-				or abs(integerDegree) % 2 == 0
-			then
+			if integerDegree == nil or integerDegree == 0 or abs(integerDegree) % 2 == 0 then
 				return makeSpecial(SPECIAL_NAN)
 			end
 
-			return NanoFormat.neg(
-				NanoFormat.pow(
-					NanoFormat.abs(value),
-					NanoFormat.div(1, degree)
-				)
-			)
+			return NanoFormat.neg(NanoFormat.pow(NanoFormat.abs(value), NanoFormat.div(1, degree)))
 		end
 
 		return NanoFormat.pow(value, NanoFormat.div(1, degree))
@@ -5859,9 +5598,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 
 	local function mathSlowIsFinite(value: any): boolean
 		local _, data = mathDecode(value)
-		return data.Kind ~= "Infinity"
-			and data.Kind ~= "NaN"
-			and data.Kind ~= "Reserved"
+		return data.Kind ~= "Infinity" and data.Kind ~= "NaN" and data.Kind ~= "Reserved"
 	end
 
 	local function mathSlowIsZero(value: any): boolean
@@ -5885,9 +5622,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		local _, data = mathDecode(value)
 		local _, source = mathDecode(signSource)
 
-		if data.Kind == "NaN" or data.Kind == "Reserved"
-			or source.Kind == "NaN" or source.Kind == "Reserved"
-		then
+		if data.Kind == "NaN" or data.Kind == "Reserved" or source.Kind == "NaN" or source.Kind == "Reserved" then
 			return makeSpecial(SPECIAL_NAN)
 		end
 
@@ -5930,10 +5665,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			local direct = NanoFormat.toNumber(value)
 
 			if direct == direct and direct ~= huge and direct ~= -huge then
-				local rounded =
-					if direct >= 0
-					then floor(direct + 0.001)
-					else math.ceil(direct - 0.5)
+				local rounded = if direct >= 0 then floor(direct + 0.001) else math.ceil(direct - 0.5)
 
 				return NanoFormat.fromNumber(rounded)
 			end
@@ -5997,13 +5729,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 	end
 
 	function NanoFormat.lerp(a: MathValue, b: MathValue, t: MathValue): buffer
-		return NanoFormat.add(
-			a,
-			NanoFormat.mul(
-				NanoFormat.sub(b, a),
-				t
-			)
-		)
+		return NanoFormat.add(a, NanoFormat.mul(NanoFormat.sub(b, a), t))
 	end
 
 	function NanoFormat.inverseLerp(a: MathValue, b: MathValue, value: MathValue): buffer
@@ -6011,19 +5737,10 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			return makeSpecial(SPECIAL_NAN)
 		end
 
-		return NanoFormat.div(
-			NanoFormat.sub(value, a),
-			NanoFormat.sub(b, a)
-		)
+		return NanoFormat.div(NanoFormat.sub(value, a), NanoFormat.sub(b, a))
 	end
 
-	function NanoFormat.remap(
-		value: MathValue,
-		inMin: MathValue,
-		inMax: MathValue,
-		outMin: MathValue,
-		outMax: MathValue
-	): buffer
+	function NanoFormat.remap(value: MathValue, inMin: MathValue, inMax: MathValue, outMin: MathValue, outMax: MathValue): buffer
 		local t = NanoFormat.inverseLerp(inMin, inMax, value)
 
 		if NanoFormat.isNaN(t) then
@@ -6079,15 +5796,9 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		end
 
 		local inv = 1 / n
-		local correction =
-			inv / 12
-		- (inv ^ 3) / 360
-			+ (inv ^ 5) / 1260
+		local correction = inv / 12 - (inv ^ 3) / 360 + (inv ^ 5) / 1260
 
-		return (n + 0.001) * log10(n)
-		- n * MATH_LOG10_E
-			+ 0.001 * log10(MATH_TWO_PI)
-			+ correction * MATH_LOG10_E
+		return (n + 0.001) * log10(n) - n * MATH_LOG10_E + 0.001 * log10(MATH_TWO_PI) + correction * MATH_LOG10_E
 	end
 
 	function NanoFormat.permutation(nValue: MathValue, rValue: MathValue): buffer
@@ -6125,10 +5836,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			return mathFromSignedLog(logResult, false)
 		end
 
-		return mathFromSignedLog(
-			mathFactorialLog10(n) - mathFactorialLog10(n - r),
-			false
-		)
+		return mathFromSignedLog(mathFactorialLog10(n) - mathFactorialLog10(n - r), false)
 	end
 
 	function NanoFormat.combination(nValue: MathValue, rValue: MathValue): buffer
@@ -6157,9 +5865,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 					local candidate = exact * numerator / i
 					local rounded = floor(candidate + 0.001)
 
-					if candidate > MATH_SAFE_INTEGER
-						or abs(candidate - rounded) > 1e-7
-					then
+					if candidate > MATH_SAFE_INTEGER or abs(candidate - rounded) > 1e-7 then
 						exactSafe = false
 					else
 						exact = rounded
@@ -6173,12 +5879,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			return mathFromSignedLog(logResult, false)
 		end
 
-		return mathFromSignedLog(
-			mathFactorialLog10(n)
-			- mathFactorialLog10(r)
-			- mathFactorialLog10(n - r),
-			false
-		)
+		return mathFromSignedLog(mathFactorialLog10(n) - mathFactorialLog10(r) - mathFactorialLog10(n - r), false)
 	end
 
 	local function mathScalarSlog10(value: number): number
@@ -6225,11 +5926,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		end
 
 		local _, data = mathDecode(value)
-		if data.Kind == "Log"
-			and not data.Reciprocal
-			and data.Top >= 0
-			and data.Top == floor(data.Top)
-		then
+		if data.Kind == "Log" and not data.Reciprocal and data.Top >= 0 and data.Top == floor(data.Top) then
 			return data.Top == 0
 		end
 
@@ -6287,11 +5984,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 	function NanoFormat.expm1(value: MathValue): buffer
 		local direct = NanoFormat.toNumber(value)
 
-		if direct == direct
-			and direct ~= huge
-			and direct ~= -huge
-			and abs(direct) < 1e-5
-		then
+		if direct == direct and direct ~= huge and direct ~= -huge and abs(direct) < 1e-5 then
 			local x = direct
 			local x2 = x * x
 			local x3 = x2 * x
@@ -6299,9 +5992,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			local x5 = x4 * x
 			local x6 = x5 * x
 
-			return NanoFormat.fromNumber(
-				x + x2 / 2 + x3 / 6 + x4 / 24 + x5 / 120 + x6 / 720
-			)
+			return NanoFormat.fromNumber(x + x2 / 2 + x3 / 6 + x4 / 24 + x5 / 120 + x6 / 720)
 		end
 
 		return NanoFormat.sub(NanoFormat.exp(value), 1)
@@ -6332,10 +6023,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			return NanoFormat.fromNumber(1)
 		end
 
-		return NanoFormat.add(
-			NanoFormat.floor(NanoFormat.log10(magnitude)),
-			1
-		)
+		return NanoFormat.add(NanoFormat.floor(NanoFormat.log10(magnitude)), 1)
 	end
 
 	function NanoFormat.clamp01(value: MathValue): buffer
@@ -6344,10 +6032,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 
 	function NanoFormat.smoothstep(edge0: MathValue, edge1: MathValue, value: MathValue): buffer
 		local t = NanoFormat.clamp01(NanoFormat.inverseLerp(edge0, edge1, value))
-		return NanoFormat.mul(
-			NanoFormat.mul(t, t),
-			NanoFormat.sub(3, NanoFormat.mul(2, t))
-		)
+		return NanoFormat.mul(NanoFormat.mul(t, t), NanoFormat.sub(3, NanoFormat.mul(2, t)))
 	end
 
 	function NanoFormat.smootherstep(edge0: MathValue, edge1: MathValue, value: MathValue): buffer
@@ -6355,13 +6040,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		local t2 = NanoFormat.mul(t, t)
 		local t3 = NanoFormat.mul(t2, t)
 
-		return NanoFormat.mul(
-			t3,
-			NanoFormat.add(
-				NanoFormat.mul(t, NanoFormat.sub(NanoFormat.mul(6, t), 15)),
-				10
-			)
-		)
+		return NanoFormat.mul(t3, NanoFormat.add(NanoFormat.mul(t, NanoFormat.sub(NanoFormat.mul(6, t), 15)), 10))
 	end
 
 	function NanoFormat.moveTowards(current: MathValue, target: MathValue, maxDelta: MathValue): buffer
@@ -6374,10 +6053,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			return mathCopyBuffer(target)
 		end
 
-		return NanoFormat.add(
-			current,
-			NanoFormat.mul(maxDelta, NanoFormat.sign(delta))
-		)
+		return NanoFormat.add(current, NanoFormat.mul(maxDelta, NanoFormat.sign(delta)))
 	end
 
 	function NanoFormat.geometricMean(values: MathValueArray): buffer
@@ -6408,10 +6084,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			if NanoFormat.isZero(values[i]) then
 				return NanoFormat.fromNumber(0)
 			end
-			reciprocalSum = NanoFormat.add(
-				reciprocalSum,
-				NanoFormat.reciprocal(values[i])
-			)
+			reciprocalSum = NanoFormat.add(reciprocalSum, NanoFormat.reciprocal(values[i]))
 		end
 
 		return NanoFormat.div(count, reciprocalSum)
@@ -6426,13 +6099,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			return NanoFormat.fromNumber(0)
 		end
 
-		return NanoFormat.mul(
-			NanoFormat.div(count, 2),
-			NanoFormat.add(
-				NanoFormat.mul(2, first),
-				NanoFormat.mul(count - 1, difference)
-			)
-		)
+		return NanoFormat.mul(NanoFormat.div(count, 2), NanoFormat.add(NanoFormat.mul(2, first), NanoFormat.mul(count - 1, difference)))
 	end
 
 	function NanoFormat.geometricSeries(first: MathValue, ratioValue: MathValue, countValue: MathValue): buffer
@@ -6446,27 +6113,15 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			return NanoFormat.mul(first, count)
 		end
 
-		return NanoFormat.mul(
-			first,
-			NanoFormat.div(
-				NanoFormat.sub(NanoFormat.pow(ratioValue, count), 1),
-				NanoFormat.sub(ratioValue, 1)
-			)
-		)
+		return NanoFormat.mul(first, NanoFormat.div(NanoFormat.sub(NanoFormat.pow(ratioValue, count), 1), NanoFormat.sub(ratioValue, 1)))
 	end
 
 	function NanoFormat.compound(principal: MathValue, rate: MathValue, periods: MathValue): buffer
-		return NanoFormat.mul(
-			principal,
-			NanoFormat.pow(NanoFormat.add(1, rate), periods)
-		)
+		return NanoFormat.mul(principal, NanoFormat.pow(NanoFormat.add(1, rate), periods))
 	end
 
 	function NanoFormat.softcap(value: MathValue, start: MathValue, power: MathValue): buffer
-		if NanoFormat.lte(start, 0)
-			or NanoFormat.lte(power, 0)
-			or NanoFormat.isNaN(value)
-		then
+		if NanoFormat.lte(start, 0) or NanoFormat.lte(power, 0) or NanoFormat.isNaN(value) then
 			return makeSpecial(SPECIAL_NAN)
 		end
 
@@ -6474,10 +6129,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			return mathCopyBuffer(value)
 		end
 
-		return NanoFormat.mul(
-			start,
-			NanoFormat.pow(NanoFormat.div(value, start), power)
-		)
+		return NanoFormat.mul(start, NanoFormat.pow(NanoFormat.div(value, start), power))
 	end
 
 	function NanoFormat.inverseSoftcap(value: MathValue, start: MathValue, power: MathValue): buffer
@@ -6489,13 +6141,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			return mathCopyBuffer(value)
 		end
 
-		return NanoFormat.mul(
-			start,
-			NanoFormat.pow(
-				NanoFormat.div(value, start),
-				NanoFormat.reciprocal(power)
-			)
-		)
+		return NanoFormat.mul(start, NanoFormat.pow(NanoFormat.div(value, start), NanoFormat.reciprocal(power)))
 	end
 
 	function NanoFormat.diminishingReturns(value: MathValue, scale: MathValue): buffer
@@ -6503,21 +6149,13 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			return makeSpecial(SPECIAL_NAN)
 		end
 
-		return NanoFormat.mul(
-			scale,
-			NanoFormat.neg(
-				NanoFormat.expm1(NanoFormat.neg(NanoFormat.div(value, scale)))
-			)
-		)
+		return NanoFormat.mul(scale, NanoFormat.neg(NanoFormat.expm1(NanoFormat.neg(NanoFormat.div(value, scale)))))
 	end
 
 	local MATH_LANCZOS = {
-		676.5203681218851,
-		-1259.1392167224028,
-		771.32342877765313,
-		-176.61502916214059,
-		12.507343278686905,
-		-0.13857109526572012,
+		676.5203681218851, -1259.1392167224028,
+		771.32342877765313, -176.61502916214059,
+		12.507343278686905, -0.13857109526572012,
 		9.9843695780195716e-6,
 		1.5056327351493116e-7,
 	}
@@ -6535,18 +6173,12 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		end
 
 		local t = z + 7.5
-		return 0.5 * math.log(2 * math.pi)
-			+ (z + 0.001) * math.log(t)
-		- t
-			+ math.log(a)
+		return 0.5 * math.log(2 * math.pi) + (z + 0.001) * math.log(t) - t + math.log(a)
 	end
 
 	function NanoFormat.sigmoid(value: MathValue): buffer
 		if NanoFormat.gte(value, 0) then
-			return NanoFormat.div(
-				1,
-				NanoFormat.add(1, NanoFormat.exp(NanoFormat.neg(value)))
-			)
+			return NanoFormat.div(1, NanoFormat.add(1, NanoFormat.exp(NanoFormat.neg(value))))
 		end
 
 		local e = NanoFormat.exp(value)
@@ -6574,9 +6206,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 
 		if direct ~= nil then
 			if direct == 0 and not mathV4IsActualZero(data) then
-				return NanoFormat.fromNumber(
-					mathNegativeData(data) and -1 or 0
-				)
+				return NanoFormat.fromNumber(mathNegativeData(data) and -1 or 0)
 			end
 
 			return NanoFormat.fromNumber(floor(direct))
@@ -6584,9 +6214,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 
 		if data.Kind == "Log" or data.Kind == "Layer" then
 			if data.Reciprocal then
-				return NanoFormat.fromNumber(
-					mathNegativeData(data) and -1 or 0
-				)
+				return NanoFormat.fromNumber(mathNegativeData(data) and -1 or 0)
 			end
 
 			return original
@@ -6608,9 +6236,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 
 		if direct ~= nil then
 			if direct == 0 and not mathV4IsActualZero(data) then
-				return NanoFormat.fromNumber(
-					mathNegativeData(data) and 0 or 1
-				)
+				return NanoFormat.fromNumber(mathNegativeData(data) and 0 or 1)
 			end
 
 			return NanoFormat.fromNumber(math.ceil(direct))
@@ -6618,9 +6244,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 
 		if data.Kind == "Log" or data.Kind == "Layer" then
 			if data.Reciprocal then
-				return NanoFormat.fromNumber(
-					mathNegativeData(data) and 0 or 1
-				)
+				return NanoFormat.fromNumber(mathNegativeData(data) and 0 or 1)
 			end
 
 			return original
@@ -6638,9 +6262,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 
 		local remainder = ai % bi
 
-		if remainder ~= 0
-			and ((remainder < 0) ~= (ai < 0))
-		then
+		if remainder ~= 0 and ((remainder < 0) ~= (ai < 0)) then
 			remainder -= bi
 		end
 
@@ -6662,11 +6284,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 	end
 
 	function NanoFormat.clamp(value: MathValue, low: MathValue, high: MathValue): buffer
-		if NanoFormat.isNaN(value)
-			or NanoFormat.isNaN(low)
-			or NanoFormat.isNaN(high)
-			or NanoFormat.gt(low, high)
-		then
+		if NanoFormat.isNaN(value) or NanoFormat.isNaN(low) or NanoFormat.isNaN(high) or NanoFormat.gt(low, high) then
 			return makeSpecial(SPECIAL_NAN)
 		end
 
@@ -6687,14 +6305,9 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		local _, data = mathDecode(value)
 
 		if data.Kind == "Log" then
-			return not data.Reciprocal
-				and data.Top >= 0
-				and data.Top == floor(data.Top)
+			return not data.Reciprocal and data.Top >= 0 and data.Top == floor(data.Top)
 		elseif data.Kind == "Layer" then
-			return not data.LayerIsLog
-				and not data.Reciprocal
-				and data.Top >= 0
-				and data.Top == floor(data.Top)
+			return not data.LayerIsLog and not data.Reciprocal and data.Top >= 0 and data.Top == floor(data.Top)
 		end
 
 		return false
@@ -6704,9 +6317,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		local _, db = mathDecode(base)
 		local _, de = mathDecode(exponent)
 
-		if db.Kind == "NaN" or db.Kind == "Reserved"
-			or de.Kind == "NaN" or de.Kind == "Reserved"
-		then
+		if db.Kind == "NaN" or db.Kind == "Reserved" or de.Kind == "NaN" or de.Kind == "Reserved" then
 			return makeSpecial(SPECIAL_NAN)
 		end
 
@@ -6744,9 +6355,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			negativeResult = NanoFormat.isOdd(exponent)
 
 			if NanoFormat.eq(positiveBase, 1) then
-				return NanoFormat.fromNumber(
-					negativeResult and -1 or 1
-				)
+				return NanoFormat.fromNumber(negativeResult and -1 or 1)
 			end
 		end
 
@@ -6774,27 +6383,16 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			return makeSpecial(SPECIAL_NAN)
 		end
 
-		local scale = NanoFormat.max(
-			NanoFormat.abs(a),
-			NanoFormat.abs(b)
-		)
+		local scale = NanoFormat.max(NanoFormat.abs(a), NanoFormat.abs(b))
 
 		if NanoFormat.isZero(scale) then
 			return NanoFormat.fromNumber(0)
 		end
 
-		return NanoFormat.div(
-			NanoFormat.distance(a, b),
-			scale
-		)
+		return NanoFormat.div(NanoFormat.distance(a, b), scale)
 	end
 
-	function NanoFormat.approxEq(
-		a: MathValue,
-		b: MathValue,
-		relativeTolerance: MathValue?,
-		absoluteTolerance: MathValue?
-	): boolean
+	function NanoFormat.approxEq(a: MathValue, b: MathValue, relativeTolerance: MathValue?, absoluteTolerance: MathValue?): boolean
 		if NanoFormat.isNaN(a) or NanoFormat.isNaN(b) then
 			return false
 		end
@@ -6802,11 +6400,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		local rel = relativeTolerance or 1e-9
 		local absTol = absoluteTolerance or 0
 
-		if NanoFormat.isNaN(rel)
-			or NanoFormat.isNaN(absTol)
-			or NanoFormat.lt(rel, 0)
-			or NanoFormat.lt(absTol, 0)
-		then
+		if NanoFormat.isNaN(rel) or NanoFormat.isNaN(absTol) or NanoFormat.lt(rel, 0) or NanoFormat.lt(absTol, 0) then
 			return false
 		end
 
@@ -6824,31 +6418,20 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			return true
 		end
 
-		local scale = NanoFormat.max(
-			NanoFormat.abs(a),
-			NanoFormat.abs(b)
-		)
+		local scale = NanoFormat.max(NanoFormat.abs(a), NanoFormat.abs(b))
 
-		return NanoFormat.lte(
-			diff,
-			NanoFormat.mul(scale, rel)
-		)
+		return NanoFormat.lte(diff, NanoFormat.mul(scale, rel))
 	end
 
 	local function mathV7OldSlog10(value: any): buffer
 		local _, data = mathDecode(value)
 
-		if data.Kind == "NaN" or data.Kind == "Reserved"
-			or mathNegativeData(data)
-			or mathIsZeroData(data)
-		then
+		if data.Kind == "NaN" or data.Kind == "Reserved" or mathNegativeData(data) or mathIsZeroData(data) then
 			return makeSpecial(SPECIAL_NAN)
 		end
 
 		if data.Kind == "Infinity" then
-			return data.Negative
-				and makeSpecial(SPECIAL_NAN)
-				or makeSpecial(SPECIAL_POS_INF)
+			return data.Negative and makeSpecial(SPECIAL_NAN) or makeSpecial(SPECIAL_POS_INF)
 		end
 
 		if data.Kind == "Layer" then
@@ -6878,9 +6461,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 				local direct = NanoFormat.toNumber(value)
 
 				if direct > 0 then
-					return NanoFormat.fromNumber(
-						mathScalarSlog10(direct)
-					)
+					return NanoFormat.fromNumber(mathScalarSlog10(direct))
 				end
 
 				return NanoFormat.fromNumber(-1)
@@ -6901,17 +6482,13 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			return makeSpecial(SPECIAL_NAN)
 		end
 
-		return NanoFormat.fromNumber(
-			mathScalarSlog10(direct)
-		)
+		return NanoFormat.fromNumber(mathScalarSlog10(direct))
 	end
 
 	function NanoFormat.factorial(value: MathValue): buffer
 		local _, data = mathDecode(value)
 
-		if data.Kind == "NaN" or data.Kind == "Reserved"
-			or mathNegativeData(data)
-		then
+		if data.Kind == "NaN" or data.Kind == "Reserved" or mathNegativeData(data) then
 			return makeSpecial(SPECIAL_NAN)
 		end
 
@@ -6938,10 +6515,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 				return NanoFormat.fromNumber(result)
 			end
 
-			return mathFromSignedLog(
-				mathFactorialLog10(n),
-				false
-			)
+			return mathFromSignedLog(mathFactorialLog10(n), false)
 		end
 
 		return NanoFormat.factorialReal(value)
@@ -6983,9 +6557,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		return true, negative and -magnitude or magnitude
 	end
 
-	local function mathSignedLogBuffer0(
-		value: buffer
-	): (boolean, boolean, number, boolean)
+	local function mathSignedLogBuffer0(value: buffer): (boolean, boolean, number, boolean)
 		local header8 = bufferReadBits(value, 0, 8)
 
 		if band(header8, 1) == 0 then
@@ -7028,9 +6600,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		return false, false, 0, false
 	end
 
-	local function mathLayerBuffer0(
-		value: buffer
-	): (boolean, boolean, boolean, number, boolean, number)
+	local function mathLayerBuffer0(value: buffer): (boolean, boolean, boolean, number, boolean, number)
 		local header8 = bufferReadBits(value, 0, 8)
 		if band(header8, 63) ~= 31 then
 			return false, false, false, 0, false, 0
@@ -7058,11 +6628,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		return true, MATH0_NAN, false
 	end
 
-	local function mathAddLogs0(
-		a: buffer,
-		b: buffer,
-		subtractB: boolean
-	): buffer?
+	local function mathAddLogs0(a: buffer, b: buffer, subtractB: boolean): buffer?
 		local okA, negA, logA, zeroA = mathSignedLogBuffer0(a)
 		local okB, negB, logB, zeroB = mathSignedLogBuffer0(b)
 
@@ -7093,10 +6659,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 				return mathFromSignedLog(hi, negA)
 			end
 
-			return mathFromSignedLog(
-				hi + log10(1 + 10 ^ (-delta)),
-				negA
-			)
+			return mathFromSignedLog(hi + log10(1 + 10 ^ (-delta)), negA)
 		end
 
 		if logA == logB then
@@ -7129,17 +6692,10 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			return NanoFormat.fromNumber(0)
 		end
 
-		return mathFromSignedLog(
-			hi + log10(term),
-			negative
-		)
+		return mathFromSignedLog(hi + log10(term), negative)
 	end
 
-	local function mathMulLogs0(
-		a: buffer,
-		b: buffer,
-		divide: boolean
-	): buffer?
+	local function mathMulLogs0(a: buffer, b: buffer, divide: boolean): buffer?
 		local okA, negA, logA, zeroA = mathSignedLogBuffer0(a)
 		local okB, negB, logB, zeroB = mathSignedLogBuffer0(b)
 
@@ -7170,12 +6726,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			direct, top, scalarNegative = mathScalarAdd(logA, logB)
 		end
 
-		return mathResultFromLogScalar(
-			direct,
-			top,
-			scalarNegative,
-			negative
-		)
+		return mathResultFromLogScalar(direct, top, scalarNegative, negative)
 	end
 
 	local function mathCompareBuffer0(a: buffer, b: buffer): number?
@@ -7243,8 +6794,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 				return specialNegative and -1 or 1
 			end
 
-			local isLayer, layerNegative =
-				mathLayerBuffer0(value)
+			local isLayer, layerNegative = mathLayerBuffer0(value)
 
 			if isLayer then
 				return layerNegative and -1 or 1
@@ -7266,39 +6816,24 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 				return NanoFormat.fromNumber(-integer)
 			end
 
-			local ok, negative, logMagnitude, zero =
-				mathSignedLogBuffer0(value)
+			local ok, negative, logMagnitude, zero = mathSignedLogBuffer0(value)
 
 			if ok then
 				if zero then
 					return NanoFormat.fromNumber(0)
 				end
 
-				return mathFromSignedLog(
-					logMagnitude,
-					not negative
-				)
+				return mathFromSignedLog(logMagnitude, not negative)
 			end
 
-			local isLayer, negativeLayer, reciprocal, layer, layerIsLog, top =
-				mathLayerBuffer0(value)
+			local isLayer, negativeLayer, reciprocal, layer, layerIsLog, top = mathLayerBuffer0(value)
 
 			if isLayer then
 				if layerIsLog then
-					return NanoFormat.fromLayerLog10(
-						layer,
-						top,
-						not negativeLayer,
-						reciprocal
-					)
+					return NanoFormat.fromLayerLog10(layer, top, not negativeLayer, reciprocal)
 				end
 
-				return NanoFormat.fromLayer(
-					layer,
-					top,
-					not negativeLayer,
-					reciprocal
-				)
+				return NanoFormat.fromLayer(layer, top, not negativeLayer, reciprocal)
 			end
 		end
 
@@ -7329,48 +6864,30 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 
 			local result = 1 / value
 
-			if result ~= 0
-				and result ~= huge
-				and result ~= -huge
-			then
+			if result ~= 0 and result ~= huge and result ~= -huge then
 				return NanoFormat.fromNumber(result)
 			end
 		end
 
 		if typeof(value) == "buffer" then
-			local ok, negative, logMagnitude, zero =
-				mathSignedLogBuffer0(value)
+			local ok, negative, logMagnitude, zero = mathSignedLogBuffer0(value)
 
 			if ok then
 				if zero then
 					return makeSpecial(SPECIAL_POS_INF)
 				end
 
-				return mathFromSignedLog(
-					-logMagnitude,
-					negative
-				)
+				return mathFromSignedLog(-logMagnitude, negative)
 			end
 
-			local isLayer, layerNegative, reciprocal, layer, layerIsLog, top =
-				mathLayerBuffer0(value)
+			local isLayer, layerNegative, reciprocal, layer, layerIsLog, top = mathLayerBuffer0(value)
 
 			if isLayer then
 				if layerIsLog then
-					return NanoFormat.fromLayerLog10(
-						layer,
-						top,
-						layerNegative,
-						not reciprocal
-					)
+					return NanoFormat.fromLayerLog10(layer, top, layerNegative, not reciprocal)
 				end
 
-				return NanoFormat.fromLayer(
-					layer,
-					top,
-					layerNegative,
-					not reciprocal
-				)
+				return NanoFormat.fromLayer(layer, top, layerNegative, not reciprocal)
 			end
 		end
 
@@ -7391,8 +6908,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		end
 
 		if typeof(value) == "buffer" then
-			local ok, negative, logMagnitude, zero =
-				mathSignedLogBuffer0(value)
+			local ok, negative, logMagnitude, zero = mathSignedLogBuffer0(value)
 
 			if ok then
 				if negative then
@@ -7404,8 +6920,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 				return NanoFormat.fromNumber(logMagnitude)
 			end
 
-			local isLayer, layerNegative, reciprocal, layer, layerIsLog, top =
-				mathLayerBuffer0(value)
+			local isLayer, layerNegative, reciprocal, layer, layerIsLog, top = mathLayerBuffer0(value)
 
 			if isLayer then
 				if layerNegative then
@@ -7413,25 +6928,12 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 				end
 
 				if layerIsLog then
-					return NanoFormat.fromLayerLog10(
-						layer,
-						top,
-						reciprocal,
-						false
-					)
+					return NanoFormat.fromLayerLog10(layer, top, reciprocal, false)
 				elseif layer == 2 then
-					return NanoFormat.fromLog10(
-						top,
-						reciprocal
-					)
+					return NanoFormat.fromLog10(top, reciprocal)
 				end
 
-				return NanoFormat.fromLayer(
-					layer - 1,
-					top,
-					reciprocal,
-					false
-				)
+				return NanoFormat.fromLayer(layer - 1, top, reciprocal, false)
 			end
 		end
 
@@ -7459,9 +6961,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 				local negative = band(header15, 16) ~= 0
 				local expCode = floor(header15 / 32)
 				local mantCode = bufferReadBits(value, 15, NORMAL_MANT_BITS)
-				local magnitude =
-					decodeMantissa(mantCode, NORMAL_MANT_MAX)
-					* (10 ^ (expCode - NORMAL_EXP_BIAS))
+				local magnitude = decodeMantissa(mantCode, NORMAL_MANT_MAX) * (10 ^ (expCode - NORMAL_EXP_BIAS))
 				return negative and -magnitude or magnitude
 			elseif band(header8, 31) == 15 then
 				local negative = band(header8, 32) ~= 0
@@ -7504,8 +7004,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		elseif typeof(value) == "buffer" then
 			local raw = bufferReadBits(value, 0, 6)
 
-			return band(raw, 63) == 63
-				and bufferReadBits(value, 6, 2) >= SPECIAL_NAN
+			return band(raw, 63) == 63 and bufferReadBits(value, 6, 2) >= SPECIAL_NAN
 		end
 
 		return mathSlowIsNaN(value)
@@ -7522,8 +7021,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			end
 
 			local special = bufferReadBits(value, 6, 2)
-			return special == SPECIAL_POS_INF
-				or special == SPECIAL_NEG_INF
+			return special == SPECIAL_POS_INF or special == SPECIAL_NEG_INF
 		end
 
 		return mathSlowIsInfinite(value)
@@ -7531,12 +7029,9 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 
 	function NanoFormat.isFinite(value: MathValue): boolean
 		if typeof(value) == "number" then
-			return value == value
-				and value ~= huge
-				and value ~= -huge
+			return value == value and value ~= huge and value ~= -huge
 		elseif typeof(value) == "buffer" then
-			return not NanoFormat.isNaN(value)
-				and not NanoFormat.isInfinite(value)
+			return not NanoFormat.isNaN(value) and not NanoFormat.isInfinite(value)
 		end
 
 		return mathSlowIsFinite(value)
@@ -7548,8 +7043,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		elseif typeof(value) == "buffer" then
 			local raw = bufferReadBits(value, 0, 6)
 
-			return band(raw, 1) == 0
-				and bufferReadBits(value, 1, 7) == 0
+			return band(raw, 1) == 0 and bufferReadBits(value, 1, 7) == 0
 		end
 
 		return mathSlowIsZero(value)
@@ -7557,10 +7051,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 
 	function NanoFormat.isInteger(value: MathValue): boolean
 		if typeof(value) == "number" then
-			return value == value
-				and value ~= huge
-				and value ~= -huge
-				and value == floor(value)
+			return value == value and value ~= huge and value ~= -huge and value == floor(value)
 		elseif typeof(value) == "buffer" then
 			local exact = mathIntegerBuffer0(value)
 
@@ -7588,8 +7079,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 					return false
 				end
 
-				local layer, layerIsLog, topOffset =
-					readLayerFieldAtFast(value, 8)
+				local layer, layerIsLog, topOffset = readLayerFieldAtFast(value, 8)
 
 				if layerIsLog then
 					return false
@@ -7597,9 +7087,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 
 				local top = readScalarAtFast(value, topOffset)
 
-				return top >= 0
-					and top == floor(top)
-					and layer >= 2
+				return top >= 0 and top == floor(top) and layer >= 2
 			end
 
 			return false
@@ -7610,9 +7098,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 
 	function NanoFormat.isOdd(value: MathValue): boolean
 		if typeof(value) == "number" then
-			return value == floor(value)
-				and abs(value) <= MATH_SAFE_INTEGER
-				and abs(value) % 2 == 1
+			return value == floor(value) and abs(value) <= MATH_SAFE_INTEGER and abs(value) % 2 == 1
 		elseif typeof(value) == "buffer" then
 			local exact, integer = mathIntegerBuffer0(value)
 
@@ -7679,12 +7165,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 					return NanoFormat.fromNumber(1)
 				end
 
-				return NanoFormat.fromLayer(
-					2,
-					top,
-					false,
-					negative
-				)
+				return NanoFormat.fromLayer(2, top, false, negative)
 			end
 		end
 
@@ -7709,9 +7190,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 				local reciprocal = band(header7, 64) ~= 0
 
 				if reciprocal then
-					return NanoFormat.fromNumber(
-						negative and -1 or 0
-					)
+					return NanoFormat.fromNumber(negative and -1 or 0)
 				end
 
 				return value
@@ -7721,16 +7200,12 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 				local reciprocal = band(header8, 128) ~= 0
 
 				if reciprocal then
-					return NanoFormat.fromNumber(
-						negative and -1 or 0
-					)
+					return NanoFormat.fromNumber(negative and -1 or 0)
 				end
 
 				return value
 			elseif band(raw, 15) == 7 then
-				return NanoFormat.fromNumber(
-					floor(NanoFormat.toNumber(value))
-				)
+				return NanoFormat.fromNumber(floor(NanoFormat.toNumber(value)))
 			end
 		end
 
@@ -7755,9 +7230,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 				local reciprocal = band(header7, 64) ~= 0
 
 				if reciprocal then
-					return NanoFormat.fromNumber(
-						negative and 0 or 1
-					)
+					return NanoFormat.fromNumber(negative and 0 or 1)
 				end
 
 				return value
@@ -7767,33 +7240,20 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 				local reciprocal = band(header8, 128) ~= 0
 
 				if reciprocal then
-					return NanoFormat.fromNumber(
-						negative and 0 or 1
-					)
+					return NanoFormat.fromNumber(negative and 0 or 1)
 				end
 
 				return value
 			elseif band(raw, 15) == 7 then
-				return NanoFormat.fromNumber(
-					math.ceil(NanoFormat.toNumber(value))
-				)
+				return NanoFormat.fromNumber(math.ceil(NanoFormat.toNumber(value)))
 			end
 		end
 
 		return mathSlowCeil(value)
 	end
 
-	function NanoFormat.geometricCost(
-		baseCost: MathValue,
-		growth: MathValue,
-		owned: MathValue,
-		amount: MathValue
-	): buffer
-		if NanoFormat.lte(baseCost, 0)
-			or NanoFormat.lt(owned, 0)
-			or NanoFormat.lt(amount, 0)
-			or NanoFormat.lt(growth, 1)
-		then
+	function NanoFormat.geometricCost(baseCost: MathValue, growth: MathValue, owned: MathValue, amount: MathValue): buffer
+		if NanoFormat.lte(baseCost, 0) or NanoFormat.lt(owned, 0) or NanoFormat.lt(amount, 0) or NanoFormat.lt(growth, 1) then
 			return makeSpecial(SPECIAL_NAN)
 		end
 
@@ -7801,126 +7261,62 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			return NanoFormat.fromNumber(0)
 		end
 
-		local currentCost = NanoFormat.mul(
-			baseCost,
-			NanoFormat.pow(growth, owned)
-		)
+		local currentCost = NanoFormat.mul(baseCost, NanoFormat.pow(growth, owned))
 
 		if NanoFormat.eq(growth, 1) then
 			return NanoFormat.mul(currentCost, amount)
 		end
 
-		return NanoFormat.mul(
-			currentCost,
-			NanoFormat.div(
-				NanoFormat.sub(
-					NanoFormat.pow(growth, amount),
-					1
-				),
-				NanoFormat.sub(growth, 1)
-			)
-		)
+		return NanoFormat.mul(currentCost, NanoFormat.div(NanoFormat.sub(NanoFormat.pow(growth, amount), 1), NanoFormat.sub(growth, 1)))
 	end
 
-	function NanoFormat.maxAffordableGeometric(
-		currency: MathValue,
-		baseCost: MathValue,
-		growth: MathValue,
-		owned: MathValue?
-	): buffer
+	function NanoFormat.maxAffordableGeometric(currency: MathValue, baseCost: MathValue, growth: MathValue, owned: MathValue?): buffer
 		local levelsOwned = owned or 0
 
-		if NanoFormat.lt(currency, 0)
-			or NanoFormat.lte(baseCost, 0)
-			or NanoFormat.lt(levelsOwned, 0)
-			or NanoFormat.lt(growth, 1)
-		then
+		if NanoFormat.lt(currency, 0) or NanoFormat.lte(baseCost, 0) or NanoFormat.lt(levelsOwned, 0) or NanoFormat.lt(growth, 1) then
 			return makeSpecial(SPECIAL_NAN)
 		end
 
-		local currentCost = NanoFormat.mul(
-			baseCost,
-			NanoFormat.pow(growth, levelsOwned)
-		)
+		local currentCost = NanoFormat.mul(baseCost, NanoFormat.pow(growth, levelsOwned))
 
 		if NanoFormat.lt(currency, currentCost) then
 			return NanoFormat.fromNumber(0)
 		end
 
 		if NanoFormat.eq(growth, 1) then
-			return NanoFormat.floor(
-				NanoFormat.div(currency, currentCost)
-			)
+			return NanoFormat.floor(NanoFormat.div(currency, currentCost))
 		end
 
-		local inside = NanoFormat.add(
-			1,
-			NanoFormat.div(
-				NanoFormat.mul(
-					currency,
-					NanoFormat.sub(growth, 1)
-				),
-				currentCost
-			)
-		)
+		local inside = NanoFormat.add(1, NanoFormat.div(NanoFormat.mul(currency, NanoFormat.sub(growth, 1)), currentCost))
 
-		return NanoFormat.floor(
-			NanoFormat.log(inside, growth)
-		)
+		return NanoFormat.floor(NanoFormat.log(inside, growth))
 	end
 
-	function NanoFormat.bulkBuyGeometric(
-		currency: MathValue,
-		baseCost: MathValue,
-		growth: MathValue,
-		owned: MathValue?
-	): (buffer, buffer, buffer)
-		local amount = NanoFormat.maxAffordableGeometric(
-			currency,
-			baseCost,
-			growth,
-			owned
-		)
+	function NanoFormat.bulkBuyGeometric(currency: MathValue, baseCost: MathValue, growth: MathValue, owned: MathValue?): (buffer, buffer, buffer)
+		local amount = NanoFormat.maxAffordableGeometric(currency, baseCost, growth, owned)
 
 		if NanoFormat.isNaN(amount) then
 			local nan = makeSpecial(SPECIAL_NAN)
 			return nan, nan, nan
 		end
 
-		local cost = NanoFormat.geometricCost(
-			baseCost,
-			growth,
-			owned or 0,
-			amount
-		)
+		local cost = NanoFormat.geometricCost(baseCost, growth, owned or 0, amount)
 
 		local remaining = NanoFormat.sub(currency, cost)
 
-		if NanoFormat.lt(remaining, 0)
-			and NanoFormat.approxEq(remaining, 0, 1e-10, 0)
-		then
+		if NanoFormat.lt(remaining, 0) and NanoFormat.approxEq(remaining, 0, 1e-10, 0) then
 			remaining = NanoFormat.fromNumber(0)
 		end
 
 		return amount, cost, remaining
 	end
 
-	function NanoFormat.nextGeometricCost(
-		baseCost: MathValue,
-		growth: MathValue,
-		owned: MathValue
-	): buffer
-		if NanoFormat.lte(baseCost, 0)
-			or NanoFormat.lt(growth, 1)
-			or NanoFormat.lt(owned, 0)
-		then
+	function NanoFormat.nextGeometricCost(baseCost: MathValue, growth: MathValue, owned: MathValue): buffer
+		if NanoFormat.lte(baseCost, 0) or NanoFormat.lt(growth, 1) or NanoFormat.lt(owned, 0) then
 			return makeSpecial(SPECIAL_NAN)
 		end
 
-		return NanoFormat.mul(
-			baseCost,
-			NanoFormat.pow(growth, owned)
-		)
+		return NanoFormat.mul(baseCost, NanoFormat.pow(growth, owned))
 	end
 
 	function NanoFormat.mathPerfInfo(): MathPerfInfo
@@ -7949,14 +7345,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 	local mathV6FallbackCompare = mathSlowCompare
 	local mathV6FallbackPow = mathSlowPow
 
-	local function mathV6AddSignedLogs(
-		logA: number,
-		negativeA: boolean,
-		zeroA: boolean,
-		logB: number,
-		negativeB: boolean,
-		zeroB: boolean
-	): buffer
+	local function mathV6AddSignedLogs(logA: number, negativeA: boolean, zeroA: boolean, logB: number, negativeB: boolean, zeroB: boolean): buffer
 		if zeroA then
 			if zeroB then
 				return NanoFormat.fromNumber(0)
@@ -7976,10 +7365,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 				return mathFromSignedLog(hi, negativeA)
 			end
 
-			return mathFromSignedLog(
-				hi + log10(1 + 10 ^ (-delta)),
-				negativeA
-			)
+			return mathFromSignedLog(hi + log10(1 + 10 ^ (-delta)), negativeA)
 		end
 
 		if logA == logB then
@@ -8012,15 +7398,10 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			return NanoFormat.fromNumber(0)
 		end
 
-		return mathFromSignedLog(
-			hi + log10(term),
-			negative
-		)
+		return mathFromSignedLog(hi + log10(term), negative)
 	end
 
-	local function mathV6NumberSignedLog(
-		value: number
-	): (boolean, number, boolean)
+	local function mathV6NumberSignedLog(value: number): (boolean, number, boolean)
 		if value == 0 then
 			return false, 0, true
 		end
@@ -8028,23 +7409,26 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		return value < 0, log10(abs(value)), false
 	end
 
-	local function mathV6AddBN(
-		a: buffer,
-		b: number,
-		subtractB: boolean
-	): buffer
+	local function mathV6AddBN(a: buffer, b: number, subtractB: boolean): buffer
 		if b ~= b or b == huge or b == -huge then
-			return subtractB
-				and mathV6FallbackSub(a, b)
-				or mathV6FallbackAdd(a, b)
+			return subtractB and mathV6FallbackSub(a, b) or mathV6FallbackAdd(a, b)
+		end
+
+		-- Preserve exact integer arithmetic.
+		local exactA, integerA = mathIntegerBuffer0(a)
+
+		if exactA and b == floor(b) and abs(b) <= MATH_SAFE_INTEGER then
+			local result = if subtractB then integerA - b else integerA + b
+
+			if abs(result) <= MATH_SAFE_INTEGER then
+				return NanoFormat.fromNumber(result)
+			end
 		end
 
 		local okA, negativeA, logA, zeroA = mathSignedLogBuffer0(a)
 
 		if not okA then
-			return subtractB
-				and mathV6FallbackSub(a, b)
-				or mathV6FallbackAdd(a, b)
+			return subtractB and mathV6FallbackSub(a, b) or mathV6FallbackAdd(a, b)
 		end
 
 		local negativeB, logB, zeroB = mathV6NumberSignedLog(b)
@@ -8053,33 +7437,29 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			negativeB = not negativeB
 		end
 
-		return mathV6AddSignedLogs(
-			logA,
-			negativeA,
-			zeroA,
-			logB,
-			negativeB,
-			zeroB
-		)
+		return mathV6AddSignedLogs(logA, negativeA, zeroA, logB, negativeB, zeroB)
 	end
 
-	local function mathV6AddNB(
-		a: number,
-		b: buffer,
-		subtractB: boolean
-	): buffer
+	local function mathV6AddNB(a: number, b: buffer, subtractB: boolean): buffer
 		if a ~= a or a == huge or a == -huge then
-			return subtractB
-				and mathV6FallbackSub(a, b)
-				or mathV6FallbackAdd(a, b)
+			return subtractB and mathV6FallbackSub(a, b) or mathV6FallbackAdd(a, b)
+		end
+
+		-- Preserve exact integer arithmetic.
+		local exactB, integerB = mathIntegerBuffer0(b)
+
+		if exactB and a == floor(a) and abs(a) <= MATH_SAFE_INTEGER then
+			local result = if subtractB then a - integerB else a + integerB
+
+			if abs(result) <= MATH_SAFE_INTEGER then
+				return NanoFormat.fromNumber(result)
+			end
 		end
 
 		local okB, negativeB, logB, zeroB = mathSignedLogBuffer0(b)
 
 		if not okB then
-			return subtractB
-				and mathV6FallbackSub(a, b)
-				or mathV6FallbackAdd(a, b)
+			return subtractB and mathV6FallbackSub(a, b) or mathV6FallbackAdd(a, b)
 		end
 
 		local negativeA, logA, zeroA = mathV6NumberSignedLog(a)
@@ -8088,25 +7468,12 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			negativeB = not negativeB
 		end
 
-		return mathV6AddSignedLogs(
-			logA,
-			negativeA,
-			zeroA,
-			logB,
-			negativeB,
-			zeroB
-		)
+		return mathV6AddSignedLogs(logA, negativeA, zeroA, logB, negativeB, zeroB)
 	end
 
-	local function mathV6MulBN(
-		a: buffer,
-		b: number,
-		divide: boolean
-	): buffer
+	local function mathV6MulBN(a: buffer, b: number, divide: boolean): buffer
 		if b ~= b or b == huge or b == -huge then
-			return divide
-				and mathV6FallbackDiv(a, b)
-				or mathV6FallbackMul(a, b)
+			return divide and mathV6FallbackDiv(a, b) or mathV6FallbackMul(a, b)
 		end
 
 		if divide and b == 0 then
@@ -8138,11 +7505,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 
 			local result = integerA * b
 
-			if result == result
-				and result ~= huge
-				and result ~= -huge
-				and (result ~= 0 or integerA == 0)
-			then
+			if result == result and result ~= huge and result ~= -huge and (result ~= 0 or integerA == 0) then
 				return NanoFormat.fromNumber(result)
 			end
 		end
@@ -8162,23 +7525,15 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			local scalarNegative
 
 			if divide then
-				direct, top, scalarNegative =
-					mathScalarAdd(logA, -logB)
+				direct, top, scalarNegative = mathScalarAdd(logA, -logB)
 			else
-				direct, top, scalarNegative =
-					mathScalarAdd(logA, logB)
+				direct, top, scalarNegative = mathScalarAdd(logA, logB)
 			end
 
-			return mathResultFromLogScalar(
-				direct,
-				top,
-				scalarNegative,
-				negative
-			)
+			return mathResultFromLogScalar(direct, top, scalarNegative, negative)
 		end
 
-		local isLayer, layerNegative, reciprocal, layer, layerIsLog, top =
-			mathLayerBuffer0(a)
+		local isLayer, layerNegative, reciprocal, layer, layerIsLog, top = mathLayerBuffer0(a)
 
 		if isLayer then
 			local resultNegative = layerNegative ~= (b < 0)
@@ -8196,47 +7551,25 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 				local scalarNegative
 
 				if divide then
-					direct, resultTop, scalarNegative =
-						mathScalarAdd(towerExponent, -logB)
+					direct, resultTop, scalarNegative = mathScalarAdd(towerExponent, -logB)
 				else
-					direct, resultTop, scalarNegative =
-						mathScalarAdd(towerExponent, logB)
+					direct, resultTop, scalarNegative = mathScalarAdd(towerExponent, logB)
 				end
 
-				return mathResultFromLogScalar(
-					direct,
-					resultTop,
-					scalarNegative,
-					resultNegative
-				)
+				return mathResultFromLogScalar(direct, resultTop, scalarNegative, resultNegative)
 			end
 
 			if layerIsLog then
-				return NanoFormat.fromLayerLog10(
-					layer,
-					top,
-					resultNegative,
-					reciprocal
-				)
+				return NanoFormat.fromLayerLog10(layer, top, resultNegative, reciprocal)
 			end
 
-			return NanoFormat.fromLayer(
-				layer,
-				top,
-				resultNegative,
-				reciprocal
-			)
+			return NanoFormat.fromLayer(layer, top, resultNegative, reciprocal)
 		end
 
-		return divide
-			and mathV6FallbackDiv(a, b)
-			or mathV6FallbackMul(a, b)
+		return divide and mathV6FallbackDiv(a, b) or mathV6FallbackMul(a, b)
 	end
 
-	local function mathV6DivNB(
-		a: number,
-		b: buffer
-	): buffer
+	local function mathV6DivNB(a: number, b: buffer): buffer
 		if a ~= a or a == huge or a == -huge then
 			return mathV6FallbackDiv(a, b)
 		end
@@ -8259,15 +7592,9 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			end
 
 			local negativeA, logA, _ = mathV6NumberSignedLog(a)
-			local direct, top, scalarNegative =
-				mathScalarAdd(logA, -logB)
+			local direct, top, scalarNegative = mathScalarAdd(logA, -logB)
 
-			return mathResultFromLogScalar(
-				direct,
-				top,
-				scalarNegative,
-				negativeA ~= negativeB
-			)
+			return mathResultFromLogScalar(direct, top, scalarNegative, negativeA ~= negativeB)
 		end
 
 		return mathV6FallbackDiv(a, b)
@@ -8343,11 +7670,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 	function Fast.mulNN(a: number, b: number): buffer
 		local result = a * b
 
-		if result == result
-			and result ~= huge
-			and result ~= -huge
-			and (result ~= 0 or a == 0 or b == 0)
-		then
+		if result == result and result ~= huge and result ~= -huge and (result ~= 0 or a == 0 or b == 0) then
 			return NanoFormat.fromNumber(result)
 		end
 
@@ -8358,11 +7681,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		if b ~= 0 then
 			local result = a / b
 
-			if result == result
-				and result ~= huge
-				and result ~= -huge
-				and (result ~= 0 or a == 0)
-			then
+			if result == result and result ~= huge and result ~= -huge and (result ~= 0 or a == 0) then
 				return NanoFormat.fromNumber(result)
 			end
 		end
@@ -8389,11 +7708,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 
 		local result = a ^ b
 
-		if result == result
-			and result ~= huge
-			and result ~= -huge
-			and result ~= 0
-		then
+		if result == result and result ~= huge and result ~= -huge and result ~= 0 then
 			return NanoFormat.fromNumber(result)
 		end
 
@@ -8478,9 +7793,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		end
 
 		local result = mathCompareBuffer0(a, b)
-		return result == nil
-			and mathV6FallbackCompare(a, b)
-			or result
+		return result == nil and mathV6FallbackCompare(a, b) or result
 	end
 
 	function Fast.powBB(a: buffer, b: buffer): buffer
@@ -8725,11 +8038,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		pow = mathV6FallbackPow,
 	}
 
-	function NanoFormat.bindBinary(
-		operation: BindOperation,
-		leftType: DirectValueType,
-		rightType: DirectValueType
-	): BoundBinaryFunction?
+	function NanoFormat.bindBinary(operation: BindOperation, leftType: DirectValueType, rightType: DirectValueType): BoundBinaryFunction?
 		local operationMap = DIRECT_BINARY[operation]
 
 		if operationMap == nil then
@@ -8742,11 +8051,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		return operationMap[leftCode .. rightCode]
 	end
 
-	function NanoFormat.bindRight(
-		operation: MathBinaryOperation,
-		constant: MathValue,
-		leftType: DirectValueType?
-	): BoundUnaryFunction?
+	function NanoFormat.bindRight(operation: MathBinaryOperation, constant: MathValue, leftType: DirectValueType?): BoundUnaryFunction?
 		local operationMap = DIRECT_BINARY[operation]
 		local fallback = BIND_FALLBACK[operation]
 
@@ -9025,9 +8330,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 				local x4 = x3 * x
 				local x5 = x4 * x
 				local x6 = x5 * x
-				return NanoFormat.fromNumber(
-					x - x2 / 2 + x3 / 3 - x4 / 4 + x5 / 5 - x6 / 6
-				)
+				return NanoFormat.fromNumber(x - x2 / 2 + x3 / 3 - x4 / 4 + x5 / 5 - x6 / 6)
 			end
 			return NanoFormat.fromNumber(math.log(1 + direct))
 		end
@@ -9047,14 +8350,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			return makeSpecial(SPECIAL_POS_INF)
 		end
 
-		return NanoFormat.neg(
-			NanoFormat.mul(
-				scale,
-				NanoFormat.log1p(
-					NanoFormat.neg(NanoFormat.div(value, scale))
-				)
-			)
-		)
+		return NanoFormat.neg(NanoFormat.mul(scale, NanoFormat.log1p(NanoFormat.neg(NanoFormat.div(value, scale)))))
 	end
 
 	function NanoFormat.logit(value: MathValue): buffer
@@ -9068,9 +8364,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			return makeSpecial(SPECIAL_POS_INF)
 		end
 
-		return NanoFormat.ln(
-			NanoFormat.div(value, NanoFormat.sub(1, value))
-		)
+		return NanoFormat.ln(NanoFormat.div(value, NanoFormat.sub(1, value)))
 	end
 
 	function NanoFormat.powInt(base: MathValue, exponent: MathValue): buffer
@@ -9102,10 +8396,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			end
 		end
 
-		if data.Kind == "Layer"
-			and not data.Negative
-			and not data.Reciprocal
-		then
+		if data.Kind == "Layer" and not data.Negative and not data.Reciprocal then
 			if data.LayerIsLog then
 
 				return result
@@ -9160,12 +8451,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			end
 
 			if times < data.Layer then
-				return NanoFormat.fromLayer(
-					data.Layer - times,
-					data.Top,
-					false,
-					false
-				)
+				return NanoFormat.fromLayer(data.Layer - times, data.Top, false, false)
 			end
 
 			result = NanoFormat.fromNumber(data.Top)
@@ -9202,10 +8488,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		return NanoFormat.fromLayer(whole, seed, false, false)
 	end
 
-	local function mathV7Tetrate10Payload(
-		height: number,
-		payload: buffer
-	): buffer
+	local function mathV7Tetrate10Payload(height: number, payload: buffer): buffer
 		if height < 0 then
 			return makeSpecial(SPECIAL_NAN)
 		elseif height == 0 then
@@ -9221,10 +8504,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 				return makeSpecial(SPECIAL_NAN)
 			end
 
-			local seedLog = NanoFormat.add(
-				NanoFormat.mul(NanoFormat.log10(payload), 1 - fraction),
-				NanoFormat.mul(payload, fraction)
-			)
+			local seedLog = NanoFormat.add(NanoFormat.mul(NanoFormat.log10(payload), 1 - fraction), NanoFormat.mul(payload, fraction))
 			seed = NanoFormat.pow10(seedLog)
 		end
 
@@ -9244,11 +8524,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		return mathV7Tetrate10Payload(height, NanoFormat.compile(payload))
 	end
 
-	function NanoFormat.tetrate(
-		baseValue: MathValue,
-		heightValue: MathValue,
-		payload: MathValue?
-	): buffer
+	function NanoFormat.tetrate(baseValue: MathValue, heightValue: MathValue, payload: MathValue?): buffer
 		if NanoFormat.eq(baseValue, 10) then
 			return NanoFormat.tetrate10(heightValue, payload)
 		end
@@ -9259,9 +8535,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		end
 
 		local standardPayload = payload == nil
-		local start = standardPayload
-			and NanoFormat.fromNumber(1)
-			or NanoFormat.compile(payload)
+		local start = standardPayload and NanoFormat.fromNumber(1) or NanoFormat.compile(payload)
 
 		if standardPayload and height < 0 then
 			if height < -1 then
@@ -9306,13 +8580,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 				return makeSpecial(SPECIAL_NAN)
 			end
 
-			local seedLn = NanoFormat.add(
-				NanoFormat.mul(NanoFormat.ln(start), 1 - fraction),
-				NanoFormat.mul(
-					NanoFormat.mul(start, NanoFormat.ln(baseValue)),
-					fraction
-				)
-			)
+			local seedLn = NanoFormat.add(NanoFormat.mul(NanoFormat.ln(start), 1 - fraction), NanoFormat.mul(NanoFormat.mul(start, NanoFormat.ln(baseValue)), fraction))
 			seed = NanoFormat.exp(seedLn)
 		end
 
@@ -9328,11 +8596,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		return result
 	end
 
-	function NanoFormat.tetrateInteger(
-		baseValue: MathValue,
-		heightValue: MathValue,
-		payload: MathValue?
-	): buffer
+	function NanoFormat.tetrateInteger(baseValue: MathValue, heightValue: MathValue, payload: MathValue?): buffer
 		local height = mathV7FiniteScalar(heightValue)
 		if height == nil or height < 0 or height ~= floor(height) then
 			return makeSpecial(SPECIAL_NAN)
@@ -9363,9 +8627,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			return NanoFormat.slog10(value)
 		end
 
-		if NanoFormat.lte(base, 1) or NanoFormat.lt(value, 0)
-			or NanoFormat.isNaN(base) or NanoFormat.isNaN(value)
-		then
+		if NanoFormat.lte(base, 1) or NanoFormat.lt(value, 0) or NanoFormat.isNaN(base) or NanoFormat.isNaN(value) then
 			return makeSpecial(SPECIAL_NAN)
 		end
 
@@ -9407,9 +8669,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		end
 		local sinpx = math.sin(math.pi * x)
 		if sinpx == 0 then return huge end
-		return math.log(math.pi)
-		- math.log(abs(sinpx))
-		- mathLogGammaDirect(1 - x)
+		return math.log(math.pi) - math.log(abs(sinpx)) - mathLogGammaDirect(1 - x)
 	end
 
 	function NanoFormat.gammaSign(value: MathValue): number
@@ -9435,9 +8695,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		if NanoFormat.isNaN(value) then
 			return makeSpecial(SPECIAL_NAN)
 		elseif NanoFormat.isInfinite(value) then
-			return NanoFormat.gt(value, 0)
-				and makeSpecial(SPECIAL_POS_INF)
-				or makeSpecial(SPECIAL_NAN)
+			return NanoFormat.gt(value, 0) and makeSpecial(SPECIAL_POS_INF) or makeSpecial(SPECIAL_NAN)
 		elseif NanoFormat.isZero(value) then
 			return makeSpecial(SPECIAL_POS_INF)
 		end
@@ -9455,15 +8713,9 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			local inv2 = NanoFormat.square(inv)
 			local inv3 = NanoFormat.mul(inv2, inv)
 			local inv5 = NanoFormat.mul(inv3, inv2)
-			local main = NanoFormat.sub(
-				NanoFormat.mul(NanoFormat.sub(x, 0.5), NanoFormat.ln(x)),
-				x
-			)
+			local main = NanoFormat.sub(NanoFormat.mul(NanoFormat.sub(x, 0.5), NanoFormat.ln(x)), x)
 			main = NanoFormat.add(main, 0.5 * math.log(2 * math.pi))
-			local correction = NanoFormat.add(
-				NanoFormat.sub(NanoFormat.div(inv, 12), NanoFormat.div(inv3, 360)),
-				NanoFormat.div(inv5, 1260)
-			)
+			local correction = NanoFormat.add(NanoFormat.sub(NanoFormat.div(inv, 12), NanoFormat.div(inv3, 360)), NanoFormat.div(inv5, 1260))
 			return NanoFormat.add(main, correction)
 		end
 
@@ -9511,28 +8763,21 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			return makeSpecial(SPECIAL_NAN)
 		end
 
-		if NanoFormat.gt(a, 0) and NanoFormat.gt(b, 0)
-			and (NanoFormat.isInfinite(a) or NanoFormat.isInfinite(b))
-		then
+		if NanoFormat.gt(a, 0) and NanoFormat.gt(b, 0) and (NanoFormat.isInfinite(a) or NanoFormat.isInfinite(b)) then
 			return makeSpecial(SPECIAL_NEG_INF)
 		end
 
 		local sign = NanoFormat.betaSign(a, b)
 		if sign ~= sign then return makeSpecial(SPECIAL_NAN) end
 
-		return NanoFormat.sub(
-			NanoFormat.add(NanoFormat.logGamma(a), NanoFormat.logGamma(b)),
-			NanoFormat.logGamma(NanoFormat.add(a, b))
-		)
+		return NanoFormat.sub(NanoFormat.add(NanoFormat.logGamma(a), NanoFormat.logGamma(b)), NanoFormat.logGamma(NanoFormat.add(a, b)))
 	end
 
 	function NanoFormat.beta(a: MathValue, b: MathValue): buffer
 		local sign = NanoFormat.betaSign(a, b)
 		if sign ~= sign then
 
-			if NanoFormat.gt(a, 0) and NanoFormat.gt(b, 0)
-				and (NanoFormat.isInfinite(a) or NanoFormat.isInfinite(b))
-			then
+			if NanoFormat.gt(a, 0) and NanoFormat.gt(b, 0) and (NanoFormat.isInfinite(a) or NanoFormat.isInfinite(b)) then
 				return NanoFormat.fromNumber(0)
 			end
 			return makeSpecial(SPECIAL_NAN)
@@ -9778,11 +9023,7 @@ NanoFormat.MATH_SAFETY_VERSION = 1
 		pow = NanoFormat.pow,
 	}
 
-	function NanoFormat.tryMath(
-		operation: MathBinaryOperation,
-		a: any,
-		b: any
-	): (boolean, buffer?)
+	function NanoFormat.tryMath(operation: MathBinaryOperation, a: any, b: any): (boolean, buffer?)
 		local fn = BINARY[operation]
 		if fn == nil or not validMathValue(a) or not validMathValue(b) then
 			return false, nil
@@ -9824,7 +9065,6 @@ NanoFormat.LBEncodeV1 = NanoFormat.lbencode
 NanoFormat.LBDecodeV1 = NanoFormat.lbdecode
 NanoFormat.LBCompare = NanoFormat.lbCompare
 NanoFormat.LBRoundTripStable = NanoFormat.lbRoundTripStable
-
 
 local TYPECHECKED_NANONUM: NanoNumModule = NanoFormat
 return TYPECHECKED_NANONUM
