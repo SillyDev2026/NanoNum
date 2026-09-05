@@ -479,7 +479,7 @@ export type NanoNumModule = NanoNumCore
 
 NanoFormat.TYPECHECK_VERSION = 2
 
-NanoFormat.VERSION = "0.5.0"
+NanoFormat.VERSION = "0.001.0"
 NanoFormat.REGISTER_SCOPE_VERSION = 1
 NanoFormat.MAX_LAYER = 1e308
 NanoFormat.MAX_LAYER_LOG10 = 1e308
@@ -626,7 +626,7 @@ end
 STANDARD_SUFFIXES[101] = "Ce"
 
 -- Coordinate suffix extension -------------------------------------------------
--- Public Standard formatting deliberately keeps the V0.5.x suffix table and
+-- Public Standard formatting deliberately keeps the V0.001.x suffix table and
 -- STANDARD_SUFFIX_MAX_INDEX=101 for compatibility. E/L coordinates, however,
 -- are native Luau scalars and can reach 1e308. The one additional group needed
 -- to keep the full scalar envelope compact is 10^306 => UCe, so 1e308 renders
@@ -1909,7 +1909,7 @@ local function parseCompactExponentRange(value: string, first: number, last: num
 		end
 	end
 
-	-- Compatibility with V0.5.3 output such as E1e+308.
+	-- Compatibility with V0.001.3 output such as E1e+308.
 	local finite, direct = parseFiniteNumericRange(value, first, last)
 	if finite and direct ~= nil and direct ~= huge and direct ~= -huge then
 		return direct
@@ -1949,7 +1949,7 @@ local function parseCompactLayerScalarRange(value: string, first: number, last: 
 		end
 	end
 
-	-- Compatibility with V0.5.3 L output such as L3 1e+308.
+	-- Compatibility with V0.001.3 L output such as L3 1e+308.
 	local finite, direct = parseFiniteNumericRange(value, first, last)
 	if finite and direct ~= nil and direct ~= huge and direct ~= -huge then
 		return direct
@@ -2071,7 +2071,7 @@ local function classifyDirectStringFast(value: string): (boolean, number)
 end
 
 function NanoFormat.fromString(value: string, suffixType: SuffixName?): buffer
-	-- V0.5.4 keeps the dispatch-before-tonumber parser. Symbolic forms, suffixes, and
+	-- V0.001.4 keeps the dispatch-before-tonumber parser. Symbolic forms, suffixes, and
 	-- scientific exponents that cannot fit IEEE-754 no longer pay for a failed
 	-- C-number parse before the real NanoFormat parser starts.
 	local tryDirect, hintedEPos = classifyDirectStringFast(value)
@@ -2889,7 +2889,7 @@ function NanoFormat.tryDecodeAt(data: buffer, bitOffset: number?): (boolean, Dec
 		return false, nil, nil
 	end
 	local offset: any = if bitOffset == nil then 0 else bitOffset
-	-- V0.5.2: try* APIs must never throw just because a dynamically-typed caller
+	-- V0.001.2: try* APIs must never throw just because a dynamically-typed caller
 	-- supplied a bad offset. Reject NaN/fractional/non-number offsets up front.
 	if typeof(offset) ~= "number" or offset ~= offset or offset ~= floor(offset) or offset < 0 or offset >= bufferLen(data) * 8 then
 		return false, nil, nil
@@ -3014,7 +3014,7 @@ NanoFormat.FORMAT_SCOPE_VERSION = 1
 		end
 		local exponent = floor(log10(value))
 		local decimals = clamp(precision - exponent - 1, 0, 12)
-		return value >= 1000 - 0.5 * (10 ^ -decimals)
+		return value >= 1000 - 0.001 * (10 ^ -decimals)
 	end
 
 	local function engineeringText(mantissa: number, exponent: number, precision: number): string
@@ -4101,7 +4101,7 @@ NanoFormat.PACK_SCOPE_VERSION = 1
 	end
 
 	function NanoFormat.tryUnpackMany(packed: buffer, count: number, totalBits: number?): (boolean, {buffer}?)
-		-- V0.5.2 runtime hardening: this remains non-throwing even when called
+		-- V0.001.2 runtime hardening: this remains non-throwing even when called
 		-- through an `any` value with malformed arguments.
 		if typeof(packed) ~= "buffer" or typeof(count) ~= "number" or count ~= count or count < 0 or count ~= floor(count) then
 			return false, nil
@@ -5521,7 +5521,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 	end
 
 	function NanoFormat.sqrt(value: MathValue): buffer
-		return NanoFormat.pow(value, 0.5)
+		return NanoFormat.pow(value, 0.001)
 	end
 
 	local MATH_SAFE_INTEGER = 9007199254740991
@@ -5665,7 +5665,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			local direct = NanoFormat.toNumber(value)
 
 			if direct == direct and direct ~= huge and direct ~= -huge then
-				local rounded = if direct >= 0 then floor(direct + 0.001) else math.ceil(direct - 0.5)
+				local rounded = if direct >= 0 then floor(direct + 0.001) else math.ceil(direct - 0.001)
 
 				return NanoFormat.fromNumber(rounded)
 			end
@@ -6173,7 +6173,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		end
 
 		local t = z + 7.5
-		return 0.5 * math.log(2 * math.pi) + (z + 0.001) * math.log(t) - t + math.log(a)
+		return 0.001 * math.log(2 * math.pi) + (z + 0.001) * math.log(t) - t + math.log(a)
 	end
 
 	function NanoFormat.sigmoid(value: MathValue): buffer
@@ -8713,8 +8713,8 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			local inv2 = NanoFormat.square(inv)
 			local inv3 = NanoFormat.mul(inv2, inv)
 			local inv5 = NanoFormat.mul(inv3, inv2)
-			local main = NanoFormat.sub(NanoFormat.mul(NanoFormat.sub(x, 0.5), NanoFormat.ln(x)), x)
-			main = NanoFormat.add(main, 0.5 * math.log(2 * math.pi))
+			local main = NanoFormat.sub(NanoFormat.mul(NanoFormat.sub(x, 0.001), NanoFormat.ln(x)), x)
+			main = NanoFormat.add(main, 0.001 * math.log(2 * math.pi))
 			local correction = NanoFormat.add(NanoFormat.sub(NanoFormat.div(inv, 12), NanoFormat.div(inv3, 360)), NanoFormat.div(inv5, 1260))
 			return NanoFormat.add(main, correction)
 		end
