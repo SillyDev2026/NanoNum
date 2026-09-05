@@ -481,7 +481,6 @@ export type NanoNumModule =
 & NanoNumAliases
 & NanoNumMetadata
 
-
 NanoFormat.TYPECHECK_VERSION = 2
 
 NanoFormat.VERSION = "0.5.0"
@@ -957,7 +956,7 @@ end
 
 local function quantizeMantissa(mantissa: number, maxCode: number): number
 	local t = (mantissa - 1) / 9
-	return clamp(floor(t * maxCode + 0.5), 0, maxCode)
+	return clamp(floor(t * maxCode + 0.001), 0, maxCode)
 end
 
 local function decodeMantissa(code: number, maxCode: number): number
@@ -1002,7 +1001,7 @@ local function isPower10Like(value: number): (boolean, number)
 	end
 
 	local lg = log10(value)
-	local rounded = floor(lg + 0.5)
+	local rounded = floor(lg + 0.001)
 
 	if abs(lg - rounded) <= EPS_POWER10 then
 		return true, rounded
@@ -1214,7 +1213,7 @@ local function normalizeLayerInput(layer: number, top: number, layerIsLog: boole
 		if layer < 0 then
 			layer = 0
 		end
-		layer = floor(layer + 0.5)
+		layer = floor(layer + 0.001)
 
 		-- e^N(top) can be reduced one layer whenever 10^top still fits in the
 		-- scalar envelope. This fixes cases such as ee5, which is just 1e100000,
@@ -4364,7 +4363,7 @@ NanoFormat.LB_SCOPE_VERSION = 1
 		if slots <= 1 then
 			return 0
 		end
-		return clamp(floor(lbClampUnit(unit) * (slots - 1) + 0.5), 0, slots - 1)
+		return clamp(floor(lbClampUnit(unit) * (slots - 1) + 0.001), 0, slots - 1)
 	end
 
 	local function lbUnitFromSlot(slot: number, slots: number): number
@@ -4518,7 +4517,7 @@ NanoFormat.LB_SCOPE_VERSION = 1
 	local function lbEncodeOrdinaryLog(logScale: number): number
 		if logScale <= LB_ORDINARY_EXACT_LOG10 then
 			local magnitude = 10 ^ logScale
-			local slot = floor((magnitude - 1) * NanoFormat.LB_ORDINARY_SUBSLOTS + 0.5)
+			local slot = floor((magnitude - 1) * NanoFormat.LB_ORDINARY_SUBSLOTS + 0.001)
 			return clamp(slot, 0, LB_ORDINARY_EXACT_END)
 		end
 
@@ -4534,7 +4533,7 @@ NanoFormat.LB_SCOPE_VERSION = 1
 
 	local function lbEncodeLayer(layer: number, top: number): number
 		if layer <= NanoFormat.LB_LOW_LAYER_MAX then
-			local layerIndex = max(0, floor(layer + 0.5) - 2)
+			local layerIndex = max(0, floor(layer + 0.001) - 2)
 			local topBucket = lbDirectTopBucket(top)
 			return LB_LOW_LAYER_START
 				+ layerIndex * NanoFormat.LB_LAYER_TOP_BUCKETS
@@ -5933,7 +5932,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			if direct == direct and direct ~= huge and direct ~= -huge then
 				local rounded =
 					if direct >= 0
-					then floor(direct + 0.5)
+					then floor(direct + 0.001)
 					else math.ceil(direct - 0.5)
 
 				return NanoFormat.fromNumber(rounded)
@@ -6085,9 +6084,9 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		- (inv ^ 3) / 360
 			+ (inv ^ 5) / 1260
 
-		return (n + 0.5) * log10(n)
+		return (n + 0.001) * log10(n)
 		- n * MATH_LOG10_E
-			+ 0.5 * log10(MATH_TWO_PI)
+			+ 0.001 * log10(MATH_TWO_PI)
 			+ correction * MATH_LOG10_E
 	end
 
@@ -6156,7 +6155,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 
 				if exactSafe then
 					local candidate = exact * numerator / i
-					local rounded = floor(candidate + 0.5)
+					local rounded = floor(candidate + 0.001)
 
 					if candidate > MATH_SAFE_INTEGER
 						or abs(candidate - rounded) > 1e-7
@@ -6537,7 +6536,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 
 		local t = z + 7.5
 		return 0.5 * math.log(2 * math.pi)
-			+ (z + 0.5) * math.log(t)
+			+ (z + 0.001) * math.log(t)
 		- t
 			+ math.log(a)
 	end
