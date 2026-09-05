@@ -6,20 +6,25 @@ It is designed for simulator/clicker-style games that need to **store, compare, 
 
 NanoNum uses an **adaptive bit-packed `buffer` representation**. Small integers can use one byte, larger finite values use compact integer/normal records, huge values switch to logarithmic storage, and astronomical values use layered storage. Multiple NanoNums can also be packed into one shared bitstream so record padding is not repeated.
 
-> Current release: **V0.3.3**  
-> Parser: **V9**  
-> Suffix codec: **V5**  
-> Performance layout: **V7**  
-> Path architecture: **V4 / Path 0**  
-> Notation: **V2**  
-> Math: **V7**  
-> Math correctness: **V2**  
+> Current release: **V0.5.0 — Register Scope V1**  
+> Typecheck: **V2**  
+> Parser: **V5**  
+> Suffix system: **V3**  
+> Roman formatter: **V1**  
+> Time / utility formatting: **V1**  
+> Performance layout: **V5**  
+> Path architecture: **V1 / Path 0**  
+> Notation: **V4 / Compact Coordinate V1**  
+> Math: **V8**  
+> Math correctness: **V3**  
+> Math safety: **V1**  
 > Math performance: **V2 / Math Path V3**  
 > Tetration: **V3**  
 > Decimal tetration: **V1**  
 > Slog: **V2**  
 > Gamma/Beta: **V2**  
-> Leaderboard codec: **LB V2**
+> Leaderboard codec: **LB V1**  
+> Register scopes: **V1**
 
 ---
 
@@ -27,23 +32,26 @@ NanoNum uses an **adaptive bit-packed `buffer` representation**. Small integers 
 
 - Adaptive Roblox `buffer` representation
 - **1-byte** storage for zero and many small integers
-- Exact compact integer storage for the current small/integer hot-path range when that representation is selected
-- Huge scientific values such as `1e1000`
-- Tiny symbolic values such as `1e-1000`
+- Exact variable-bit integer records when that representation is cheaper
+- Symbolic huge values such as `1e1000`
+- Symbolic tiny values such as `1e-1000`
 - Direct and logarithmic layered values
-- Layer heights up to the NanoNum layer envelope
-- Byte-scanned **Parser V9**
-- New compact **Notation V2** layer output such as `L2 1000`
-- Reciprocal formatting such as `1/1k`
-- Standard, Extended, Hybrid, Alphabetic, Metric, Exponent, Scientific, and Engineering formatting
-- Compact exponent notation such as `E3,000` and exponent suffix compaction such as `E1M`
+- **Parser V5** with ordinary, suffix, E, L, and legacy `e`-family syntax
+- **Notation V4** with clean `E` -> `L` progression
+- Compact E/L coordinates such as `E100UCe`, `L2 100UCe`, and `L3 100UCe`
+- Standard, Extended, Hybrid, Alphabetic, Metric, Exponent, Scientific, Engineering, Roman, and Roman Extended formatting
+- Time/duration, clock, rate, byte-size, ordinal, and signed-value formatting
 - Bit-level `packMany` / `unpackMany`
 - Structural validation and protected decode helpers
-- Monotonic OrderedDataStore-friendly **LB V2** with reversible canonical decode
+- Monotonic 53-bit-safe **LB V1** leaderboard codec
 - Full mixed-type math API for `number`, `buffer`, and `string`
-- Direct typed math calls through `NanoNum.fast`
+- **Math V8** safety boundary for normal public math calls
+- `tryCompile`, `tryMath`, and `tryCompare` for unknown/untrusted values
+- **54 typed direct math calls** through `NanoNum.fast`
 - `compile`, `bindBinary`, and `bindRight` for hot loops
 - Logs, roots, powers, rounding, interpolation, series, combinatorics, simulator economy helpers, tetration, slog, gamma, beta, and more
+- **Full Typecheck V2** public module surface
+- **Register Scope V1** isolates register-heavy subsystems so the outer module does not exceed Luau's local-register ceiling
 - `--!native`
 - `--!optimize 2`
 
@@ -104,12 +112,45 @@ print(NanoNum.format(b))
 print(NanoNum.format(c))
 ```
 
-The flexible math API also accepts numbers and strings directly:
+The flexible math API accepts `number`, `string`, and `buffer` inputs:
 
 ```lua
 local result = NanoNum.add("1e1000", 250)
 local power = NanoNum.pow("1e50", 2)
 ```
+
+## Clean E / L progression
+
+V0.5.0 keeps coordinates readable instead of falling back to raw Lua scientific text:
+
+```lua
+local value = NanoNum.fromString("1e308")
+
+print(NanoNum.format(value, 2))
+-- 1e308
+
+value = NanoNum.pow10(value)
+print(NanoNum.format(value, 2))
+-- E100UCe
+
+value = NanoNum.pow10(value)
+print(NanoNum.format(value, 2))
+-- L2 100UCe
+
+value = NanoNum.pow10(value)
+print(NanoNum.format(value, 2))
+-- L3 100UCe
+```
+
+`100UCe` is a coordinate-only compact spelling for `1e308`:
+
+```text
+1e308
+= 100 * 10^306
+= 100UCe
+```
+
+The public Standard suffix table itself still ends at `Ce`; this coordinate extension does not change normal Standard suffix semantics.
 
 ---
 
@@ -355,7 +396,7 @@ NanoNum.fromNumber(math.huge)
 NanoNum.fromNumber(-math.huge)
 ```
 
-The V0.3.3 path includes dedicated hot paths for zero, positive one-byte integers, negative one-byte integers, exact safe integers, powers of ten, and ordinary normal values.
+The V0.5.0 path includes dedicated hot paths for zero, positive one-byte integers, negative one-byte integers, exact safe integers, powers of ten, and ordinary normal values.
 
 ---
 
@@ -428,9 +469,9 @@ This is especially useful before hot loops so a constant string does not need to
 
 ---
 
-# Parser V9
+# Parser V5
 
-The current parser supports ordinary decimal input, scientific notation, suffixes, reciprocal syntax, compact exponent syntax, new layer notation, and legacy layer notation.
+The current parser supports ordinary decimal input, scientific notation, public suffixes, reciprocal syntax, compact exponent syntax, restored L-notation, compact coordinate suffixes, and the legacy `e`-family layer notation.
 
 Examples:
 
@@ -441,20 +482,31 @@ NanoNum.fromString("1e1000")
 NanoNum.fromString("1e-1000")
 NanoNum.fromString("1.25M")
 NanoNum.fromString("1/1k")
+
 NanoNum.fromString("E3,000")
-NanoNum.fromString("1.25E3,006")
+NanoNum.fromString("E1M")
+NanoNum.fromString("E100UCe")
+
+NanoNum.fromString("L2 1000")
+NanoNum.fromString("L3 1k")
+NanoNum.fromString("L3:1k")
+NanoNum.fromString("L2 100UCe")
+NanoNum.fromString("L3 100UCe")
+NanoNum.fromString("L(10^1M) 1k")
+
+NanoNum.fromString("1/L3 1k")
+NanoNum.fromString("-L3 1k")
+
+-- Legacy layer syntax remains parseable
 NanoNum.fromString("ee1000")
 NanoNum.fromString("eee5")
 NanoNum.fromString("e^1000 5")
 NanoNum.fromString("e^(10^1e308) 5")
-NanoNum.fromString("L2 1000")
-NanoNum.fromString("L1000 1000")
-NanoNum.fromString("L(10^308) 1000")
 ```
 
-Whitespace is accepted around the slower structured layer forms where the parser expects a separator.
+Whitespace is accepted around structured layer forms where the parser expects a separator.
 
-The parser avoids first converting enormous scientific strings to a native Luau number when doing so would overflow to infinity or underflow to zero.
+The parser avoids first converting enormous scientific strings to a native Luau number when doing so would overflow to infinity or underflow to zero:
 
 ```lua
 local huge = NanoNum.fromString("1e1000")
@@ -463,33 +515,85 @@ local tiny = NanoNum.fromString("1e-1000")
 
 Both remain symbolic NanoNum values.
 
----
-
-# Notation V2
-
-Notation V2 adds a compact layer display for the main Standard/Extended/Exponent formatter paths.
-
-Examples of the layer form:
+V0.5.0 also keeps the previous raw-coordinate fallback strings parseable for compatibility:
 
 ```text
-L2 1000
-L1000 1000
-L(10^308) 1000
+E1e+308
+L3 1e+308
+```
+
+---
+
+# Notation V4 — Standard -> E -> L
+
+Notation V4 restores the compact L-notation path and fixes E/L coordinate rendering.
+
+The main progression is:
+
+```text
+ordinary / suffix value
+        ↓
+compact E notation for layer-1/log values
+        ↓
+L notation for actual layer-2+ values
+```
+
+Examples:
+
+```text
+1e3                  -> 1k
+1e3000               -> E3,000
+10^(1,000,000)       -> E1M
+10^(1e308)           -> E100UCe
+10^(10^(1e308))      -> L2 100UCe
+10^(10^(10^(1e308))) -> L3 100UCe
+```
+
+Direct layer examples:
+
+```text
+fromLayer(2, 309)         -> L2 309
+fromLayer(3, 1000)        -> L3 1k
+fromLayer(1e6, 1000)      -> L1M 1k
+fromLayerLog10(1e6, 1000) -> L(10^1M) 1k
 ```
 
 A reciprocal layer is prefixed with `1/`:
 
 ```text
-1/L2 1000
+1/L2 1k
 ```
 
-A negative outer sign is kept outside the representation:
+A negative outer sign stays outside the representation:
 
 ```text
--L2 1000
+-L3 1k
 ```
 
-Scientific/Engineering/Hybrid/Alphabetic/Metric paths can still render legacy `e`-family layer notation where appropriate:
+## Compact Coordinate V1
+
+E/L coordinates are themselves compacted instead of using raw Lua text.
+
+The public Standard suffix table remains unchanged through `Ce`, but E/L scalar coordinates have one private extension:
+
+```text
+10^306 -> UCe
+1e308  -> 100UCe
+```
+
+Therefore:
+
+```text
+E1e+308      -> E100UCe
+L2 1e+308    -> L2 100UCe
+L3 1e+308    -> L3 100UCe
+```
+
+This is display/parser behavior only; it does not change the NanoNum wire representation.
+
+## Legacy display modes
+
+Scientific/Engineering/Hybrid/Alphabetic/Metric formatting can still use the older `e`-family form where appropriate:
 
 ```text
 ee1000
@@ -510,7 +614,7 @@ Main formatter:
 NanoNum.format(value, precision?, suffixType?)
 ```
 
-Default precision is `4` significant-style display digits. Explicit precision is clamped to `1..8`.
+`value` is a NanoNum `buffer`. Default precision is `4`; explicit precision is clamped to `1..8`.
 
 ```lua
 local value = NanoNum.fromNumber(1250000)
@@ -519,7 +623,7 @@ print(NanoNum.format(value))
 -- 1.25M
 ```
 
-Dedicated helpers:
+Dedicated number-format helpers:
 
 ```lua
 NanoNum.formatStandard(value, precision?)
@@ -530,13 +634,103 @@ NanoNum.formatAlphabetic(value, precision?)
 NanoNum.formatMetric(value, precision?)
 NanoNum.formatScientific(value, precision?)
 NanoNum.formatEngineering(value, precision?)
+NanoNum.formatRoman(value, precision?)
+NanoNum.formatRomanExtended(value, precision?)
 ```
+
+## Roman V1
+
+Classical Roman display:
+
+```lua
+print(NanoNum.formatRoman(NanoNum.fromNumber(2026)))
+-- MMXXVI
+```
+
+Classical mode supports magnitudes through `3999`.
+
+Extended Roman mode uses parenthesized x1000 groups and supports integers through the safe-integer envelope:
+
+```lua
+print(NanoNum.formatRomanExtended(NanoNum.fromNumber(4000)))
+-- (IV)
+```
+
+Roman formatting is display-only. Unsupported Roman values fall back to normal NanoNum formatting.
+
+## Time / Duration V1
+
+`formatTime` and its alias `formatDuration` accept normal NanoNum math inputs (`number`, `string`, or `buffer`):
+
+```lua
+NanoNum.formatTime(3661)
+-- compact duration
+
+NanoNum.formatTime(3661, "long")
+-- word-style duration
+
+NanoNum.formatClock(3661, 0)
+-- timer/clock-style output
+```
+
+Accepted time styles:
+
+```text
+compact
+long
+clock
+seconds
+```
+
+Aliases also include:
+
+```text
+timer -> clock
+words -> long
+raw   -> seconds
+```
+
+Parse duration strings:
+
+```lua
+NanoNum.parseTime("1h 30m")
+NanoNum.fromTime("1h 30m")
+NanoNum.parseDuration("1h 30m")
+```
+
+## Utility Formatters
+
+```lua
+NanoNum.formatRate(value, unit?, precision?, suffixType?)
+NanoNum.formatBytes(value, precision?, binary?)
+NanoNum.formatOrdinal(value)
+NanoNum.formatSigned(value, precision?, suffixType?)
+NanoNum.toNumberSafe(value)
+```
+
+Examples:
+
+```lua
+NanoNum.formatRate("1e6", "s")
+-- 1M/s
+
+NanoNum.formatBytes(1048576, 2, true)
+-- 1 MiB
+
+NanoNum.formatOrdinal(23)
+-- 23rd
+
+NanoNum.formatSigned(1250)
+-- +1.25k
+```
+
+`formatOrdinal()` is a text/UI helper; it does not change the underlying NanoNum value.
 
 ---
 
 # Suffix Types
 
-NanoNum V0.3.3 exposes eight suffix modes:
+NanoNum V0.5.0 exposes ten canonical formatting modes:
 
 ```text
 standard
@@ -547,6 +741,8 @@ metric
 exponent
 scientific
 engineering
+roman
+romanextended
 ```
 
 Aliases are accepted:
@@ -561,8 +757,9 @@ Aliases are accepted:
 | `exp`, `enotation` | `exponent` |
 | `sci` | `scientific` |
 | `eng` | `engineering` |
+| `romanx`, `roman_ext` | `romanextended` |
 
-Set the global default:
+Set the default:
 
 ```lua
 NanoNum.setDefaultSuffixType("hybrid")
@@ -572,75 +769,74 @@ Check a mode or alias:
 
 ```lua
 print(NanoNum.isSuffixType("standard"))
-print(NanoNum.isSuffixType("sci"))
+print(NanoNum.isSuffixType("romanx"))
 ```
-
----
 
 ## Standard
 
-Standard uses the built-in illion-style suffix table.
+Standard uses the V0.5.x simulator suffix table through centillion:
 
 ```text
-1e3  -> 1k
-1e6  -> 1M
-1e9  -> 1B
-1e12 -> next standard suffix
+1e3   -> 1k
+1e6   -> 1M
+1e9   -> 1B
 ...
+1e303 -> 1Ce
 ```
 
-Current maximum suffix index:
+Current public maximum suffix index:
 
 ```lua
 NanoNum.STANDARD_SUFFIX_MAX_INDEX
--- 999
+-- 101
 ```
 
-That covers exponent groups through `999 * 3 = 2997`.
+The public Standard table intentionally stays at 101 for compatibility.
 
-At exponent `3000` and above, Standard switches to compact `E` notation:
+At exponent `3000` and above, Standard uses compact E notation:
 
 ```text
 1e3000 -> E3,000
 ```
 
----
+E/L **coordinates** may additionally use the private `UCe` coordinate spelling:
+
+```text
+10^(1e308) -> E100UCe
+```
+
+That does not make `getSuffix(102, "standard")` a public Standard suffix.
 
 ## Extended
 
-In the current Suffix V5 implementation, `extended` shares the same 999-entry standard suffix family and the same `E3,000` cutoff behavior.
+Extended keeps the Standard table through index 101, then uses generated alphabetic suffixes through index 999 before falling back to E notation.
+
+Conceptually:
+
+```text
+standard suffixes through Ce
+then
+aa, ab, ac, ...
+through index 999
+then
+E notation
+```
 
 ```lua
 NanoNum.formatExtended(value)
 ```
 
-Use `hybrid` if you specifically want generated alphabetic continuation after the standard table.
-
----
-
 ## Hybrid
 
-Hybrid uses the complete Standard table first, then generated alphabetic suffixes above index 999.
+Hybrid keeps Standard through index 101 and then continues generated alphabetic suffixes without Extended's index-1000 cutoff.
 
 ```lua
 NanoNum.formatHybrid(value)
 ```
 
-Conceptually:
-
-```text
-standard suffixes through index 999
-then
-aa, ab, ac, ...
-```
-
-Because Hybrid continues past the standard table, exponent `3000` can continue as an alphabetic suffix instead of being forced to `E3,000`.
-
----
-
 ## Alphabetic
 
-Alphabetic starts generated suffixes immediately.
+Alphabetic starts generated suffixes immediately:
 
 ```text
 1e3 -> 1aa
@@ -653,8 +849,6 @@ NanoNum.formatAlphabetic(value)
 ```
 
 Generated alphabetic suffixes support lengths from 2 through 11 characters within the safe integer index envelope.
-
----
 
 ## Metric
 
@@ -678,8 +872,6 @@ NanoNum.METRIC_SUFFIX_MAX_INDEX
 -- 10
 ```
 
----
-
 ## Scientific
 
 ```lua
@@ -689,11 +881,11 @@ print(NanoNum.formatScientific(
 -- 1e300
 ```
 
----
+For layered values Scientific keeps the legacy `e`-family representation instead of the Standard L display.
 
 ## Engineering
 
-Engineering notation keeps the exponent divisible by three.
+Engineering notation keeps the exponent divisible by three:
 
 ```lua
 print(NanoNum.formatEngineering(
@@ -702,11 +894,9 @@ print(NanoNum.formatEngineering(
 -- 10e3
 ```
 
----
-
 ## Exponent / E Notation
 
-Exponent mode uses compact display exponent notation.
+Exponent mode uses compact display exponent notation:
 
 ```lua
 print(NanoNum.formatExponent(
@@ -731,20 +921,30 @@ Reciprocals are preserved:
 1/E3,000
 ```
 
-For very large exponent values, Notation V2 can compact the exponent itself using standard suffixes:
+Coordinates are compacted too:
 
 ```text
-10^(1,000,000)
-->
-E1M
+10^(1,000,000) -> E1M
+10^(1e308)      -> E100UCe
 ```
 
-Automatic Standard/Extended `E` cutoff:
+Automatic Standard/Extended E cutoff:
 
 ```lua
 NanoNum.E_NOTATION_START
 -- 3000
 ```
+
+## Roman / Roman Extended
+
+Use:
+
+```lua
+NanoNum.formatRoman(value)
+NanoNum.formatRomanExtended(value)
+```
+
+Roman modes are intended for UI/display rather than huge-number progression.
 
 ---
 
@@ -986,16 +1186,16 @@ end
 
 ---
 
-# Leaderboard Codec — LB V2
+# Leaderboard Codec — LB V1
 
-NanoNum includes a monotonic signed integer codec intended for Roblox `OrderedDataStore` ranking.
+NanoNum includes a monotonic signed-integer codec intended for Roblox `OrderedDataStore` ranking.
 
 ```lua
 NanoNum.LB_VERSION
--- 2
+-- 1
 ```
 
-LB V2 keeps every leaderboard key inside the exact integer range of an IEEE-754 double:
+The key stays inside the IEEE-754 exact integer envelope:
 
 ```lua
 NanoNum.LB_MAX
@@ -1009,116 +1209,109 @@ NanoNum.LB_ONE
 -- 4503599627370496
 ```
 
-## What LB V2 fixes
-
-LB V1 was primarily a ranking/quantization codec. It could preserve ordering while decoding a value back to the representative of a leaderboard bucket rather than the original canonical NanoNum.
-
-LB V2 changes the layout so supported canonical NanoNums are encoded into reversible ordered ranges. The decoder reconstructs the canonical NanoNum carried by the key instead of using the old coarse bucket reconstruction.
-
-The main V2 regions are conceptually:
+LB is intentionally separate from NanoNum's bit-packed buffer serialization:
 
 ```text
-finite / normal values
-        ↓
-huge logarithmic values
-        ↓
-direct layered values
-        ↓
-log-layer values
+NanoNum buffer codec
+    -> minimize storage / preserve NanoNum representation
+
+LB codec
+    -> monotonic sortable 53-bit-safe ranking key
 ```
 
-Sign and reciprocal ordering remain symmetric around `LB_ONE`, so the integer key can still be used directly for leaderboard sorting.
+## Important: LB V1 is quantized
 
-The module exposes:
+LB V1 preserves ordering/buckets; it is not a lossless serializer for every NanoNum.
 
-```lua
-NanoNum.LB_V2_REVERSIBLE
--- true
+`lbdecode()` returns the representative NanoNum for the encoded leaderboard bucket.
 
-NanoNum.LB_V2_FINITE_CAP
-NanoNum.LB_V2_SCALAR_CAP
-NanoNum.LB_V2_USED_SPAN
-```
-
----
+Use the regular NanoNum buffer/packing codec when you need the actual NanoNum representation persisted.
 
 ## LB Encode / Decode
 
 ```lua
-local original = NanoNum.fromString("1.123e30")
+local original = NanoNum.fromString("1e1000")
 
 local code = NanoNum.lbencode(original)
 local restored = NanoNum.lbdecode(code)
 
 print("Before:", NanoNum.format(original))
 print("LB Code:", code)
-print("Decode:", NanoNum.format(restored))
-print("Stable:", NanoNum.lbRoundTripStable(original))
+print("Bucket:", NanoNum.format(restored))
+print("Stable key:", NanoNum.lbRoundTripStable(original))
 ```
 
-The LB code is a sortable integer key. Do **not** convert the LB code back through `fromNumber()` just to display it as a NanoNum currency value:
+`lbRoundTripStable()` means:
 
-```lua
--- Correct
-print(code)
-
--- Wrong meaning: this treats the leaderboard key itself as a currency value
-print(NanoNum.format(NanoNum.fromNumber(code)))
+```text
+encode(value)
+==
+encode(decode(encode(value)))
 ```
+
+It does **not** mean every original NanoNum bit pattern is recovered exactly.
 
 Numbers, strings, and NanoNum buffers are accepted:
 
 ```lua
 NanoNum.lbencode(1000)
 NanoNum.lbencode("1e1000")
-NanoNum.lbencode(NanoNum.fromString("1.123e30"))
+NanoNum.lbencode(NanoNum.fromString("1e1000"))
 ```
 
-For protected input handling:
+Protected input handling:
 
 ```lua
 local ok, code = NanoNum.tryLBEncode(value)
 
 if ok then
-    local restored = NanoNum.lbdecode(code)
+    local rankedValue = NanoNum.lbdecode(code)
 end
 ```
 
----
-
-## Huge-Value Round Trip
-
-LB V2 is designed to work with NanoNum's huge logarithmic and layered records as well as ordinary decimals.
+Validate an existing code:
 
 ```lua
-local exponent = NanoNum.fromString("1.5e308")
-local original = NanoNum.pow10(exponent)
-
-local ok, code = NanoNum.tryLBEncode(original)
-
-if ok then
-    local restored = NanoNum.lbdecode(code)
-
-    print("Before:", NanoNum.format(original))
-    print("LB Code:", code)
-    print("Decode:", NanoNum.format(restored))
-    print("Stable:", NanoNum.lbRoundTripStable(original))
-end
+NanoNum.isLBCode(code)
 ```
 
-`lbRoundTripStable()` verifies that an accepted value encodes, decodes, and re-encodes to the same LB V2 key.
+## LB Bands
 
----
+The codec maps values through monotonic regions for:
+
+```text
+ordinary exact-ish range
+ordinary logarithmic range
+huge logarithmic range
+low direct layers
+high direct layers
+log-layer values
+```
+
+Sign and reciprocal ordering are arranged symmetrically around `LB_ONE`.
+
+Inspect the selected band:
+
+```lua
+local info = NanoNum.lbinfo(value)
+
+print(info.version)
+print(info.code)
+print(info.band)
+print(info.negative)
+print(info.reciprocal)
+print(info.distanceFromOne)
+```
 
 ## LB Pack / Unpack
 
-Persist the codec version alongside the key:
+Persist the codec version with the key:
 
 ```lua
 local packed = NanoNum.lbpack(value)
 
 print(packed.v)
--- 2
+-- 1
 
 print(packed.c)
 ```
@@ -1129,38 +1322,24 @@ Decode later:
 local restored = NanoNum.lbunpack(packed)
 ```
 
-This is the recommended persistence pattern because the version travels with the leaderboard key.
-
----
-
-## LB V1 Backward Compatibility
-
-LB V2 does not silently reinterpret an old V1 key. NanoNum keeps the V1 decoder so old persisted leaderboard data can still be read.
+Accepted packet shapes are:
 
 ```lua
-local oldValue = NanoNum.lbdecode(oldCode, 1)
-
--- Explicit compatibility APIs
-local oldCode2 = NanoNum.lbencodeV1(value)
-local oldValue2 = NanoNum.lbdecodeV1(oldCode2)
+{v = 1, c = code}
 ```
 
-Current/default APIs use V2:
+and the legacy-key naming form:
 
 ```lua
-NanoNum.lbencode(value)
-NanoNum.lbdecode(code)
-NanoNum.lbencodeV2(value)
-NanoNum.lbdecodeV2(code)
+{version = 1, code = code}
 ```
 
-A mismatched unknown explicit version decodes as NaN instead of silently interpreting the code under the wrong mapping.
-
----
+An unknown explicit codec version decodes to NaN rather than silently being treated as another mapping.
 
 ## LB Helpers
 
 ```lua
+NanoNum.isLBCode(code)
 NanoNum.lbcodecVersion()
 NanoNum.lbinfo(value)
 NanoNum.lbquantize(value)
@@ -1169,25 +1348,26 @@ NanoNum.lbRoundTripStable(value)
 NanoNum.lbCompare(a, b)
 ```
 
-Compatibility aliases include:
+Compatibility aliases:
 
 ```lua
+NanoNum.lbencodeV1
+NanoNum.lbdecodeV1
 NanoNum.LBEncode
 NanoNum.LBDecode
 NanoNum.LBEncodeV1
 NanoNum.LBDecodeV1
-NanoNum.LBEncodeV2
-NanoNum.LBDecodeV2
 NanoNum.LBCompare
 NanoNum.LBRoundTripStable
 ```
 
 ---
-# Math V7
 
-NanoNum V0.3.3 is no longer only a formatter/serializer. It contains a large mixed-type math layer.
+# Math V8
 
-Main binary operations accept combinations of:
+NanoNum V0.5.0 includes the restored full math layer plus a **Math V8 safety boundary**.
+
+Main math inputs use:
 
 ```text
 number
@@ -1203,7 +1383,29 @@ local b = NanoNum.mul(a, NanoNum.fromNumber(2))
 local c = NanoNum.div(b, "1e10")
 ```
 
-Every successful arithmetic operation returns a NanoNum `buffer`, except comparison/predicate helpers that intentionally return Lua numbers/booleans.
+Successful arithmetic functions return NanoNum buffers, except comparison, predicate, sign, and other APIs that intentionally return Lua numbers/booleans.
+
+## Math Safety V1
+
+Normal public math calls validate malformed buffer inputs before reaching direct bit readers.
+
+For unknown/untrusted runtime values, use:
+
+```lua
+local okValue, compiled = NanoNum.tryCompile(value)
+
+local okMath, result = NanoNum.tryMath("add", a, b)
+
+local okCompare, comparison = NanoNum.tryCompare(a, b)
+```
+
+`NanoNum.fast` remains the intentionally trusted hot-path layer. It assumes its typed inputs are structurally valid and avoids the normal flexible dispatch/safety work.
+
+```text
+normal API -> typed + validated public boundary
+try* API   -> unknown/untrusted inputs
+fast API   -> trusted hot paths
+```
 
 ---
 
@@ -1699,7 +1901,7 @@ NanoNum.SLOG_VERSION
 
 # Gamma / Beta Functions
 
-NanoNum Math V7 includes gamma-family helpers.
+NanoNum Math V8 includes gamma-family helpers.
 
 ```lua
 NanoNum.gammaSign(value)   -- Lua number sign
@@ -1723,6 +1925,42 @@ NanoNum.GAMMA_VERSION
 
 # Public API Reference
 
+V0.5.0's exported module surface is fully typed by **Typecheck V2**.
+
+## Exported Value Types
+
+```lua
+type MathValue = number | string | buffer
+```
+
+Useful exported structural types include:
+
+```text
+DecodedValue
+DecodedInteger
+DecodedNormal
+DecodedLog
+DecodedLayer
+DecodedInfinity
+DecodedNaN
+DecodedReserved
+InspectInfo
+LBPacket
+LBPacketInput
+LBInfo
+MathPerfInfo
+CallPerfInfo
+FastMath
+NanoNumCore
+NanoNumFormatting
+NanoNumPacking
+NanoNumLeaderboard
+NanoNumMath
+NanoNumAliases
+NanoNumMetadata
+NanoNumModule
+```
+
 ## Suffix / Formatting Configuration
 
 ```lua
@@ -1741,21 +1979,24 @@ NanoNum.fromLayer(layer, top, negative?, reciprocal?)
 NanoNum.fromLayerLog10(layerLog10, top, negative?, reciprocal?)
 NanoNum.fromString(value, suffixType?)
 NanoNum.compile(value)
+NanoNum.tryCompile(value)
+NanoNum.isMathValue(value)
 ```
 
 ## Decode / Validation / Inspection
 
 ```lua
-NanoNum.decodeAt(data, bitOffset?)
+NanoNum.decodeAt(data, bitOffset)
 NanoNum.tryDecodeAt(data, bitOffset?)
 NanoNum.isValid(value)
 NanoNum.components(value)
 NanoNum.bitLength(value)
 NanoNum.byteLength(value)
 NanoNum.inspect(value)
+NanoNum.toNumberSafe(value)
 ```
 
-## Formatting
+## Number Formatting
 
 ```lua
 NanoNum.format(value, precision?, suffixType?)
@@ -1767,6 +2008,25 @@ NanoNum.formatAlphabetic(value, precision?)
 NanoNum.formatMetric(value, precision?)
 NanoNum.formatScientific(value, precision?)
 NanoNum.formatEngineering(value, precision?)
+NanoNum.formatRoman(value, precision?)
+NanoNum.formatRomanExtended(value, precision?)
+```
+
+## Time / Utility Formatting
+
+```lua
+NanoNum.formatTime(value, style?, precision?, maxParts?)
+NanoNum.formatDuration(value, style?, precision?, maxParts?)
+NanoNum.formatClock(value, precision?)
+
+NanoNum.parseTime(text)
+NanoNum.fromTime(text)
+NanoNum.parseDuration(text)
+
+NanoNum.formatRate(value, unit?, precision?, suffixType?)
+NanoNum.formatBytes(value, precision?, binary?)
+NanoNum.formatOrdinal(value)
+NanoNum.formatSigned(value, precision?, suffixType?)
 ```
 
 ## Packing
@@ -1780,9 +2040,12 @@ NanoNum.tryUnpackMany(packed, count, totalBits?)
 ## Leaderboard
 
 ```lua
+NanoNum.isLBCode(code)
 NanoNum.tryLBEncode(value)
 NanoNum.lbencode(value)
-NanoNum.lbdecode(encoded, version?)
+NanoNum.lbencodeV1(value)
+NanoNum.lbdecode(code, version?)
+NanoNum.lbdecodeV1(code, version?)
 NanoNum.lbcodecVersion()
 NanoNum.lbpack(value)
 NanoNum.lbunpack(data)
@@ -1802,11 +2065,15 @@ NanoNum.mul(a, b)
 NanoNum.div(a, b)
 NanoNum.pow(a, b)
 NanoNum.compare(a, b)
+
 NanoNum.eq(a, b)
 NanoNum.lt(a, b)
 NanoNum.lte(a, b)
 NanoNum.gt(a, b)
 NanoNum.gte(a, b)
+
+NanoNum.tryMath(operation, a, b)
+NanoNum.tryCompare(a, b)
 ```
 
 ## Unary / Classification
@@ -1818,6 +2085,7 @@ NanoNum.abs(value)
 NanoNum.reciprocal(value)
 NanoNum.toNumber(value)
 NanoNum.copySign(value, signSource)
+
 NanoNum.isNaN(value)
 NanoNum.isInfinite(value)
 NanoNum.isFinite(value)
@@ -1837,10 +2105,12 @@ NanoNum.log2(value)
 NanoNum.ln(value)
 NanoNum.log(value, base?)
 NanoNum.log1p(value)
+
 NanoNum.pow10(value)
 NanoNum.exp(value)
 NanoNum.exp2(value)
 NanoNum.expm1(value)
+
 NanoNum.sqrt(value)
 NanoNum.cbrt(value)
 NanoNum.root(value, degree)
@@ -1857,9 +2127,11 @@ NanoNum.ceil(value)
 NanoNum.trunc(value)
 NanoNum.round(value, decimals?)
 NanoNum.frac(value)
+
 NanoNum.mod(a, b)
 NanoNum.fmod(a, b)
 NanoNum.divmod(a, b)
+
 NanoNum.gcd(a, b)
 NanoNum.lcm(a, b)
 ```
@@ -1938,10 +2210,12 @@ NanoNum.nextGeometricCost(baseCost, growth, owned)
 ```lua
 NanoNum.iteratedExp10(value, times)
 NanoNum.iteratedLog10(value, times)
+
 NanoNum.tetrate10(height, payload?)
 NanoNum.tetrate(base, height, payload?)
 NanoNum.tetrateInteger(base, height, payload?)
 NanoNum.tetrate10Integer(height, payload?)
+
 NanoNum.slog10(value)
 NanoNum.slog(value, base?)
 ```
@@ -1952,6 +2226,8 @@ NanoNum.slog(value, base?)
 NanoNum.gammaSign(value)
 NanoNum.logGamma(value)
 NanoNum.gamma(value)
+NanoNum.factorialReal(value)
+
 NanoNum.betaSign(a, b)
 NanoNum.logBeta(a, b)
 NanoNum.beta(a, b)
@@ -1961,10 +2237,43 @@ NanoNum.beta(a, b)
 
 ```lua
 NanoNum.fast
+
 NanoNum.bindBinary(operation, leftType, rightType)
 NanoNum.bindRight(operation, constant, leftType?)
+
 NanoNum.mathPerfInfo()
 NanoNum.callPerfInfo()
+```
+
+`NanoNum.fast` contains 54 typed direct functions: 9 operand-pair variants for each of `add`, `sub`, `mul`, `div`, `pow`, and `compare`.
+
+## Compatibility Aliases
+
+Important aliases include:
+
+```text
+formatDuration -> formatTime
+fromTime -> parseTime
+parseDuration -> parseTime
+
+subtract -> sub
+multiply -> mul
+divide -> div
+power -> pow
+equal -> eq
+
+modulo -> mod
+remainder -> fmod
+average -> mean
+choose / nCr -> combination
+nPr -> permutation
+nthRoot -> root
+almostEqual -> approxEq
+
+tetr -> tetrate
+superLog -> slog
+inverse -> reciprocal
+negative -> neg
 ```
 
 ---
@@ -1973,34 +2282,64 @@ NanoNum.callPerfInfo()
 
 ```lua
 print(NanoNum.VERSION)
--- 0.3.3
+-- 0.5.0
+
+print(NanoNum.TYPECHECK_VERSION)
+-- 2
 
 print(NanoNum.PARSER_VERSION)
--- 9
-
-print(NanoNum.SUFFIX_VERSION)
 -- 5
 
-print(NanoNum.PERF_VERSION)
--- 7
+print(NanoNum.SUFFIX_VERSION)
+-- 3
 
-print(NanoNum.PATH_VERSION)
--- 4
-
-print(NanoNum.NOTATION_VERSION)
--- 2
-
-print(NanoNum.LB_VERSION)
--- 2
-
-print(NanoNum.MATH_VERSION)
--- 7
-
-print(NanoNum.MATH_CLEANUP_VERSION)
+print(NanoNum.ROMAN_VERSION)
 -- 1
 
+print(NanoNum.TIME_VERSION)
+-- 1
+
+print(NanoNum.UTILITY_FORMAT_VERSION)
+-- 1
+
+print(NanoNum.PERF_VERSION)
+-- 5
+
+print(NanoNum.PATH_VERSION)
+-- 1
+
+print(NanoNum.NOTATION_VERSION)
+-- 4
+
+print(NanoNum.REGISTER_SCOPE_VERSION)
+-- 1
+
+print(NanoNum.FORMAT_SCOPE_VERSION)
+-- 1
+
+print(NanoNum.UTILITY_SCOPE_VERSION)
+-- 1
+
+print(NanoNum.PACK_SCOPE_VERSION)
+-- 1
+
+print(NanoNum.LB_SCOPE_VERSION)
+-- 1
+
+print(NanoNum.LB_VERSION)
+-- 1
+
+print(NanoNum.MATH_SCOPE_VERSION)
+-- 1
+
+print(NanoNum.MATH_VERSION)
+-- 8
+
 print(NanoNum.MATH_CORRECTNESS_VERSION)
--- 2
+-- 3
+
+print(NanoNum.MATH_SAFETY_VERSION)
+-- 1
 
 print(NanoNum.MATH_PERF_VERSION)
 -- 2
@@ -2021,16 +2360,17 @@ print(NanoNum.GAMMA_VERSION)
 -- 2
 ```
 
-These versions are separated intentionally. A parser rewrite, math performance rewrite, notation change, or tetration fix does not automatically require changing persisted LB mappings or every other subsystem.
+Subsystem versions are deliberately independent. A notation change does not automatically imply a wire-format, leaderboard, or math-version migration.
 
 ---
 
 # Current Constants
 
-Important public constants include:
+Important public constants and metadata include:
 
 ```lua
 NanoNum.VERSION
+NanoNum.TYPECHECK_VERSION
 
 NanoNum.MAX_LAYER
 NanoNum.MAX_LAYER_LOG10
@@ -2039,17 +2379,29 @@ NanoNum.NORMAL_SIGNIFICAND_BITS
 NanoNum.SCALAR_SIGNIFICAND_BITS
 
 NanoNum.PARSER_VERSION
+NanoNum.NOTATION_VERSION
 NanoNum.SUFFIX_VERSION
+NanoNum.ROMAN_VERSION
+NanoNum.TIME_VERSION
+NanoNum.UTILITY_FORMAT_VERSION
+
 NanoNum.PERF_VERSION
 NanoNum.PATH_VERSION
-NanoNum.NOTATION_VERSION
-
 NanoNum.DEFAULT_PATH
+
 NanoNum.DEFAULT_SUFFIX_TYPE
 NanoNum.E_NOTATION_START
 NanoNum.STANDARD_SUFFIX_MAX_INDEX
 NanoNum.METRIC_SUFFIX_MAX_INDEX
 NanoNum.SUFFIX_TYPES
+
+NanoNum.ROMAN_CLASSICAL_MAX
+NanoNum.ROMAN_EXTENDED_MAX
+
+NanoNum.REGISTER_SCOPE_VERSION
+NanoNum.FORMAT_SCOPE_VERSION
+NanoNum.UTILITY_SCOPE_VERSION
+NanoNum.PACK_SCOPE_VERSION
 
 NanoNum.LB_SCOPE_VERSION
 NanoNum.LB_VERSION
@@ -2058,12 +2410,6 @@ NanoNum.LB_FINITE_MAX
 NanoNum.LB_ONE
 NanoNum.LB_POSITIVE_SPAN
 
-NanoNum.LB_V2_REVERSIBLE
-NanoNum.LB_V2_FINITE_CAP
-NanoNum.LB_V2_SCALAR_CAP
-NanoNum.LB_V2_USED_SPAN
-
--- Legacy LB V1 layout constants remain available for compatibility
 NanoNum.LB_ORDINARY_EXACT_MAX
 NanoNum.LB_ORDINARY_SUBSLOTS
 NanoNum.LB_ORDINARY_LOG_SHARE
@@ -2074,8 +2420,8 @@ NanoNum.LB_HIGH_LAYER_SHARE
 
 NanoNum.MATH_SCOPE_VERSION
 NanoNum.MATH_VERSION
-NanoNum.MATH_CLEANUP_VERSION
 NanoNum.MATH_CORRECTNESS_VERSION
+NanoNum.MATH_SAFETY_VERSION
 NanoNum.MATH_PERF_VERSION
 NanoNum.MATH_PATH_VERSION
 NanoNum.MATH_DEFAULT_PATH
@@ -2090,6 +2436,8 @@ NanoNum.DECIMAL_TETRATION_VERSION
 NanoNum.SLOG_VERSION
 NanoNum.GAMMA_VERSION
 ```
+
+The compact coordinate `UCe` extension used by E/L rendering is intentionally private; `STANDARD_SUFFIX_MAX_INDEX` remains `101`.
 
 ---
 
@@ -2343,6 +2691,83 @@ print(NanoNum.format(restored))
 
 ---
 
+# Register Scope V1
+
+V0.5.0 fixes the Luau compile failure:
+
+```text
+Out of local registers when trying to allocate lbDecodePositiveDelta:
+exceeded limit 200
+```
+
+The issue was not that `lbDecodePositiveDelta()` itself had 200 locals. V0.5.4 had accumulated too many direct locals in the module chunk, so Luau exhausted the outer function register frame while declaring later helpers.
+
+V0.5.0 moves register-heavy subsystems into real function frames using immediately invoked functions:
+
+```lua
+(function()
+    -- subsystem locals/helpers
+end)()
+```
+
+A plain:
+
+```lua
+do
+    -- ...
+end
+```
+
+is not enough for this purpose because it still uses the same Luau function register frame.
+
+Static register-budget audit:
+
+| Scope | Direct locals |
+|---|---:|
+| Main module chunk | **124** |
+| Formatter | 16 |
+| Utility formatting | 5 |
+| Packing | 4 |
+| Leaderboard | 59 |
+| Math core engine frame | 90 |
+| Math V8 safety | 24 |
+
+V0.5.4's module chunk was approximately:
+
+```text
+203 direct top-level locals
+```
+
+V0.5.0 reduces it to:
+
+```text
+124 direct top-level locals
+```
+
+The conservative static scan reports the largest individual function, `fromString`, at approximately 99 lexical locals + parameters.
+
+Current scope metadata:
+
+```lua
+NanoNum.REGISTER_SCOPE_VERSION
+NanoNum.FORMAT_SCOPE_VERSION
+NanoNum.UTILITY_SCOPE_VERSION
+NanoNum.PACK_SCOPE_VERSION
+NanoNum.LB_SCOPE_VERSION
+NanoNum.MATH_SCOPE_VERSION
+```
+
+The v0.5.0 structural audit reports:
+
+```text
+35 PASS
+0 FAIL
+```
+
+This is a static source/register-budget audit. Requiring the module in Roblox Studio remains the final Luau compiler/runtime verification.
+
+---
+
 # Performance Testing
 
 For meaningful RTT-style microbenchmarks:
@@ -2362,29 +2787,31 @@ A faster result is useful only if the value, parser, formatting, and math regres
 
 ---
 
-# Migrating an Older V0.1.x README
+# Migrating an Older README
 
-If your README still describes V0.1.0, the main documentation changes for the current module are:
+If your README still documents the V0.3.x line, the major documentation changes for V0.5.0 are:
 
-- release metadata is now **V0.3.3**
-- Parser **V3 -> V9**
-- Suffix **V3 -> V5**
-- Perf **V5 -> V7**
-- Path **V1 -> V4**
-- Notation **V2** is now exposed
-- conceptual maximum is documented as **10 ↑↑ (10 ↑ (2^1024))**
-- Standard suffix capacity is now **999 suffix indices**
-- `extended` currently shares Standard's suffix table/cutoff
-- Hybrid is the mode that continues into generated alphabetic suffixes after the Standard table
-- `inspect()` uses `Version`, `Bits`, `Bytes`, `PaddingBits`, `Data`
-- new `L...` layer notation is part of the main formatter/parser path
-- the module now includes **Math V7**
-- flexible mixed-type binary math supports `number`, `buffer`, and `string`
-- `NanoNum.fast` provides typed direct binary functions
-- `compile`, `bindBinary`, and `bindRight` are available for hot paths
-- simulator economy helpers are built in
-- decimal tetration, slog, gamma, and beta functions are included
-- leaderboard default is now **LB V2**; LB V1 decode remains available for old persisted keys
+- release metadata is now **V0.5.0**
+- **Typecheck V2** covers the exported module surface
+- Parser is **V5**
+- public suffix system is **V3**
+- public Standard suffix maximum is **101**, not 999
+- Roman formatting is **V1**
+- time/utility formatting is **V1**
+- Notation is **V4**
+- clean Standard -> E -> L formatting is restored
+- compact coordinate output now includes `E100UCe`, `L2 100UCe`, and `L3 100UCe`
+- `UCe` is a private coordinate extension; it does not change `getSuffix(102, "standard")`
+- Math is now **V8**
+- Math correctness is **V3**
+- Math Safety **V1** protects the normal public math boundary
+- `tryCompile`, `tryMath`, and `tryCompare` are available for unknown inputs
+- Roman/time/bytes/rate/ordinal/signed formatters are documented
+- leaderboard default is **LB V1**, which is a quantized monotonic ranking codec
+- LB V2 reversible claims from older documentation do **not** apply to this build
+- Register Scope **V1** isolates formatter, utility, packing, leaderboard, and math subsystems
+- the main module register budget was reduced from roughly **203 -> 124** direct top-level local bindings
+- the public wire prefix layout remains unchanged by the register-scope release
 
 ---
 
@@ -2394,13 +2821,15 @@ NanoNum prioritizes:
 
 1. **Low storage cost**
 2. **Fast canonical paths**
-3. **Readable huge-number formatting**
+3. **Readable Standard -> E -> L huge-number formatting**
 4. **Symbolic preservation of huge/tiny values**
 5. **Useful game-oriented huge-number math**
-6. **Safe optional decoding**
-7. **Stable leaderboard ordering**
+6. **Safe public boundaries for malformed/untrusted data**
+7. **Stable monotonic leaderboard ordering**
 8. **Hot-loop APIs with avoidable dispatch/parsing removed**
-9. **Versioned subsystem evolution**
+9. **Strong exported Luau typechecking**
+10. **Register-safe subsystem architecture**
+11. **Versioned subsystem evolution**
 
 ---
 
@@ -2423,10 +2852,12 @@ Its focus is **compact huge-number storage, parsing, notation, game math, packin
 ```text
 NanoNum/
 ├── NanoNum.lua
-├── NanoNum_Test.lua
+├── README.md
+├── NanoNum_v0.5.0_RegisterScopeRegression.server.lua
+├── NanoNum_v0.5.0_CompactCoordinateRegression.server.lua
+├── NanoNum_v0.5.0_TypecheckCoverage.server.lua
 ├── NanoNum_FullAPIBenchmark.lua
-├── NanoNum_MathBenchmark.lua
-└── README.md
+└── NanoNum_MathBenchmark.lua
 ```
 
 ---
@@ -2435,7 +2866,7 @@ NanoNum/
 
 NanoNum is built around one main idea:
 
-> **Do not spend bits, bytes, parsing work, or dispatch work on information the current value does not need.**
+> **Do not spend bits, bytes, parsing work, dispatch work, or compiler register budget on information the current value does not need.**
 
 Small values stay small.
 
@@ -2445,10 +2876,16 @@ Astronomical values become layered.
 
 Tiny values remain symbolic.
 
-Multiple values can share one bitstream.
+Multiple values can share one packed bitstream.
 
-Standard display moves from suffixes into compact exponent notation when needed.
+Standard display progresses cleanly from suffixes into `E` notation and then actual `L` layers.
 
-Math V7 lets the same representation participate directly in game calculations, including hot-path typed operations, progression formulas, tetration, slog, and gamma-family functions.
+Coordinates are compacted too, so values such as `10^(1e308)` display as `E100UCe` instead of `E1e+308`.
 
-And persisted leaderboard values keep their own explicit codec version so ranking semantics can evolve independently from parser, notation, and math changes.
+Math V8 lets the same representation participate directly in game calculations while keeping a protected normal API, safe `try*` boundaries, and 54 trusted direct `NanoNum.fast` calls.
+
+Typecheck V2 gives the public module an explicit exported Luau surface.
+
+Register Scope V1 keeps formatter, utility, packing, leaderboard, and math helper locals in separate function frames so the module does not hit Luau's 200-local register ceiling.
+
+And leaderboard ranking remains independently versioned from the NanoNum buffer codec, parser, notation, and math layers.
