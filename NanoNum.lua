@@ -3,6 +3,9 @@
 
 local NanoFormat = {}
 
+-- NanoNum 1.0 is a clean-break API: canonical names only, no legacy aliases,
+-- and formatter precision consistently means decimal places.
+
 export type MathValue = number | string | buffer
 export type MathBinaryOperation = "add" | "sub" | "mul" | "div" | "pow"
 export type MathCompareOperation = "compare" | "eq" | "lt" | "lte" | "gt" | "gte"
@@ -13,11 +16,7 @@ export type MathValueArray = {MathValue}
 export type SuffixType = "standard" | "extended" | "hybrid" | "alphabetic" | "metric"
 | "exponent" | "scientific" | "engineering" | "roman" | "romanextended"
 export type SuffixName = SuffixType
-| "short" | "ext" | "compact" | "mixed" | "alpha" | "letters"
-| "si" | "exp" | "enotation" | "sci" | "eng"
-| "romanx" | "roman_ext"
 export type TimeStyle = "compact" | "long" | "clock" | "seconds"
-| "raw" | "timer" | "words"
 
 export type DecodedInteger = {
 	Kind: "Integer",
@@ -60,9 +59,6 @@ export type InspectInfo = {
 	Data: DecodedValue,
 }
 
-export type LBPacket = {v: number, c: number}
-export type LBLegacyPacket = {version: number, code: number}
-export type LBPacketInput = LBPacket | LBLegacyPacket
 export type LBInfo = {
 	version: number,
 	code: number,
@@ -193,11 +189,8 @@ export type NanoNumFormatting = {
 	formatRomanExtended: (buffer, number?) -> string,
 	toNumberSafe: (MathValue) -> number?,
 	formatTime: (MathValue, TimeStyle?, number?, number?) -> string,
-	formatDuration: (MathValue, TimeStyle?, number?, number?) -> string,
 	formatClock: (MathValue, number?) -> string,
 	parseTime: (string) -> buffer,
-	fromTime: (string) -> buffer,
-	parseDuration: (string) -> buffer,
 	formatRate: (MathValue, string?, number?, SuffixName?) -> string,
 	formatBytes: (MathValue, number?, boolean?) -> string,
 	formatOrdinal: (MathValue) -> string,
@@ -215,23 +208,13 @@ export type NanoNumLeaderboard = {
 	isLBCode: (number) -> boolean,
 	tryLBEncode: (any) -> (boolean, number),
 	lbencode: (MathValue) -> number,
-	lbencodeV1: (MathValue) -> number,
-	lbdecode: (number, number?) -> buffer,
-	lbdecodeV1: (number, number?) -> buffer,
+	lbdecode: (number) -> buffer,
 	lbcodecVersion: () -> number,
-	lbpack: (MathValue) -> LBPacket,
-	lbunpack: (LBPacketInput) -> buffer,
 	lbinfo: (MathValue) -> LBInfo,
 	lbquantize: (MathValue) -> buffer,
 	lbSameBucket: (MathValue, MathValue) -> boolean,
 	lbRoundTripStable: (MathValue) -> boolean,
 	lbCompare: (MathValue, MathValue) -> number,
-	LBEncode: (MathValue) -> number,
-	LBDecode: (number, number?) -> buffer,
-	LBEncodeV1: (MathValue) -> number,
-	LBDecodeV1: (number, number?) -> buffer,
-	LBCompare: (MathValue, MathValue) -> number,
-	LBRoundTripStable: (MathValue) -> boolean,
 }
 
 export type NanoNumMath = {
@@ -247,23 +230,12 @@ export type NanoNumMath = {
 	lte: MathPredicateFunction,
 	gt: MathPredicateFunction,
 	gte: MathPredicateFunction,
-	subtract: MathBinaryFunction,
-	multiply: MathBinaryFunction,
-	divide: MathBinaryFunction,
-	power: MathBinaryFunction,
-	equal: MathPredicateFunction,
-	lessThan: MathPredicateFunction,
-	lessThanOrEqual: MathPredicateFunction,
-	greaterThan: MathPredicateFunction,
-	greaterThanOrEqual: MathPredicateFunction,
 
 	-- Signs / classification / conversion
 	sign: (MathValue) -> number,
 	neg: (MathValue) -> buffer,
-	negative: (MathValue) -> buffer,
 	abs: (MathValue) -> buffer,
 	reciprocal: (MathValue) -> buffer,
-	inverse: (MathValue) -> buffer,
 	copySign: (MathValue, MathValue) -> buffer,
 	toNumber: (MathValue) -> number,
 	isNaN: (MathValue) -> boolean,
@@ -304,7 +276,6 @@ export type NanoNumMath = {
 	sqrt: (MathValue) -> buffer,
 	cbrt: (MathValue) -> buffer,
 	root: (MathValue, MathValue) -> buffer,
-	nthRoot: (MathValue, MathValue) -> buffer,
 	square: (MathValue) -> buffer,
 	cube: (MathValue) -> buffer,
 	hypot: (MathValue, MathValue) -> buffer,
@@ -318,7 +289,6 @@ export type NanoNumMath = {
 	ratio: (MathValue, MathValue) -> buffer,
 	relativeDifference: (MathValue, MathValue) -> buffer,
 	approxEq: (MathValue, MathValue, MathValue?, MathValue?) -> boolean,
-	almostEqual: (MathValue, MathValue, MathValue?, MathValue?) -> boolean,
 	orderOfMagnitude: (MathValue) -> buffer,
 	digitCount: (MathValue) -> buffer,
 	smoothstep: (MathValue, MathValue, MathValue) -> buffer,
@@ -340,51 +310,38 @@ export type NanoNumMath = {
 	-- Series / simulator economy
 	arithmeticSeries: (MathValue, MathValue, MathValue) -> buffer,
 	geometricSeries: (MathValue, MathValue, MathValue) -> buffer,
-	seriesArithmetic: (MathValue, MathValue, MathValue) -> buffer,
-	seriesGeometric: (MathValue, MathValue, MathValue) -> buffer,
 	compound: (MathValue, MathValue, MathValue) -> buffer,
 	softcap: (MathValue, MathValue, MathValue) -> buffer,
 	inverseSoftcap: (MathValue, MathValue, MathValue) -> buffer,
 	diminishingReturns: (MathValue, MathValue) -> buffer,
 	inverseDiminishingReturns: (MathValue, MathValue) -> buffer,
-	inverseDiminishing: (MathValue, MathValue) -> buffer,
 	sigmoid: (MathValue) -> buffer,
 	logit: (MathValue) -> buffer,
 	geometricCost: (MathValue, MathValue, MathValue, MathValue) -> buffer,
 	maxAffordableGeometric: (MathValue, MathValue, MathValue, MathValue?) -> buffer,
 	bulkBuyGeometric: (MathValue, MathValue, MathValue, MathValue?) -> (buffer, buffer, buffer),
 	nextGeometricCost: (MathValue, MathValue, MathValue) -> buffer,
-	geometricBulkCost: (MathValue, MathValue, MathValue, MathValue) -> buffer,
-	affordableGeometric: (MathValue, MathValue, MathValue, MathValue?) -> buffer,
 
 	-- Iteration / hyper operations
 	iteratedExp10: (MathValue, MathValue) -> buffer,
 	iteratedLog10: (MathValue, MathValue) -> buffer,
 	tetrate: (MathValue, MathValue, MathValue?) -> buffer,
-	tetr: (MathValue, MathValue, MathValue?) -> buffer,
-	tetrateDecimal: (MathValue, MathValue, MathValue?) -> buffer,
-	tetrateContinuous: (MathValue, MathValue, MathValue?) -> buffer,
 	tetrate10: (MathValue, MathValue?) -> buffer,
-	tetrate10Decimal: (MathValue, MathValue?) -> buffer,
 	tetrateInteger: (MathValue, MathValue, MathValue?) -> buffer,
 	tetrate10Integer: (MathValue, MathValue?) -> buffer,
 	slog: (MathValue, MathValue?) -> buffer,
-	superLog: (MathValue, MathValue?) -> buffer,
 	slog10: (MathValue) -> buffer,
 
 	-- Gamma / beta
 	gammaSign: (MathValue) -> number,
 	logGamma: (MathValue) -> buffer,
-	logAbsGamma: (MathValue) -> buffer,
 	gamma: (MathValue) -> buffer,
 	betaSign: (MathValue, MathValue) -> number,
 	logBeta: (MathValue, MathValue) -> buffer,
-	logAbsBeta: (MathValue, MathValue) -> buffer,
 	beta: (MathValue, MathValue) -> buffer,
 
 	-- Compiled / direct-call math
 	compile: (MathValue) -> buffer,
-	constant: (MathValue) -> buffer,
 	bindBinary: (BindOperation, DirectValueType, DirectValueType) -> BoundBinaryFunction?,
 	bindRight: (MathBinaryOperation, MathValue, DirectValueType?) -> BoundUnaryFunction?,
 	mathPerfInfo: () -> MathPerfInfo,
@@ -398,18 +355,6 @@ export type NanoNumMath = {
 	tryCompare: (any, any) -> (boolean, number?),
 }
 
-export type NanoNumAliases = {
-	modulo: (MathValue, MathValue) -> buffer,
-	remainder: (MathValue, MathValue) -> buffer,
-	average: (MathValueArray) -> buffer,
-	choose: (MathValue, MathValue) -> buffer,
-	nCr: (MathValue, MathValue) -> buffer,
-	nPr: (MathValue, MathValue) -> buffer,
-	slog10Approx: (MathValue) -> buffer,
-	saturate: (MathValue) -> buffer,
-	growth: (MathValue, MathValue, MathValue) -> buffer,
-	lnGamma: (MathValue) -> buffer,
-}
 
 export type NanoNumMetadata = {
 	TYPECHECK_VERSION: number,
@@ -435,6 +380,9 @@ export type NanoNumMetadata = {
 	STANDARD_SUFFIX_MAX_INDEX: number,
 	METRIC_SUFFIX_MAX_INDEX: number,
 	DEFAULT_SUFFIX_TYPE: string,
+	DEFAULT_PRECISION: number,
+	MAX_PRECISION: number,
+	FORMAT_PRECISION_MODE: string,
 	E_NOTATION_START: number,
 	SUFFIX_TYPES: {[string]: boolean},
 	LB_VERSION: number,
@@ -463,7 +411,6 @@ export type NanoNumMetadata = {
 	MATH_DEFAULT_PATH: number,
 	MATH_CORRECTNESS_VERSION: number,
 	TETRATION_VERSION: number,
-	DECIMAL_TETRATION_VERSION: number,
 	SLOG_VERSION: number,
 	GAMMA_VERSION: number,
 	MATH_SAFETY_VERSION: number,
@@ -474,19 +421,18 @@ export type NanoNumModule = NanoNumCore
 & NanoNumPacking
 & NanoNumLeaderboard
 & NanoNumMath
-& NanoNumAliases
 & NanoNumMetadata
 
 NanoFormat.TYPECHECK_VERSION = 2
 
-NanoFormat.VERSION = "0.001.0"
+NanoFormat.VERSION = "1.0.1"
 NanoFormat.REGISTER_SCOPE_VERSION = 1
 NanoFormat.MAX_LAYER = 1e308
 NanoFormat.MAX_LAYER_LOG10 = 1e308
 NanoFormat.NORMAL_SIGNIFICAND_BITS = 16
 NanoFormat.SCALAR_SIGNIFICAND_BITS = 14
 NanoFormat.PARSER_VERSION = 5
-NanoFormat.NOTATION_VERSION = 4
+NanoFormat.NOTATION_VERSION = 5
 NanoFormat.PERF_VERSION = 5
 NanoFormat.PATH_VERSION = 1
 NanoFormat.DEFAULT_PATH = 0
@@ -572,15 +518,18 @@ local DIGIT_LOG10 = {
 -- "exponent"   compact E3,000 / 1.25E3,006 exponent notation.
 -- "scientific" 1.234e123.
 -- "engineering" exponent is always a multiple of three.
-NanoFormat.SUFFIX_VERSION = 3
+NanoFormat.SUFFIX_VERSION = 4
 NanoFormat.ROMAN_VERSION = 1
 NanoFormat.TIME_VERSION = 1
-NanoFormat.UTILITY_FORMAT_VERSION = 1
+NanoFormat.UTILITY_FORMAT_VERSION = 2
 NanoFormat.ROMAN_CLASSICAL_MAX = 3999
 NanoFormat.ROMAN_EXTENDED_MAX = 9007199254740991
 NanoFormat.STANDARD_SUFFIX_MAX_INDEX = 101
 NanoFormat.METRIC_SUFFIX_MAX_INDEX = 10
 NanoFormat.DEFAULT_SUFFIX_TYPE = "standard"
+NanoFormat.DEFAULT_PRECISION = 2
+NanoFormat.MAX_PRECISION = 8
+NanoFormat.FORMAT_PRECISION_MODE = "decimal-places"
 NanoFormat.E_NOTATION_START = 3000
 NanoFormat.SUFFIX_TYPES = {
 	standard = true,
@@ -602,7 +551,7 @@ local STANDARD_SUFFIXES = {
 
 -- 10^63..10^300. The base member of each family is followed by
 -- un-/duo-/tre-/.../novem-style compact prefixes, matching the existing Vg
--- spellings V0.4 already used.
+-- canonical spellings used by NanoNum.
 local STANDARD_FAMILIES = {
 	{21, "Vg", "vg"},
 	{31, "Tg", "tg"},
@@ -626,8 +575,8 @@ end
 STANDARD_SUFFIXES[101] = "Ce"
 
 -- Coordinate suffix extension -------------------------------------------------
--- Public Standard formatting deliberately keeps the V0.001.x suffix table and
--- STANDARD_SUFFIX_MAX_INDEX=101 for compatibility. E/L coordinates, however,
+-- Standard formatting uses the canonical short-scale suffix table through
+-- STANDARD_SUFFIX_MAX_INDEX=101. E/L coordinates, however,
 -- are native Luau scalars and can reach 1e308. The one additional group needed
 -- to keep the full scalar envelope compact is 10^306 => UCe, so 1e308 renders
 -- as 100UCe instead of raw 1e+308.
@@ -661,40 +610,14 @@ for i, suffix in METRIC_SUFFIXES do
 end
 METRIC_SUFFIX_TO_INDEX["K"] = 1
 
-local SUFFIX_TYPE_ALIASES = {
-	short = "standard",
-	ext = "extended",
-	compact = "extended",
-	mixed = "hybrid",
-	alpha = "alphabetic",
-	letters = "alphabetic",
-	si = "metric",
-	exp = "exponent",
-	enotation = "exponent",
-	sci = "scientific",
-	eng = "engineering",
-	romanx = "romanextended",
-	roman_ext = "romanextended",
-	romanextended = "romanextended",
-}
-
 local function normalizeSuffixType(suffixType: string?): string
 	if suffixType == nil then
 		return NanoFormat.DEFAULT_SUFFIX_TYPE
 	end
-
-	-- All formatter/parser hot paths pass the canonical lowercase names. Avoid
-	-- allocating a lowercased copy unless the caller actually used mixed case.
 	if NanoFormat.SUFFIX_TYPES[suffixType] then
 		return suffixType
 	end
-	local directAlias = SUFFIX_TYPE_ALIASES[suffixType]
-	if directAlias ~= nil then
-		return directAlias
-	end
-
 	local kind = lower(suffixType)
-	kind = SUFFIX_TYPE_ALIASES[kind] or kind
 	if NanoFormat.SUFFIX_TYPES[kind] then
 		return kind
 	end
@@ -801,31 +724,11 @@ end
 -- Canonical/default calls stay entirely in the public function.  Alias/case
 -- normalization is a fallback only, matching GammaNum's direct hot-path style.
 function NanoFormat.isSuffixType(suffixType: string): boolean
-	-- PATH 0: canonical suffix names.
-	if NanoFormat.SUFFIX_TYPES[suffixType] == true then
-		return true
-	end
-	-- PATH 1: aliases / mixed case.
-	if SUFFIX_TYPE_ALIASES[suffixType] ~= nil then
-		return true
-	end
-	local kind = lower(suffixType)
-	kind = SUFFIX_TYPE_ALIASES[kind] or kind
-	return NanoFormat.SUFFIX_TYPES[kind] == true
+	return NanoFormat.SUFFIX_TYPES[suffixType] == true or NanoFormat.SUFFIX_TYPES[lower(suffixType)] == true
 end
 
 function NanoFormat.setDefaultSuffixType(suffixType: string): boolean
-	-- PATH 0: canonical suffix name.
-	if NanoFormat.SUFFIX_TYPES[suffixType] == true then
-		NanoFormat.DEFAULT_SUFFIX_TYPE = suffixType
-		return true
-	end
-	-- PATH 1: alias / mixed case.
-	local kind = SUFFIX_TYPE_ALIASES[suffixType]
-	if kind == nil then
-		kind = lower(suffixType)
-		kind = SUFFIX_TYPE_ALIASES[kind] or kind
-	end
+	local kind = if NanoFormat.SUFFIX_TYPES[suffixType] then suffixType else lower(suffixType)
 	if NanoFormat.SUFFIX_TYPES[kind] ~= true then
 		return false
 	end
@@ -861,7 +764,7 @@ function NanoFormat.getSuffix(index: number, suffixType: string?): string?
 	elseif kind == "exponent" or kind == "scientific" or kind == "engineering" or kind == "roman" or kind == "romanextended" then
 		return nil
 	end
-	-- PATH 1: aliases / mixed-case suffix type.
+	-- PATH 1: mixed-case canonical suffix type.
 	return suffixForIndex(i, normalizeSuffixType(kind))
 end
 
@@ -897,7 +800,7 @@ function NanoFormat.suffixIndex(suffix: string, suffixType: string?): number?
 		return nil
 	end
 
-	-- PATH 1: alias / mixed-case suffix type.
+	-- PATH 1: mixed-case canonical suffix type.
 	kind = normalizeSuffixType(kind)
 	if kind == "standard" then
 		return STANDARD_SUFFIX_TO_INDEX[suffix]
@@ -1875,7 +1778,7 @@ local function coordinateSuffixIndexRange(value: string, first: number, last: nu
 end
 
 -- Parses the exponent coordinate emitted by exponentCompactText:
--- 3,000 / 1M / 100UCe / 1e+308 (legacy fallback).
+-- 3,000 / 1M / 100UCe / 1e+308 (numeric fallback).
 local function parseCompactExponentRange(value: string, first: number, last: number): number?
 	if first > last then
 		return nil
@@ -1909,17 +1812,12 @@ local function parseCompactExponentRange(value: string, first: number, last: num
 		end
 	end
 
-	-- Compatibility with V0.001.3 output such as E1e+308.
-	local finite, direct = parseFiniteNumericRange(value, first, last)
-	if finite and direct ~= nil and direct ~= huge and direct ~= -huge then
-		return direct
-	end
 
 	return nil
 end
 
 -- Parses the compact scalar grammar used on both sides of L notation:
--- 3, 1k, 1M, 100UCe, and legacy 1e+308.
+-- 3, 1k, 1M, 100UCe, and numeric 1e+308.
 local function parseCompactLayerScalarRange(value: string, first: number, last: number): number?
 	local plain = parseGroupedDecimalRange(value, first, last)
 	if plain ~= nil then
@@ -1949,11 +1847,6 @@ local function parseCompactLayerScalarRange(value: string, first: number, last: 
 		end
 	end
 
-	-- Compatibility with V0.001.3 L output such as L3 1e+308.
-	local finite, direct = parseFiniteNumericRange(value, first, last)
-	if finite and direct ~= nil and direct ~= huge and direct ~= -huge then
-		return direct
-	end
 
 	return nil
 end
@@ -2071,7 +1964,7 @@ local function classifyDirectStringFast(value: string): (boolean, number)
 end
 
 function NanoFormat.fromString(value: string, suffixType: SuffixName?): buffer
-	-- V0.001.4 keeps the dispatch-before-tonumber parser. Symbolic forms, suffixes, and
+	-- Dispatch before tonumber(): symbolic forms, suffixes, and
 	-- scientific exponents that cannot fit IEEE-754 no longer pay for a failed
 	-- C-number parse before the real NanoFormat parser starts.
 	local tryDirect, hintedEPos = classifyDirectStringFast(value)
@@ -2121,8 +2014,7 @@ function NanoFormat.fromString(value: string, suffixType: SuffixName?): buffer
 
 	-- L notation ---------------------------------------------------------------
 	-- Canonical: L<layer> <top> / L(10^<layerLog10>) <top>
-	-- Compatibility: ':' may replace the separating space.
-	-- Examples: L3 1k, L3:1k, L1M 1k, L(10^1M) 1k.
+	-- Canonical examples: L3 1k, L1M 1k, L(10^1M) 1k.
 	if asciiLowerByte(byte(value, first)) == 108 and first < last then
 		local tokenStart = first + 1
 
@@ -2141,7 +2033,7 @@ function NanoFormat.fromString(value: string, suffixType: SuffixName?): buffer
 					local topStart = close + 1
 					while topStart <= last do
 						local tc = byte(value, topStart)
-						if isWhitespaceByte(tc) or tc == 58 then
+						if isWhitespaceByte(tc) then
 							topStart += 1
 						else
 							break
@@ -2161,7 +2053,7 @@ function NanoFormat.fromString(value: string, suffixType: SuffixName?): buffer
 			local split = 0
 			for i = tokenStart, last do
 				local sc = byte(value, i)
-				if isWhitespaceByte(sc) or sc == 58 then
+				if isWhitespaceByte(sc) then
 					split = i
 					break
 				end
@@ -2171,7 +2063,7 @@ function NanoFormat.fromString(value: string, suffixType: SuffixName?): buffer
 				local topStart = split + 1
 				while topStart <= last do
 					local tc = byte(value, topStart)
-					if isWhitespaceByte(tc) or tc == 58 then
+					if isWhitespaceByte(tc) then
 						topStart += 1
 					else
 						break
@@ -2194,7 +2086,7 @@ function NanoFormat.fromString(value: string, suffixType: SuffixName?): buffer
 	-- Handles the flat coordinate grammar emitted by the formatter:
 	-- E3,000 / E1M / E100UCe / 1.25E3,006.
 	-- Uppercase E is reserved for this display form; lowercase e continues to
-	-- use the scientific/legacy layer grammar below.
+	-- use the scientific layer grammar below.
 	local displayEPos = 0
 	for i = first, last do
 		if byte(value, i) == 69 then
@@ -2889,7 +2781,7 @@ function NanoFormat.tryDecodeAt(data: buffer, bitOffset: number?): (boolean, Dec
 		return false, nil, nil
 	end
 	local offset: any = if bitOffset == nil then 0 else bitOffset
-	-- V0.001.2: try* APIs must never throw just because a dynamically-typed caller
+	-- try* APIs must never throw just because a dynamically-typed caller
 	-- supplied a bad offset. Reject NaN/fractional/non-number offsets up front.
 	if typeof(offset) ~= "number" or offset ~= offset or offset ~= floor(offset) or offset < 0 or offset >= bufferLen(data) * 8 then
 		return false, nil, nil
@@ -2985,16 +2877,15 @@ NanoFormat.FORMAT_SCOPE_VERSION = 1
 -- Formatter internals are isolated in a dedicated register frame.
 -- Public NanoFormat.format* functions are installed from inside this scope.
 (function()
-	local function shortNumber(value: number, precision: number): string
+	local function shortNumber(value: number, decimalPlaces: number): string
 		if value == 0 then
 			return "0"
 		end
-		local exponent = floor(log10(abs(value)))
-		local decimals = clamp(precision - exponent - 1, 0, 12)
+		local decimals = clamp(floor(decimalPlaces), 0, 12)
 		return trimZeros(format(FIXED_FORMATS[decimals + 1], value))
 	end
 
-	local function scientificText(mantissa: number, exponent: number, precision: number): string
+	local function scientificText(mantissa: number, exponent: number, decimalPlaces: number): string
 		if mantissa >= 10 then
 			mantissa /= 10
 			exponent += 1
@@ -3002,29 +2893,27 @@ NanoFormat.FORMAT_SCOPE_VERSION = 1
 			mantissa *= 10
 			exponent -= 1
 		end
-		return shortNumber(mantissa, precision) .. "e" .. toString(exponent)
+		return shortNumber(mantissa, decimalPlaces) .. "e" .. toString(exponent)
 	end
 
-	local function roundsTo1000(value: number, precision: number): boolean
-		-- shortNumber() uses significant-digit-style fixed formatting. Determine
-		-- promotion numerically so suffix/engineering formatting does not allocate a
-		-- string and immediately feed it back through tonumber().
+	local function roundsTo1000(value: number, decimalPlaces: number): boolean
+		-- Precision is decimal places. Promote values that would round to 1000
+		-- before rendering so outputs become 1M instead of 1000k.
 		if value < 999 then
 			return false
 		end
-		local exponent = floor(log10(value))
-		local decimals = clamp(precision - exponent - 1, 0, 12)
-		return value >= 1000 - 0.001 * (10 ^ -decimals)
+		local decimals = clamp(floor(decimalPlaces), 0, 12)
+		return value >= 1000 - 0.5 * (10 ^ -decimals)
 	end
 
-	local function engineeringText(mantissa: number, exponent: number, precision: number): string
+	local function engineeringText(mantissa: number, exponent: number, decimalPlaces: number): string
 		local engineeringExponent = floor(exponent / 3) * 3
 		local scaled = mantissa * (10 ^ (exponent - engineeringExponent))
-		if roundsTo1000(scaled, precision) then
+		if roundsTo1000(scaled, decimalPlaces) then
 			scaled /= 1000
 			engineeringExponent += 3
 		end
-		return shortNumber(scaled, precision) .. "e" .. toString(engineeringExponent)
+		return shortNumber(scaled, decimalPlaces) .. "e" .. toString(engineeringExponent)
 	end
 
 	local function commaIntegerText(value: number): string
@@ -3048,7 +2937,7 @@ NanoFormat.FORMAT_SCOPE_VERSION = 1
 		return negative and ("-" .. out) or out
 	end
 
-	local function compactExponentValueText(exponent: number, precision: number): string
+	local function compactExponentValueText(exponent: number, decimalPlaces: number): string
 		local negative = exponent < 0
 		local magnitude = abs(exponent)
 
@@ -3063,7 +2952,7 @@ NanoFormat.FORMAT_SCOPE_VERSION = 1
 
 			if suffix ~= nil then
 				local scaled = magnitude / (10 ^ (group * 3))
-				local rendered = shortNumber(scaled, clamp(precision, 3, 8))
+				local rendered = shortNumber(scaled, decimalPlaces)
 				return (negative and "-" or "") .. rendered .. suffix
 			end
 		end
@@ -3071,7 +2960,7 @@ NanoFormat.FORMAT_SCOPE_VERSION = 1
 		return commaIntegerText(exponent)
 	end
 
-	local function exponentCompactText(mantissa: number, exponent: number, precision: number): string
+	local function exponentCompactText(mantissa: number, exponent: number, decimalPlaces: number): string
 		if mantissa >= 10 then
 			mantissa /= 10
 			exponent += 1
@@ -3080,16 +2969,16 @@ NanoFormat.FORMAT_SCOPE_VERSION = 1
 			exponent -= 1
 		end
 
-		local rendered = shortNumber(mantissa, precision)
+		local rendered = shortNumber(mantissa, decimalPlaces)
 		if rendered == "10" then
 			rendered = "1"
 			exponent += 1
 		end
 
-		return (rendered == "1" and "" or rendered) .. "E" .. compactExponentValueText(exponent, precision)
+		return (rendered == "1" and "" or rendered) .. "E" .. compactExponentValueText(exponent, decimalPlaces)
 	end
 
-	local function suffixText(mantissa: number, exponent: number, precision: number, suffixType: string): string?
+	local function suffixText(mantissa: number, exponent: number, decimalPlaces: number, suffixType: string): string?
 		if exponent < 3 then
 			return nil
 		end
@@ -3104,37 +2993,37 @@ NanoFormat.FORMAT_SCOPE_VERSION = 1
 
 		-- Formatting can round 999.99k to 1000k. Promote before formatting, avoiding
 		-- the previous shortNumber -> tonumber -> shortNumber round trip.
-		if roundsTo1000(scaled, precision) then
+		if roundsTo1000(scaled, decimalPlaces) then
 			local nextSuffix = suffixForIndex(index + 1, suffixType)
 			if nextSuffix ~= nil then
-				return shortNumber(scaled / 1000, precision) .. nextSuffix
+				return shortNumber(scaled / 1000, decimalPlaces) .. nextSuffix
 			end
 			local promotedExponent = (index + 1) * 3
 			if suffixType == "extended" and promotedExponent >= NanoFormat.E_NOTATION_START then
-				return exponentCompactText(scaled / 1000, promotedExponent, precision)
+				return exponentCompactText(scaled / 1000, promotedExponent, decimalPlaces)
 			end
-			return scientificText(scaled / 1000, promotedExponent, precision)
+			return scientificText(scaled / 1000, promotedExponent, decimalPlaces)
 		end
 
-		return shortNumber(scaled, precision) .. suffix
+		return shortNumber(scaled, decimalPlaces) .. suffix
 	end
 
-	local function formatPower10(exponent: number, precision: number, suffixType: string): string
+	local function formatPower10(exponent: number, decimalPlaces: number, suffixType: string): string
 		if suffixType == "exponent" then
 			local integerExponent = floor(exponent)
-			return exponentCompactText(10 ^ (exponent - integerExponent), integerExponent, precision)
+			return exponentCompactText(10 ^ (exponent - integerExponent), integerExponent, decimalPlaces)
 		elseif (suffixType == "standard" or suffixType == "extended") and exponent >= NanoFormat.E_NOTATION_START then
 			local integerExponent = floor(exponent)
-			return exponentCompactText(10 ^ (exponent - integerExponent), integerExponent, precision)
+			return exponentCompactText(10 ^ (exponent - integerExponent), integerExponent, decimalPlaces)
 		elseif suffixType == "scientific" then
 			if exponent == floor(exponent) then
 				return "1e" .. toString(floor(exponent))
 			end
 			local integerExponent = floor(exponent)
-			return scientificText(10 ^ (exponent - integerExponent), integerExponent, precision)
+			return scientificText(10 ^ (exponent - integerExponent), integerExponent, decimalPlaces)
 		elseif suffixType == "engineering" then
 			local integerExponent = floor(exponent)
-			return engineeringText(10 ^ (exponent - integerExponent), integerExponent, precision)
+			return engineeringText(10 ^ (exponent - integerExponent), integerExponent, decimalPlaces)
 		end
 
 		if exponent == floor(exponent) then
@@ -3143,7 +3032,7 @@ NanoFormat.FORMAT_SCOPE_VERSION = 1
 				return toString(10 ^ ie)
 			end
 			if ie >= 3 then
-				local rendered = suffixText(1, ie, precision, suffixType)
+				local rendered = suffixText(1, ie, decimalPlaces, suffixType)
 				if rendered ~= nil then
 					return rendered
 				end
@@ -3153,22 +3042,22 @@ NanoFormat.FORMAT_SCOPE_VERSION = 1
 
 		local integerExponent = floor(exponent)
 		local mantissa = 10 ^ (exponent - integerExponent)
-		local rendered = suffixText(mantissa, integerExponent, precision, suffixType)
+		local rendered = suffixText(mantissa, integerExponent, decimalPlaces, suffixType)
 		if rendered ~= nil then
 			return rendered
 		end
-		return scientificText(mantissa, integerExponent, precision)
+		return scientificText(mantissa, integerExponent, decimalPlaces)
 	end
 
-	local function formatNormalParts(mantissa: number, exponent: number, precision: number, suffixType: string): string
+	local function formatNormalParts(mantissa: number, exponent: number, decimalPlaces: number, suffixType: string): string
 		if suffixType == "exponent" then
-			return exponentCompactText(mantissa, exponent, precision)
+			return exponentCompactText(mantissa, exponent, decimalPlaces)
 		elseif (suffixType == "standard" or suffixType == "extended") and exponent >= NanoFormat.E_NOTATION_START then
-			return exponentCompactText(mantissa, exponent, precision)
+			return exponentCompactText(mantissa, exponent, decimalPlaces)
 		elseif suffixType == "scientific" then
-			return scientificText(mantissa, exponent, precision)
+			return scientificText(mantissa, exponent, decimalPlaces)
 		elseif suffixType == "engineering" then
-			return engineeringText(mantissa, exponent, precision)
+			return engineeringText(mantissa, exponent, decimalPlaces)
 		end
 
 		if exponent < 0 then
@@ -3176,41 +3065,41 @@ NanoFormat.FORMAT_SCOPE_VERSION = 1
 			local inverseMantissa = 10 / mantissa
 			local inverseExponent = positiveExponent - 1
 			if inverseExponent >= 0 then
-				return "1/" .. formatNormalParts(inverseMantissa, inverseExponent, precision, suffixType)
+				return "1/" .. formatNormalParts(inverseMantissa, inverseExponent, decimalPlaces, suffixType)
 			end
 		end
 
 		if exponent >= 0 and exponent < 3 then
-			return shortNumber(mantissa * (10 ^ exponent), precision)
+			return shortNumber(mantissa * (10 ^ exponent), decimalPlaces)
 		end
 
 		if exponent >= 3 then
-			local rendered = suffixText(mantissa, exponent, precision, suffixType)
+			local rendered = suffixText(mantissa, exponent, decimalPlaces, suffixType)
 			if rendered ~= nil then
 				return rendered
 			end
 		end
 
-		return scientificText(mantissa, exponent, precision)
+		return scientificText(mantissa, exponent, decimalPlaces)
 	end
 
-	local function formatLargeScalar(value: number, precision: number): string
+	local function formatLargeScalar(value: number, decimalPlaces: number): string
 		if value < 1e6 then
 			if value == floor(value) then
 				return toString(value)
 			end
-			return shortNumber(value, precision)
+			return shortNumber(value, decimalPlaces)
 		end
 		local exponent = floor(log10(value))
 		local mantissa = value / (10 ^ exponent)
-		return scientificText(mantissa, exponent, precision)
+		return scientificText(mantissa, exponent, decimalPlaces)
 	end
 
 
 	-- Compact scalar rendering used by L notation. It intentionally uses the
 	-- Standard suffix table for the coordinates regardless of the outer formatter
 	-- mode, preserving the original flat L3 1k / L1M 1k representation.
-	local function compactLayerScalarText(value: number, precision: number): string
+	local function compactLayerScalarText(value: number, decimalPlaces: number): string
 		if value == 0 then
 			return "0"
 		end
@@ -3219,7 +3108,7 @@ NanoFormat.FORMAT_SCOPE_VERSION = 1
 		local magnitude = abs(value)
 
 		if magnitude < 1000 then
-			local body = if magnitude == floor(magnitude) then toString(magnitude) else shortNumber(magnitude, precision)
+			local body = if magnitude == floor(magnitude) then toString(magnitude) else shortNumber(magnitude, decimalPlaces)
 			return negative and ("-" .. body) or body
 		end
 
@@ -3229,35 +3118,35 @@ NanoFormat.FORMAT_SCOPE_VERSION = 1
 
 		if suffix ~= nil then
 			local scaled = magnitude / (10 ^ (index * 3))
-			if roundsTo1000(scaled, precision) then
+			if roundsTo1000(scaled, decimalPlaces) then
 				local nextSuffix = coordinateSuffixForIndex(index + 1)
 				if nextSuffix ~= nil then
-					local body = shortNumber(scaled / 1000, precision) .. nextSuffix
+					local body = shortNumber(scaled / 1000, decimalPlaces) .. nextSuffix
 					return negative and ("-" .. body) or body
 				end
 			end
 
-			local body = shortNumber(scaled, precision) .. suffix
+			local body = shortNumber(scaled, decimalPlaces) .. suffix
 			return negative and ("-" .. body) or body
 		end
 
-		local body = scientificText(magnitude / (10 ^ exponent), exponent, precision)
+		local body = scientificText(magnitude / (10 ^ exponent), exponent, decimalPlaces)
 		return negative and ("-" .. body) or body
 	end
 
-	local function layerNotationText(layer: number, layerIsLog: boolean, top: number, precision: number): string
-		local topText = compactLayerScalarText(top, precision)
+	local function layerNotationText(layer: number, layerIsLog: boolean, top: number, decimalPlaces: number): string
+		local topText = compactLayerScalarText(top, decimalPlaces)
 
 		if layerIsLog then
-			return "L(10^" .. compactLayerScalarText(layer, precision) .. ") " .. topText
+			return "L(10^" .. compactLayerScalarText(layer, decimalPlaces) .. ") " .. topText
 		end
 
-		return "L" .. compactLayerScalarText(layer, precision) .. " " .. topText
+		return "L" .. compactLayerScalarText(layer, decimalPlaces) .. " " .. topText
 	end
 
 
 	-- Roman numeral formatter -----------------------------------------------------
-	-- Roman V1 is display-only. It does not alter NanoFormat's binary codec,
+	-- Roman formatting is display-only. It does not alter NanoFormat's binary codec,
 	-- parser, leaderboard mapping, or arithmetic representation.
 	--
 	-- "roman"         : classical Roman numerals for |n| <= 3999.
@@ -3355,7 +3244,7 @@ NanoFormat.FORMAT_SCOPE_VERSION = 1
 		end
 	end
 
-	local function formatIntegerValue(integer: number, precision: number, suffixKind: string): string
+	local function formatIntegerValue(integer: number, decimalPlaces: number, suffixKind: string): string
 		if suffixKind == "roman" or suffixKind == "romanextended" then
 			local roman = formatRomanInteger(integer, suffixKind == "romanextended")
 			if roman ~= nil then
@@ -3375,21 +3264,21 @@ NanoFormat.FORMAT_SCOPE_VERSION = 1
 		end
 		local exponent = floor(log10(magnitude))
 		local mantissa = magnitude / (10 ^ exponent)
-		local rendered = formatNormalParts(mantissa, exponent, precision, suffixKind)
+		local rendered = formatNormalParts(mantissa, exponent, decimalPlaces, suffixKind)
 		return integer < 0 and ("-" .. rendered) or rendered
 	end
 
-	local function formatCoreFast(value: buffer, precision: number, suffixKind: string): string
+	local function formatCoreFast(value: buffer, decimalPlaces: number, suffixKind: string): string
 		-- Direct prefix dispatch avoids Reader/data table allocation on formatting
 		-- hot paths while preserving the public decodeAt()/components() behavior.
 		local raw = bufferReadBits(value, 0, 6)
 
 		if band(raw, 1) == 0 then
-			return formatIntegerValue(bufferReadBits(value, 1, 7), precision, suffixKind)
+			return formatIntegerValue(bufferReadBits(value, 1, 7), decimalPlaces, suffixKind)
 		end
 
 		if band(raw, 3) == 1 then
-			return formatIntegerValue(-(bufferReadBits(value, 2, 6) + 1), precision, suffixKind)
+			return formatIntegerValue(-(bufferReadBits(value, 2, 6) + 1), decimalPlaces, suffixKind)
 		end
 
 		if band(raw, 7) == 3 then
@@ -3404,7 +3293,7 @@ NanoFormat.FORMAT_SCOPE_VERSION = 1
 				end
 			end
 			local magnitude = readUIntExactAtFast(value, payloadOffset, n)
-			return formatIntegerValue(negative and -magnitude or magnitude, precision, suffixKind)
+			return formatIntegerValue(negative and -magnitude or magnitude, decimalPlaces, suffixKind)
 		end
 
 		if band(raw, 15) == 7 then
@@ -3429,7 +3318,7 @@ NanoFormat.FORMAT_SCOPE_VERSION = 1
 			end
 
 			local scalarSuffix = if suffixKind == "roman" or suffixKind == "romanextended" then "standard" else suffixKind
-			local rendered = formatNormalParts(mantissa, exponent, precision, scalarSuffix)
+			local rendered = formatNormalParts(mantissa, exponent, decimalPlaces, scalarSuffix)
 			return negative and ("-" .. rendered) or rendered
 		end
 
@@ -3452,9 +3341,9 @@ NanoFormat.FORMAT_SCOPE_VERSION = 1
 			local scalarSuffix = if suffixKind == "roman" or suffixKind == "romanextended" then "standard" else suffixKind
 			local rendered
 			if reciprocal and (scalarSuffix == "scientific" or scalarSuffix == "engineering") then
-				rendered = formatPower10(-top, precision, scalarSuffix)
+				rendered = formatPower10(-top, decimalPlaces, scalarSuffix)
 			else
-				rendered = formatPower10(top, precision, scalarSuffix)
+				rendered = formatPower10(top, decimalPlaces, scalarSuffix)
 				if reciprocal then
 					rendered = "1/" .. rendered
 				end
@@ -3470,15 +3359,15 @@ NanoFormat.FORMAT_SCOPE_VERSION = 1
 			local rendered
 
 			if suffixKind == "standard" or suffixKind == "extended" or suffixKind == "exponent" then
-				rendered = layerNotationText(layer, layerIsLog, top, precision)
+				rendered = layerNotationText(layer, layerIsLog, top, decimalPlaces)
 			elseif layerIsLog then
-				rendered = "e^(10^" .. formatLargeScalar(layer, precision) .. ") " .. formatLargeScalar(top, precision)
+				rendered = "e^(10^" .. formatLargeScalar(layer, decimalPlaces) .. ") " .. formatLargeScalar(top, decimalPlaces)
 			elseif layer == 2 then
-				rendered = "ee" .. formatLargeScalar(top, precision)
+				rendered = "ee" .. formatLargeScalar(top, decimalPlaces)
 			elseif layer == 3 then
-				rendered = "eee" .. formatLargeScalar(top, precision)
+				rendered = "eee" .. formatLargeScalar(top, decimalPlaces)
 			else
-				rendered = "e^" .. formatLargeScalar(layer, precision) .. " " .. formatLargeScalar(top, precision)
+				rendered = "e^" .. formatLargeScalar(layer, decimalPlaces) .. " " .. formatLargeScalar(top, decimalPlaces)
 			end
 
 			if reciprocal then
@@ -3498,101 +3387,62 @@ NanoFormat.FORMAT_SCOPE_VERSION = 1
 		return "Reserved"
 	end
 
-	-- Path-zero formatter wrappers ------------------------------------------------
-	-- Default/canonical calls avoid normalization and precision clamping entirely.
-	function NanoFormat.format(value: buffer, precision: number?, suffixType: SuffixName?): string
-		-- PATH 0: the overwhelmingly common format(value) call.
-		if precision == nil and suffixType == nil then
-			return formatCoreFast(value, 4, NanoFormat.DEFAULT_SUFFIX_TYPE)
-		end
-
-		local p = if precision == nil then 4 else clamp(floor(precision), 1, 8)
-		if suffixType == nil then
-			return formatCoreFast(value, p, NanoFormat.DEFAULT_SUFFIX_TYPE)
-		end
-		if NanoFormat.SUFFIX_TYPES[suffixType] == true then
-			return formatCoreFast(value, p, suffixType)
-		end
-
-		-- PATH 1: alias / mixed-case suffix selection.
-		return formatCoreFast(value, p, normalizeSuffixType(suffixType))
+	-- Current formatter API -------------------------------------------------------
+	-- `decimalPlaces` always means digits after the decimal point. Trailing zeroes
+	-- are trimmed, so 12.30M renders as 12.3M.
+	local function resolveDecimalPlaces(decimalPlaces: number?): number
+		return if decimalPlaces == nil then NanoFormat.DEFAULT_PRECISION else clamp(floor(decimalPlaces), 0, NanoFormat.MAX_PRECISION)
 	end
 
-	function NanoFormat.formatStandard(value: buffer, precision: number?): string
-		if precision == nil then
-			return formatCoreFast(value, 4, "standard")
-		end
-		return formatCoreFast(value, clamp(floor(precision), 1, 8), "standard")
+	function NanoFormat.format(value: buffer, decimalPlaces: number?, suffixType: SuffixName?): string
+		local p = resolveDecimalPlaces(decimalPlaces)
+		local kind = if suffixType == nil then NanoFormat.DEFAULT_SUFFIX_TYPE else normalizeSuffixType(suffixType)
+		return formatCoreFast(value, p, kind)
 	end
 
-	function NanoFormat.formatExtended(value: buffer, precision: number?): string
-		if precision == nil then
-			return formatCoreFast(value, 4, "extended")
-		end
-		return formatCoreFast(value, clamp(floor(precision), 1, 8), "extended")
+	function NanoFormat.formatStandard(value: buffer, decimalPlaces: number?): string
+		return formatCoreFast(value, resolveDecimalPlaces(decimalPlaces), "standard")
 	end
 
-	function NanoFormat.formatExponent(value: buffer, precision: number?): string
-		if precision == nil then
-			return formatCoreFast(value, 4, "exponent")
-		end
-		return formatCoreFast(value, clamp(floor(precision), 1, 8), "exponent")
+	function NanoFormat.formatExtended(value: buffer, decimalPlaces: number?): string
+		return formatCoreFast(value, resolveDecimalPlaces(decimalPlaces), "extended")
 	end
 
-	function NanoFormat.formatHybrid(value: buffer, precision: number?): string
-		if precision == nil then
-			return formatCoreFast(value, 4, "hybrid")
-		end
-		return formatCoreFast(value, clamp(floor(precision), 1, 8), "hybrid")
+	function NanoFormat.formatExponent(value: buffer, decimalPlaces: number?): string
+		return formatCoreFast(value, resolveDecimalPlaces(decimalPlaces), "exponent")
 	end
 
-	function NanoFormat.formatAlphabetic(value: buffer, precision: number?): string
-		if precision == nil then
-			return formatCoreFast(value, 4, "alphabetic")
-		end
-		return formatCoreFast(value, clamp(floor(precision), 1, 8), "alphabetic")
+	function NanoFormat.formatHybrid(value: buffer, decimalPlaces: number?): string
+		return formatCoreFast(value, resolveDecimalPlaces(decimalPlaces), "hybrid")
 	end
 
-	function NanoFormat.formatMetric(value: buffer, precision: number?): string
-		if precision == nil then
-			return formatCoreFast(value, 4, "metric")
-		end
-		return formatCoreFast(value, clamp(floor(precision), 1, 8), "metric")
+	function NanoFormat.formatAlphabetic(value: buffer, decimalPlaces: number?): string
+		return formatCoreFast(value, resolveDecimalPlaces(decimalPlaces), "alphabetic")
 	end
 
-	function NanoFormat.formatScientific(value: buffer, precision: number?): string
-		if precision == nil then
-			return formatCoreFast(value, 4, "scientific")
-		end
-		return formatCoreFast(value, clamp(floor(precision), 1, 8), "scientific")
+	function NanoFormat.formatMetric(value: buffer, decimalPlaces: number?): string
+		return formatCoreFast(value, resolveDecimalPlaces(decimalPlaces), "metric")
 	end
 
-	function NanoFormat.formatEngineering(value: buffer, precision: number?): string
-		if precision == nil then
-			return formatCoreFast(value, 4, "engineering")
-		end
-		return formatCoreFast(value, clamp(floor(precision), 1, 8), "engineering")
+	function NanoFormat.formatScientific(value: buffer, decimalPlaces: number?): string
+		return formatCoreFast(value, resolveDecimalPlaces(decimalPlaces), "scientific")
 	end
 
-
-	function NanoFormat.formatRoman(value: buffer, precision: number?): string
-		if precision == nil then
-			return formatCoreFast(value, 4, "roman")
-		end
-		return formatCoreFast(value, clamp(floor(precision), 1, 8), "roman")
+	function NanoFormat.formatEngineering(value: buffer, decimalPlaces: number?): string
+		return formatCoreFast(value, resolveDecimalPlaces(decimalPlaces), "engineering")
 	end
 
-	function NanoFormat.formatRomanExtended(value: buffer, precision: number?): string
-		if precision == nil then
-			return formatCoreFast(value, 4, "romanextended")
-		end
-		return formatCoreFast(value, clamp(floor(precision), 1, 8), "romanextended")
+	function NanoFormat.formatRoman(value: buffer, decimalPlaces: number?): string
+		return formatCoreFast(value, resolveDecimalPlaces(decimalPlaces), "roman")
 	end
 
+	function NanoFormat.formatRomanExtended(value: buffer, decimalPlaces: number?): string
+		return formatCoreFast(value, resolveDecimalPlaces(decimalPlaces), "romanextended")
+	end
 
 end)()
 
--- Utility Formatting V1 -------------------------------------------------------
+-- Utility Formatting ----------------------------------------------------------
 -- These are display/convenience APIs only. They do not change NanoNum's
 -- adaptive buffer codec, suffix codec, or leaderboard ordering.
 NanoFormat.UTILITY_SCOPE_VERSION = 1
@@ -3695,7 +3545,7 @@ NanoFormat.UTILITY_SCOPE_VERSION = 1
 
 		local negative = n < 0
 		local total = abs(n)
-		if mode == "seconds" or mode == "raw" then
+		if mode == "seconds" then
 			local rendered = fixedTrim(total, p) .. "s"
 			return negative and ("-" .. rendered) or rendered
 		end
@@ -3709,7 +3559,7 @@ NanoFormat.UTILITY_SCOPE_VERSION = 1
 		local minutes = floor(rem / 60)
 		local seconds = rem - minutes * 60 + fraction
 
-		if mode == "clock" or mode == "timer" then
+		if mode == "clock" then
 			local roundedSeconds = tonumber(fixedTrim(seconds, p)) or seconds
 			if roundedSeconds >= 60 then
 				roundedSeconds -= 60
@@ -3763,7 +3613,7 @@ NanoFormat.UTILITY_SCOPE_VERSION = 1
 			end
 		end
 
-		if mode == "long" or mode == "words" then
+		if mode == "long" then
 			if years > 0 then push(toString(years) .. " " .. plural(years, "year", "years")) end
 			if weeks > 0 then push(toString(weeks) .. " " .. plural(weeks, "week", "weeks")) end
 			if days > 0 then push(toString(days) .. " " .. plural(days, "day", "days")) end
@@ -3792,8 +3642,6 @@ NanoFormat.UTILITY_SCOPE_VERSION = 1
 		local rendered = table.concat(out, " ", 1, count)
 		return negative and ("-" .. rendered) or rendered
 	end
-
-	NanoFormat.formatDuration = NanoFormat.formatTime
 
 	function NanoFormat.formatClock(value: MathValue, precision: number?): string
 		return NanoFormat.formatTime(value, "clock", precision, 4)
@@ -3869,15 +3717,12 @@ NanoFormat.UTILITY_SCOPE_VERSION = 1
 		return NanoFormat.fromNumber(negative and -total or total)
 	end
 
-	NanoFormat.fromTime = NanoFormat.parseTime
-	NanoFormat.parseDuration = NanoFormat.parseTime
-
 	-- Format an arbitrary NanoNum as a throughput/rate label without decoding it.
-	function NanoFormat.formatRate(value: MathValue, unit: string?, precision: number?, suffixType: SuffixName?): string
+	function NanoFormat.formatRate(value: MathValue, unit: string?, decimalPlaces: number?, suffixType: SuffixName?): string
 		local b = coerceBuffer(value)
 		if b == nil then return "NaN" end
 		local name = unit or "s"
-		return NanoFormat.format(b, precision, suffixType) .. "/" .. name
+		return NanoFormat.format(b, decimalPlaces, suffixType) .. "/" .. name
 	end
 
 	-- Human-readable memory/data-size formatting. `binary=true` uses KiB/MiB.
@@ -4101,7 +3946,7 @@ NanoFormat.PACK_SCOPE_VERSION = 1
 	end
 
 	function NanoFormat.tryUnpackMany(packed: buffer, count: number, totalBits: number?): (boolean, {buffer}?)
-		-- V0.001.2 runtime hardening: this remains non-throwing even when called
+		-- This remains non-throwing even when called
 		-- through an `any` value with malformed arguments.
 		if typeof(packed) ~= "buffer" or typeof(count) ~= "number" or count ~= count or count < 0 or count ~= floor(count) then
 			return false, nil
@@ -4326,33 +4171,15 @@ NanoFormat.LB_SCOPE_VERSION = 1
 		end
 
 		if data.LayerIsLog then
-			-- Old/non-canonical V0.3 buffers may use a log-height <= 308. Convert
-			-- those back to a direct height and canonicalize the top before ranking.
-			if data.LayerLog10 <= 308 then
-				local layer, top = normalizeLayerInput(10 ^ data.LayerLog10, data.Top, false)
-				if layer < 2 then
-					return {
-						Kind = "Magnitude",
-						Negative = data.Negative,
-						Reciprocal = data.Reciprocal,
-						Layer = 1,
-						LogScale = top,
-					}
-				end
-				return {
-					Kind = "Layer",
-					Negative = data.Negative,
-					Reciprocal = data.Reciprocal,
-					Layer = layer,
-					LayerIsLog = false,
-					Top = top,
-				}
+			local layerLog10 = data.LayerLog10
+			if layerLog10 == nil then
+				return {Kind = "NaN"}
 			end
 			return {
 				Kind = "Layer",
 				Negative = data.Negative,
 				Reciprocal = data.Reciprocal,
-				LayerLog10 = data.LayerLog10,
+				LayerLog10 = layerLog10,
 				LayerIsLog = true,
 				Top = data.Top,
 			}
@@ -4626,7 +4453,6 @@ NanoFormat.LB_SCOPE_VERSION = 1
 		return code
 	end
 
-	NanoFormat.lbencodeV1 = NanoFormat.lbencode
 
 	local function lbDecodePositiveDelta(delta: number): (number, number, number)
 		delta = clamp(floor(delta), 1, NanoFormat.LB_POSITIVE_SPAN)
@@ -4683,10 +4509,7 @@ NanoFormat.LB_SCOPE_VERSION = 1
 		return 2, layerLog10, lbLogLayerTopFromBucket(topBucket)
 	end
 
-	function NanoFormat.lbdecode(encoded: number, version: number?): buffer
-		if version ~= nil and version ~= LB_VERSION then
-			return makeSpecial(SPECIAL_NAN)
-		end
+	function NanoFormat.lbdecode(encoded: number): buffer
 		if not isLBCodeFast(encoded) then
 			return makeSpecial(SPECIAL_NAN)
 		end
@@ -4737,35 +4560,9 @@ NanoFormat.LB_SCOPE_VERSION = 1
 		return NanoFormat.fromLayer(decodedA, decodedB, negative, reciprocal)
 	end
 
-	NanoFormat.lbdecodeV1 = NanoFormat.lbdecode
 
 	function NanoFormat.lbcodecVersion(): number
-		return 1
-	end
-
-	function NanoFormat.lbpack(value: MathValue): LBPacket
-		local code
-		if typeof(value) == "buffer" then
-			code = lbCodeFromBufferFast(value)
-		else
-			code = lbCodeFromBufferFast(lbCoerce(value))
-		end
-		return {
-			v = LB_VERSION,
-			c = code,
-		}
-	end
-
-	function NanoFormat.lbunpack(data: LBPacketInput): buffer
-		if typeof(data) ~= "table" then
-			return makeSpecial(SPECIAL_NAN)
-		end
-		local version = toNumber((data :: any).v or (data :: any).version)
-		local code = toNumber((data :: any).c or (data :: any).code)
-		if version == nil or code == nil then
-			return makeSpecial(SPECIAL_NAN)
-		end
-		return NanoFormat.lbdecode(code, version)
+		return LB_VERSION
 	end
 
 	local function lbBandFromDelta(delta: number): string
@@ -4905,7 +4702,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 
 (function()
 
-	NanoFormat.MATH_VERSION = 7
+	NanoFormat.MATH_VERSION = 9
 	NanoFormat.MATH_CLEANUP_VERSION = 1
 
 	local MATH_DIRECT_LOG_MAX = 308.25471555991675
@@ -6423,7 +6220,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		return NanoFormat.lte(diff, NanoFormat.mul(scale, rel))
 	end
 
-	local function mathV7OldSlog10(value: any): buffer
+	local function mathCoreSlog10Fallback(value: any): buffer
 		local _, data = mathDecode(value)
 
 		if data.Kind == "NaN" or data.Kind == "Reserved" or mathNegativeData(data) or mathIsZeroData(data) then
@@ -8280,13 +8077,12 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		}
 	end
 
-	NanoFormat.MATH_CORRECTNESS_VERSION = 2
+	NanoFormat.MATH_CORRECTNESS_VERSION = 4
 	NanoFormat.TETRATION_VERSION = 3
-	NanoFormat.DECIMAL_TETRATION_VERSION = 1
 	NanoFormat.SLOG_VERSION = 2
 	NanoFormat.GAMMA_VERSION = 2
 
-	local function mathV7FiniteScalar(value: any): number?
+	local function mathCoreFiniteScalar(value: any): number?
 		if typeof(value) == "number" then
 			if value == value and value ~= huge and value ~= -huge then
 				return value
@@ -8301,15 +8097,15 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		return nil
 	end
 
-	local function mathV7NonnegativeInteger(value: any): number?
-		local n = mathV7FiniteScalar(value)
+	local function mathCoreNonnegativeInteger(value: any): number?
+		local n = mathCoreFiniteScalar(value)
 		if n == nil or n < 0 or n ~= floor(n) then
 			return nil
 		end
 		return n
 	end
 
-	local function mathV7PositiveBase(base: any): boolean
+	local function mathCorePositiveBase(base: any): boolean
 		return not NanoFormat.isNaN(base) and NanoFormat.gt(base, 0)
 	end
 
@@ -8375,7 +8171,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 	end
 
 	function NanoFormat.iteratedExp10(value: MathValue, timesValue: MathValue): buffer
-		local times = mathV7NonnegativeInteger(timesValue)
+		local times = mathCoreNonnegativeInteger(timesValue)
 		if times == nil or times > NanoFormat.MAX_LAYER then
 			return makeSpecial(SPECIAL_NAN)
 		elseif times == 0 then
@@ -8424,7 +8220,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 	end
 
 	function NanoFormat.iteratedLog10(value: MathValue, timesValue: MathValue): buffer
-		local times = mathV7NonnegativeInteger(timesValue)
+		local times = mathCoreNonnegativeInteger(timesValue)
 		if times == nil or times > NanoFormat.MAX_LAYER then
 			return makeSpecial(SPECIAL_NAN)
 		elseif times == 0 then
@@ -8468,7 +8264,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		return result
 	end
 
-	local function mathV7Tetrate10Standard(height: number): buffer
+	local function mathCoreTetrate10Standard(height: number): buffer
 		if height < -1 then
 			return makeSpecial(SPECIAL_NAN)
 		elseif height < 0 then
@@ -8488,7 +8284,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		return NanoFormat.fromLayer(whole, seed, false, false)
 	end
 
-	local function mathV7Tetrate10Payload(height: number, payload: buffer): buffer
+	local function mathCoreTetrate10Payload(height: number, payload: buffer): buffer
 		if height < 0 then
 			return makeSpecial(SPECIAL_NAN)
 		elseif height == 0 then
@@ -8512,16 +8308,16 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 	end
 
 	function NanoFormat.tetrate10(heightValue: MathValue, payload: MathValue?): buffer
-		local height = mathV7FiniteScalar(heightValue)
+		local height = mathCoreFiniteScalar(heightValue)
 		if height == nil then
 			return makeSpecial(SPECIAL_NAN)
 		end
 
 		if payload == nil then
-			return mathV7Tetrate10Standard(height)
+			return mathCoreTetrate10Standard(height)
 		end
 
-		return mathV7Tetrate10Payload(height, NanoFormat.compile(payload))
+		return mathCoreTetrate10Payload(height, NanoFormat.compile(payload))
 	end
 
 	function NanoFormat.tetrate(baseValue: MathValue, heightValue: MathValue, payload: MathValue?): buffer
@@ -8529,7 +8325,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			return NanoFormat.tetrate10(heightValue, payload)
 		end
 
-		local height = mathV7FiniteScalar(heightValue)
+		local height = mathCoreFiniteScalar(heightValue)
 		if height == nil then
 			return makeSpecial(SPECIAL_NAN)
 		end
@@ -8541,7 +8337,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			if height < -1 then
 				return makeSpecial(SPECIAL_NAN)
 			end
-			if not mathV7PositiveBase(baseValue) or NanoFormat.eq(baseValue, 1) then
+			if not mathCorePositiveBase(baseValue) or NanoFormat.eq(baseValue, 1) then
 				return makeSpecial(SPECIAL_NAN)
 			end
 			return NanoFormat.fromNumber(height + 1)
@@ -8568,7 +8364,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			return result
 		end
 
-		if not mathV7PositiveBase(baseValue) then
+		if not mathCorePositiveBase(baseValue) then
 			return makeSpecial(SPECIAL_NAN)
 		end
 
@@ -8597,7 +8393,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 	end
 
 	function NanoFormat.tetrateInteger(baseValue: MathValue, heightValue: MathValue, payload: MathValue?): buffer
-		local height = mathV7FiniteScalar(heightValue)
+		local height = mathCoreFiniteScalar(heightValue)
 		if height == nil or height < 0 or height ~= floor(height) then
 			return makeSpecial(SPECIAL_NAN)
 		end
@@ -8605,7 +8401,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 	end
 
 	function NanoFormat.tetrate10Integer(heightValue: MathValue, payload: MathValue?): buffer
-		local height = mathV7FiniteScalar(heightValue)
+		local height = mathCoreFiniteScalar(heightValue)
 		if height == nil or height < 0 or height ~= floor(height) then
 			return makeSpecial(SPECIAL_NAN)
 		end
@@ -8618,7 +8414,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		elseif NanoFormat.isZero(value) then
 			return NanoFormat.fromNumber(-1)
 		end
-		return mathV7OldSlog10(value)
+		return mathCoreSlog10Fallback(value)
 	end
 
 	function NanoFormat.slog(value: MathValue, baseValue: MathValue?): buffer
@@ -8652,7 +8448,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		return NanoFormat.add(count, NanoFormat.log(x, base))
 	end
 
-	local function mathV7GammaSignDirect(x: number): number
+	local function mathCoreGammaSignDirect(x: number): number
 		if x > 0 then return 1 end
 		if x == floor(x) then return 0 end
 		local s = math.sin(math.pi * x)
@@ -8660,7 +8456,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		return 0
 	end
 
-	local function mathV7LogAbsGammaDirect(x: number): number
+	local function mathCoreLogAbsGammaDirect(x: number): number
 		if x > 0 then
 			return mathLogGammaDirect(x)
 		end
@@ -8688,7 +8484,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 
 			return MATH_NAN
 		end
-		return mathV7GammaSignDirect(direct)
+		return mathCoreGammaSignDirect(direct)
 	end
 
 	function NanoFormat.logGamma(value: MathValue): buffer
@@ -8730,7 +8526,7 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 			return makeSpecial(SPECIAL_NAN)
 		end
 
-		return NanoFormat.fromNumber(mathV7LogAbsGammaDirect(direct))
+		return NanoFormat.fromNumber(mathCoreLogAbsGammaDirect(direct))
 	end
 
 	function NanoFormat.gamma(value: MathValue): buffer
@@ -8787,55 +8583,19 @@ NanoFormat.MATH_SCOPE_VERSION = 1
 		return sign < 0 and NanoFormat.neg(magnitude) or magnitude
 	end
 
-	NanoFormat.modulo = NanoFormat.mod
-	NanoFormat.remainder = NanoFormat.fmod
-	NanoFormat.average = NanoFormat.mean
-	NanoFormat.choose = NanoFormat.combination
-	NanoFormat.nCr = NanoFormat.combination
-	NanoFormat.nPr = NanoFormat.permutation
-	NanoFormat.tetr = NanoFormat.tetrate
-	NanoFormat.slog10Approx = NanoFormat.slog10
-	NanoFormat.saturate = NanoFormat.clamp01
-	NanoFormat.growth = NanoFormat.compound
-	NanoFormat.lnGamma = NanoFormat.logGamma
-	NanoFormat.nthRoot = NanoFormat.root
-	NanoFormat.almostEqual = NanoFormat.approxEq
-	NanoFormat.seriesArithmetic = NanoFormat.arithmeticSeries
-	NanoFormat.seriesGeometric = NanoFormat.geometricSeries
-	NanoFormat.geometricBulkCost = NanoFormat.geometricCost
-	NanoFormat.affordableGeometric = NanoFormat.maxAffordableGeometric
-	NanoFormat.constant = NanoFormat.compile
-	NanoFormat.subtract = NanoFormat.sub
-	NanoFormat.multiply = NanoFormat.mul
-	NanoFormat.divide = NanoFormat.div
-	NanoFormat.power = NanoFormat.pow
-	NanoFormat.equal = NanoFormat.eq
-	NanoFormat.lessThan = NanoFormat.lt
-	NanoFormat.lessThanOrEqual = NanoFormat.lte
-	NanoFormat.greaterThan = NanoFormat.gt
-	NanoFormat.greaterThanOrEqual = NanoFormat.gte
-	NanoFormat.logAbsGamma = NanoFormat.logGamma
-	NanoFormat.logAbsBeta = NanoFormat.logBeta
-	NanoFormat.tetrateDecimal = NanoFormat.tetrate
-	NanoFormat.tetrateContinuous = NanoFormat.tetrate
-	NanoFormat.tetrate10Decimal = NanoFormat.tetrate10
-	NanoFormat.superLog = NanoFormat.slog
-	NanoFormat.inverseDiminishing = NanoFormat.inverseDiminishingReturns
-	NanoFormat.negative = NanoFormat.neg
-	NanoFormat.inverse = NanoFormat.reciprocal
 
 end)()
 
 
 
--- Math V8 / Safe Typed Public Dispatch ----------------------------------------
--- Math V7 remains the arithmetic engine. V8 fixes the public boundary:
+-- Current Math / Safe Typed Public Dispatch -----------------------------------
+-- The optimized arithmetic core is wrapped by one validated public boundary:
 --   * malformed/truncated buffers no longer enter Fast.* and throw
 --   * unsupported runtime types produce NaN/false instead of a buffer read error
 --   * flexible binary functions expose MathValue signatures under --!strict
 -- Fast.* keeps its zero-dispatch contract and assumes valid typed arguments.
-NanoFormat.MATH_VERSION = 8
-NanoFormat.MATH_CORRECTNESS_VERSION = 3
+NanoFormat.MATH_VERSION = 9
+NanoFormat.MATH_CORRECTNESS_VERSION = 4
 NanoFormat.MATH_SAFETY_VERSION = 1
 
 (function()
@@ -8942,8 +8702,8 @@ NanoFormat.MATH_SAFETY_VERSION = 1
 		return NanoFormat.compare(a, b) >= 0
 	end
 
-	-- The V7 PATH-0 unary implementations intentionally read canonical buffers
-	-- directly. Public V8 checks structural validity first so malformed external
+	-- PATH-0 unary implementations intentionally read canonical buffers directly.
+	-- The public boundary checks structural validity first so malformed external
 	-- buffers cannot reach buffer.readbits through those optimized paths.
 	function NanoFormat.factorial(value: MathValue): buffer
 		if not validMathValue(value) then return invalidResult() end
@@ -9046,25 +8806,7 @@ NanoFormat.MATH_SAFETY_VERSION = 1
 		return true, result
 	end
 
-	NanoFormat.subtract = NanoFormat.sub
-	NanoFormat.multiply = NanoFormat.mul
-	NanoFormat.divide = NanoFormat.div
-	NanoFormat.power = NanoFormat.pow
-	NanoFormat.equal = NanoFormat.eq
-	NanoFormat.lessThan = NanoFormat.lt
-	NanoFormat.lessThanOrEqual = NanoFormat.lte
-	NanoFormat.greaterThan = NanoFormat.gt
-	NanoFormat.greaterThanOrEqual = NanoFormat.gte
-	NanoFormat.negative = NanoFormat.neg
-	NanoFormat.inverse = NanoFormat.reciprocal
 end)()
-
-NanoFormat.LBEncode = NanoFormat.lbencode
-NanoFormat.LBDecode = NanoFormat.lbdecode
-NanoFormat.LBEncodeV1 = NanoFormat.lbencode
-NanoFormat.LBDecodeV1 = NanoFormat.lbdecode
-NanoFormat.LBCompare = NanoFormat.lbCompare
-NanoFormat.LBRoundTripStable = NanoFormat.lbRoundTripStable
 
 local TYPECHECKED_NANONUM: NanoNumModule = NanoFormat
 return TYPECHECKED_NANONUM
