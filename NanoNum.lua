@@ -2903,7 +2903,7 @@ NanoFormat.FORMAT_SCOPE_VERSION = 1
 			return false
 		end
 		local decimals = clamp(floor(decimalPlaces), 0, 12)
-		return value >= 1000 - 0.5 * (10 ^ -decimals)
+		return value >= 1000 - 0.001 * (10 ^ -decimals)
 	end
 
 	local function engineeringText(mantissa: number, exponent: number, decimalPlaces: number): string
