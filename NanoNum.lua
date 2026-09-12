@@ -3,8 +3,8 @@
 
 local NanoNum = {}
 
--- NanoNum v1.9.0 accurate-finite rebuild: ordinary finite values use an exact f64 record.
--- Legacy compact normals remain decodable; log/layer/special values keep the huge-number kernel.
+-- NanoNum v2.0.3 speed-tuned compact kernel.
+-- Public API, binary format, promotion rules, and math semantics are retained; common finite paths do less work.
 
 export type MathValue = number | string | buffer
 export type MathBinaryOperation = "add" | "sub" | "mul" | "div" | "pow"
@@ -49,32 +49,40 @@ export type BoundBinaryFunction = (MathValue, MathValue) -> BoundBinaryResult
 export type BoundUnaryFunction = (MathValue) -> BoundBinaryResult
 
 NanoNum.TYPECHECK_VERSION = 3
-NanoNum.VERSION = "1.9.0"
-NanoNum.REGISTER_SCOPE_VERSION = 3
+NanoNum.VERSION = "2.0.3"
+NanoNum.REGISTER_SCOPE_VERSION = 4
 NanoNum.MAX_LAYER = 1e308
 NanoNum.MAX_LAYER_LOG10 = 1e308
 NanoNum.NORMAL_SIGNIFICAND_BITS = 16
 NanoNum.SCALAR_SIGNIFICAND_BITS = 14
-NanoNum.PARSER_VERSION = 6
-NanoNum.NOTATION_VERSION = 7
-NanoNum.PERF_VERSION = 10
-NanoNum.PATH_VERSION = 4
+NanoNum.PARSER_VERSION = 8
+NanoNum.NOTATION_VERSION = 9
+NanoNum.PERF_VERSION = 14
+NanoNum.PATH_VERSION = 5
 NanoNum.DEFAULT_PATH = 0
-NanoNum.MATH_SCOPE_VERSION = 4
-NanoNum.MATH_VERSION = 19
-NanoNum.MATH_CLEANUP_VERSION = 5
-NanoNum.CALL_VERSION = 6
-NanoNum.DIRECT_CALL_VERSION = 6
-NanoNum.BIND_VERSION = 6
-NanoNum.COMPILE_VERSION = 6
-NanoNum.MATH_PERF_VERSION = 7
-NanoNum.MATH_PATH_VERSION = 2
+NanoNum.MATH_SCOPE_VERSION = 7
+NanoNum.MATH_VERSION = 23
+NanoNum.MATH_CLEANUP_VERSION = 8
+NanoNum.CALL_VERSION = 10
+NanoNum.DIRECT_CALL_VERSION = 10
+NanoNum.BIND_VERSION = 7
+NanoNum.COMPILE_VERSION = 7
+NanoNum.MATH_PERF_VERSION = 12
+NanoNum.MATH_PATH_VERSION = 7
 NanoNum.MATH_DEFAULT_PATH = 0
-NanoNum.MATH_CORRECTNESS_VERSION = 9
-NanoNum.TETRATION_VERSION = 5
-NanoNum.SLOG_VERSION = 4
-NanoNum.GAMMA_VERSION = 4
-NanoNum.MATH_SAFETY_VERSION = 5
+NanoNum.MATH_CORRECTNESS_VERSION = 13
+NanoNum.TETRATION_VERSION = 7
+NanoNum.SLOG_VERSION = 5
+NanoNum.GAMMA_VERSION = 5
+NanoNum.MATH_SAFETY_VERSION = 7
+NanoNum.BINARY_FORMAT_VERSION = 2
+NanoNum.CANONICAL_VERSION = 1
+NanoNum.RANGE_PROMOTION_VERSION = 1
+NanoNum.POWER_VERSION = 2
+NanoNum.CANONICAL_API_VERSION = 1
+NanoNum.SCIENTIFIC_API_VERSION = 1
+NanoNum.FAST_UNARY_VERSION = 3
+NanoNum.COMPACT_KERNEL_VERSION = 2
 
 local floor = math.floor
 local ceil = math.ceil
@@ -105,6 +113,7 @@ local bufferCreate = buffer.create
 local bufferReadBits = buffer.readbits
 local bufferWriteBits = buffer.writebits
 local bufferWriteU8 = buffer.writeu8
+local bufferReadU8 = buffer.readu8
 local bufferReadF64 = buffer.readf64
 local bufferWriteF64 = buffer.writef64
 local bufferLen = buffer.len
@@ -124,26 +133,10 @@ local DIRECT_LOG_MAX = 308.25471555991675
 local DIRECT_LOG_MIN = -323.3062153431158
 local NAN = 0 / 0
 
-local PREFIX_TINY = 0
-local PREFIX_NEG_SMALL = 1
-local PREFIX_INTEGER = 2
-local PREFIX_NORMAL = 3
-local PREFIX_LOG = 4
-local PREFIX_LAYER = 5
-local PREFIX_SPECIAL = 6
-
 local SPECIAL_POS_INF = 0
 local SPECIAL_NEG_INF = 1
 local SPECIAL_NAN = 2
 local SPECIAL_RESERVED = 3
-
-local NORMAL_EXP_MIN = -324
-local NORMAL_EXP_MAX = 308
-local NORMAL_EXP_BIAS = 324
-local NORMAL_EXP_BITS = 10
-local NORMAL_MANT_BITS = 16
-local NORMAL_MANT_MAX = 65535
-local NORMAL_BITS = 31
 
 local SCALAR_EXP_BITS = 10
 local SCALAR_EXP_BIAS = 324
@@ -171,8 +164,8 @@ local K_NAN = 6
 NanoNum.SUFFIX_VERSION = 5
 NanoNum.ROMAN_VERSION = 1
 NanoNum.TIME_VERSION = 1
-NanoNum.UTILITY_FORMAT_VERSION = 3
-NanoNum.FORMAT_SCOPE_VERSION = 2
+NanoNum.UTILITY_FORMAT_VERSION = 5
+NanoNum.FORMAT_SCOPE_VERSION = 4
 NanoNum.UTILITY_SCOPE_VERSION = 2
 NanoNum.PACK_SCOPE_VERSION = 2
 NanoNum.LB_SCOPE_VERSION = 1
@@ -392,20 +385,6 @@ local function makeInteger(value: number): buffer
 	return data
 end
 
-local function makeNormal(value: number): buffer
-	local negative = value < 0
-	local magnitude = abs(value)
-	local lg = log10(magnitude)
-	local exponent = floor(lg)
-	local mantissa = 10 ^ (lg - exponent)
-	local expCode = exponent + NORMAL_EXP_BIAS
-	local mantCode = quantizeMantissa(mantissa, NORMAL_MANT_MAX)
-	local data = bufferCreate(4)
-	local packed = 7 + (negative and 16 or 0) + expCode * 32 + mantCode * 32768
-	bufferWriteBits(data, 0, NORMAL_BITS, packed)
-	return data
-end
-
 local function makeLog(exponent: number, negative: boolean): buffer
 	local reciprocal = exponent < 0
 	local magnitude = abs(exponent)
@@ -474,23 +453,54 @@ local function normalizeLayerInput(layer: number, top: number, layerIsLog: boole
 end
 
 function NanoNum.fromNumber(value: number): buffer
-	if value ~= value then return makeSpecial(SPECIAL_NAN) end
-	if value == huge then return makeSpecial(SPECIAL_POS_INF) end
-	if value == -huge then return makeSpecial(SPECIAL_NEG_INF) end
-	if value >= 0 and value <= 127 and value == floor(value) then
-		local data = bufferCreate(1)
-		bufferWriteU8(data, 0, value * 2)
-		return data
+	if value ~= value then local data = bufferCreate(1); bufferWriteU8(data, 0, 191); return data end
+	if value == huge then local data = bufferCreate(1); bufferWriteU8(data, 0, 63); return data end
+	if value == -huge then local data = bufferCreate(1); bufferWriteU8(data, 0, 127); return data end
+	local integral = floor(value)
+	if value == integral then
+		if value >= 0 and value <= 127 then
+			local data = bufferCreate(1); bufferWriteU8(data, 0, value * 2); return data
+		end
+		if value < 0 and value >= -64 then
+			local data = bufferCreate(1); bufferWriteU8(data, 0, 1 + (-value - 1) * 4); return data
+		end
+		local negative = value < 0
+		local magnitude = negative and -value or value
+		if magnitude <= SAFE_INTEGER then
+			local n = floor(log(magnitude) / LN2) + 1
+			if n <= 31 then
+				local bits = 9 + n
+				local data = bufferCreate(floor((bits + 7) / 8))
+				local header = 3 + (negative and 8 or 0) + n * 16
+				if bits <= 32 then
+					bufferWriteBits(data, 0, bits, header + magnitude * 512)
+				else
+					bufferWriteBits(data, 0, 9, header)
+					if n <= 26 then bufferWriteBits(data, 9, n, magnitude)
+					else
+						bufferWriteBits(data, 9, 26, magnitude % 67108864)
+						bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
+					end
+				end
+				return data
+			end
+			local bits = 14 + n
+			local data = bufferCreate(floor((bits + 7) / 8))
+			bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
+			bufferWriteBits(data, 14, 26, magnitude % 67108864)
+			local remaining = n - 26
+			if remaining <= 26 then bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
+			else
+				bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
+				bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
+			end
+			return data
+		end
 	end
-	if value < 0 and value >= -64 and value == floor(value) then
-		local data = bufferCreate(1)
-		bufferWriteU8(data, 0, 1 + (-value - 1) * 4)
-		return data
-	end
-	if value == floor(value) and abs(value) <= SAFE_INTEGER then
-		return makeInteger(value)
-	end
-	return makeExactNumber(value)
+	local data = bufferCreate(EXACT_F64_BYTES)
+	bufferWriteU8(data, 0, 255)
+	bufferWriteF64(data, 1, value)
+	return data
 end
 
 function NanoNum.fromLog10(exponent: number, negative: boolean?): buffer
@@ -687,6 +697,60 @@ function NanoNum.fromString(value: string, suffixType: SuffixName?): buffer
 		if first > last then
 			return makeSpecial(SPECIAL_NAN)
 		end
+	end
+
+	local powerFirst = first
+	local powerLast = last
+	local powerDepth = 0
+	while powerDepth < 4096 do
+		while powerFirst <= powerLast do
+			local ws = byte(value, powerFirst)
+			if ws == 32 or ws == 9 or ws == 10 or ws == 13 then powerFirst += 1 else break end
+		end
+		while powerLast >= powerFirst do
+			local ws = byte(value, powerLast)
+			if ws == 32 or ws == 9 or ws == 10 or ws == 13 then powerLast -= 1 else break end
+		end
+		if powerFirst + 2 > powerLast or byte(value, powerFirst) ~= 49 or byte(value, powerFirst + 1) ~= 48 then break end
+		local p = powerFirst + 2
+		while p <= powerLast do
+			local ws = byte(value, p)
+			if ws == 32 or ws == 9 or ws == 10 or ws == 13 then p += 1 else break end
+		end
+		if p > powerLast or byte(value, p) ~= 94 then break end
+		p += 1
+		while p <= powerLast do
+			local ws = byte(value, p)
+			if ws == 32 or ws == 9 or ws == 10 or ws == 13 then p += 1 else break end
+		end
+		if p > powerLast then return makeSpecial(SPECIAL_NAN) end
+		if byte(value, p) == 40 and byte(value, powerLast) == 41 then
+			local depth = 0
+			local wraps = true
+			for i = p, powerLast do
+				local ch = byte(value, i)
+				if ch == 40 then
+					depth += 1
+				elseif ch == 41 then
+					depth -= 1
+					if depth < 0 or (depth == 0 and i < powerLast) then wraps = false break end
+				end
+			end
+			if wraps and depth == 0 then
+				p += 1
+				powerLast -= 1
+			end
+		end
+		powerFirst = p
+		powerDepth += 1
+	end
+	if powerDepth > 0 then
+		if powerDepth >= 4096 and powerFirst + 2 <= powerLast and byte(value, powerFirst) == 49 and byte(value, powerFirst + 1) == 48 then return makeSpecial(SPECIAL_NAN) end
+		local exponentValue = NanoNum.fromString(sub(value, powerFirst, powerLast), suffixType)
+		local result = NanoNum.iteratedExp10(exponentValue, powerDepth)
+		if reciprocal then result = NanoNum.reciprocal(result) end
+		if negative then result = NanoNum.neg(result) end
+		return result
 	end
 
 	local coreLength = last - first + 1
@@ -1054,6 +1118,14 @@ function NanoNum.fromString(value: string, suffixType: SuffixName?): buffer
 			end
 		end
 
+		if repeated == 1 and p <= last and byte(value, p) ~= 94 then
+			local exponentValue = NanoNum.fromString(sub(value, p, last), suffixType)
+			local result = NanoNum.pow10(exponentValue)
+			if reciprocal then result = NanoNum.reciprocal(result) end
+			if negative then result = NanoNum.neg(result) end
+			return result
+		end
+
 		if repeated == 1 and p <= last and byte(value, p) == 94 then
 			p += 1
 
@@ -1274,12 +1346,7 @@ local function recordEndChecked(data: buffer, bitOffset: number, limit: number?)
 		local nextBit = headerEnd + n
 		return nextBit <= endLimit and nextBit or nil
 	end
-	if band(raw, 15) == 7 then
-		local nextBit = bitOffset + NORMAL_BITS
-		if nextBit > endLimit then return nil end
-		local expCode = floor(bufferReadBits(data, bitOffset, 15) / 32)
-		return expCode <= NORMAL_EXP_MAX + NORMAL_EXP_BIAS and nextBit or nil
-	end
+	if band(raw, 15) == 7 then return nil end
 	if band(raw, 31) == 15 then return scalarEndChecked(data, bitOffset + 7, endLimit) end
 	if band(raw, 63) == 31 then
 		local fieldStart = bitOffset + 8
@@ -1327,12 +1394,7 @@ local function decodeAt(data: buffer, bitOffset: number): (DecodedValue, number)
 		local magnitude = readUIntExactAtFast(data, payloadOffset, n)
 		return {Kind = "Integer", Value = negative and -magnitude or magnitude, Negative = negative}, nextBit
 	end
-	if band(raw, 15) == 7 then
-		local negative = bufferReadBits(data, bitOffset + 4, 1) == 1
-		local expCode = bufferReadBits(data, bitOffset + 5, NORMAL_EXP_BITS)
-		local mantCode = bufferReadBits(data, bitOffset + 15, NORMAL_MANT_BITS)
-		return {Kind = "Normal", Negative = negative, Exponent = expCode - NORMAL_EXP_BIAS, Mantissa = decodeMantissa(mantCode, NORMAL_MANT_MAX)}, bitOffset + NORMAL_BITS
-	end
+	if band(raw, 15) == 7 then error("NanoNum: legacy normal record is not supported") end
 	if band(raw, 31) == 15 then
 		local negative = bufferReadBits(data, bitOffset + 5, 1) == 1
 		local reciprocal = bufferReadBits(data, bitOffset + 6, 1) == 1
@@ -1419,52 +1481,8 @@ end
 NanoNum.byteLength = bufferLen
 
 local function decodeRegBuffer(value: buffer): (number, number, number)
-	local raw = bufferReadBits(value, 0, 6)
-	if band(raw, 1) == 0 then
-		local magnitude = bufferReadBits(value, 1, 7)
-		if magnitude == 0 then return 0, 0, 0 end
-		return K_NUM, magnitude, 0
-	end
-	if band(raw, 3) == 1 then return -K_NUM, bufferReadBits(value, 2, 6) + 1, 0 end
-	if band(raw, 7) == 3 then
-		local negative = bufferReadBits(value, 3, 1) == 1
-		local n = bufferReadBits(value, 4, INTEGER_LEN_BITS)
-		local offset = 9
-		if n == 0 then
-			n = 32 + bufferReadBits(value, offset, 5)
-			offset += 5
-		end
-		local magnitude = readUIntExactAtFast(value, offset, n)
-		return negative and -K_NUM or K_NUM, magnitude, 0
-	end
-	if band(raw, 15) == 7 then
-		local negative = bufferReadBits(value, 4, 1) == 1
-		local exponent = bufferReadBits(value, 5, NORMAL_EXP_BITS) - NORMAL_EXP_BIAS
-		local mantissa = decodeMantissa(bufferReadBits(value, 15, NORMAL_MANT_BITS), NORMAL_MANT_MAX)
-		local logMagnitude = exponent + log10(mantissa)
-		if logMagnitude >= DIRECT_LOG_MIN and logMagnitude <= DIRECT_LOG_MAX then
-			local magnitude = 10 ^ logMagnitude
-			if magnitude ~= 0 and magnitude ~= huge then return negative and -K_NUM or K_NUM, magnitude, 0 end
-		end
-		return negative and -K_LOG or K_LOG, logMagnitude, 0
-	end
-	if band(raw, 31) == 15 then
-		local negative = bufferReadBits(value, 5, 1) == 1
-		local reciprocal = bufferReadBits(value, 6, 1) == 1
-		local top = readScalarAtFast(value, 7)
-		return negative and -K_LOG or K_LOG, reciprocal and -top or top, 0
-	end
-	if band(raw, 63) == 31 then
-		local negative = bufferReadBits(value, 6, 1) == 1
-		local reciprocal = bufferReadBits(value, 7, 1) == 1
-		local layer, layerIsLog, nextBit = readLayerFieldAtFast(value, 8)
-		local top = readScalarAtFast(value, nextBit)
-		local signedLayer = reciprocal and -layer or layer
-		local kind = layerIsLog and K_LAYER_LOG or K_LAYER
-		return negative and -kind or kind, signedLayer, top
-	end
-	local special = bufferReadBits(value, 6, 2)
-	if special == SPECIAL_RESERVED then
+	local first = bufferReadU8(value, 0)
+	if first == 255 then
 		local exact = bufferReadF64(value, 1)
 		if exact ~= exact then return K_NAN, 0, 0 end
 		if exact == huge then return K_INF, 0, 0 end
@@ -1472,11 +1490,48 @@ local function decodeRegBuffer(value: buffer): (number, number, number)
 		if exact == 0 then return 0, 0, 0 end
 		return exact < 0 and -K_NUM or K_NUM, exact < 0 and -exact or exact, 0
 	end
-	if special == SPECIAL_POS_INF then return K_INF, 0, 0 end
-	if special == SPECIAL_NEG_INF then return -K_INF, 0, 0 end
+	if band(first, 1) == 0 then
+		local magnitude = floor(first / 2)
+		if magnitude == 0 then return 0, 0, 0 end
+		return K_NUM, magnitude, 0
+	end
+	if band(first, 3) == 1 then return -K_NUM, floor(first / 4) + 1, 0 end
+	local raw = band(first, 63)
+	if band(raw, 7) == 3 then
+		local negative = band(first, 8) ~= 0
+		local n = floor(first / 16) % 32
+		local offset = 9
+		if n == 0 then
+			n = 32 + bufferReadBits(value, offset, 5)
+			offset = 14
+			if n > MAX_INTEGER_MODE_BITS then return K_NAN, 0, 0 end
+		end
+		local magnitude
+		if n <= 26 then magnitude = bufferReadBits(value, offset, n)
+		elseif n <= 52 then magnitude = bufferReadBits(value, offset, 26) + bufferReadBits(value, offset + 26, n - 26) * 67108864
+		else magnitude = bufferReadBits(value, offset, 26) + bufferReadBits(value, offset + 26, 26) * 67108864 + bufferReadBits(value, offset + 52, n - 52) * 4503599627370496 end
+		return negative and -K_NUM or K_NUM, magnitude, 0
+	end
+	if band(raw, 15) == 7 then return K_NAN, 0, 0 end
+	if band(raw, 31) == 15 then
+		local negative = band(first, 32) ~= 0
+		local reciprocal = band(first, 64) ~= 0
+		local top = readScalarAtFast(value, 7)
+		return negative and -K_LOG or K_LOG, reciprocal and -top or top, 0
+	end
+	if raw == 31 then
+		local negative = band(first, 64) ~= 0
+		local reciprocal = band(first, 128) ~= 0
+		local layer, layerIsLog, nextBit = readLayerFieldAtFast(value, 8)
+		local top = readScalarAtFast(value, nextBit)
+		local signedLayer = reciprocal and -layer or layer
+		local kind = layerIsLog and K_LAYER_LOG or K_LAYER
+		return negative and -kind or kind, signedLayer, top
+	end
+	if first == 63 then return K_INF, 0, 0 end
+	if first == 127 then return -K_INF, 0, 0 end
 	return K_NAN, 0, 0
 end
-
 local function regFromNumber(value: number): (number, number, number)
 	if value ~= value then return K_NAN, 0, 0 end
 	if value == huge then return K_INF, 0, 0 end
@@ -1496,6 +1551,42 @@ local function regFromSignedLog(logMagnitude: number, negative: boolean): (numbe
 	return negative and -K_LOG or K_LOG, logMagnitude, 0
 end
 
+local function regFromSignedLogSum(left: number, right: number, negative: boolean): (number, number, number)
+	if left ~= left or right ~= right then return K_NAN, 0, 0 end
+	local value = left + right
+	if value ~= huge and value ~= -huge then return regFromSignedLog(value, negative) end
+	if left == huge or right == huge then
+		if left == -huge or right == -huge then return K_NAN, 0, 0 end
+		return negative and -K_INF or K_INF, 0, 0
+	end
+	if left == -huge or right == -huge then return 0, 0, 0 end
+	local leftNegative = left < 0
+	local rightNegative = right < 0
+	if leftNegative ~= rightNegative then return regFromSignedLog(value, negative) end
+	local al = abs(left)
+	local ar = abs(right)
+	local hi = max(al, ar)
+	local lo = min(al, ar)
+	if hi == 0 then return regFromSignedLog(0, negative) end
+	local top = log10(hi) + log10(1 + lo / hi)
+	return negative and -K_LAYER or K_LAYER, leftNegative and -2 or 2, top
+end
+
+local function regFromSignedLogProduct(left: number, right: number, negative: boolean): (number, number, number)
+	if left ~= left or right ~= right then return K_NAN, 0, 0 end
+	if left == 0 or right == 0 then return regFromSignedLog(0, negative) end
+	local value = left * right
+	if value ~= huge and value ~= -huge then return regFromSignedLog(value, negative) end
+	if left == huge or left == -huge or right == huge or right == -huge then
+		local reciprocal = (left < 0) ~= (right < 0)
+		if reciprocal then return 0, 0, 0 end
+		return negative and -K_INF or K_INF, 0, 0
+	end
+	local reciprocal = (left < 0) ~= (right < 0)
+	local top = log10(abs(left)) + log10(abs(right))
+	return negative and -K_LAYER or K_LAYER, reciprocal and -2 or 2, top
+end
+
 local function decodeReg(value: any): (number, number, number)
 	local kind = typeof(value)
 	if kind == "number" then return regFromNumber(value) end
@@ -1505,10 +1596,15 @@ local function decodeReg(value: any): (number, number, number)
 end
 
 local function encodeReg(kind: number, a: number, b: number): buffer
+	if kind ~= kind or a ~= a or b ~= b then return makeSpecial(SPECIAL_NAN) end
 	if kind == 0 then return NanoNum.fromNumber(0) end
 	local absoluteKind = abs(kind)
 	local negative = kind < 0
-	if absoluteKind == K_NUM then return NanoNum.fromNumber(negative and -a or a) end
+	if absoluteKind == K_NUM then
+		if a == huge then return makeSpecial(negative and SPECIAL_NEG_INF or SPECIAL_POS_INF) end
+		if a < 0 then return NanoNum.fromNumber(negative and a or -a) end
+		return NanoNum.fromNumber(negative and -a or a)
+	end
 	if absoluteKind == K_LOG then return NanoNum.fromLog10(a, negative) end
 	if absoluteKind == K_LAYER then return NanoNum.fromLayer(abs(a), b, negative, a < 0) end
 	if absoluteKind == K_LAYER_LOG then return NanoNum.fromLayerLog10(abs(a), b, negative, a < 0) end
@@ -1700,7 +1796,7 @@ local function regMul(ak: number, aa: number, ab: number, bk: number, ba: number
 		local la = regLogAbs(ak, aa)
 		local lb = regLogAbs(bk, ba)
 		if la == nil or lb == nil then return K_NAN, 0, 0 end
-		return regFromSignedLog(la + lb, negative)
+		return regFromSignedLogSum(la, lb, negative)
 	end
 	if aLayer ~= bLayer then
 		local lk = aLayer and ak or bk
@@ -1713,7 +1809,7 @@ local function regMul(ak: number, aa: number, ab: number, bk: number, ba: number
 		if abs(lk) == K_LAYER and abs(la) == 2 and lb <= DIRECT_LOG_MAX then
 			local tower = 10 ^ lb
 			if la < 0 then tower = -tower end
-			return regFromSignedLog(tower + otherLog, negative)
+			return regFromSignedLogSum(tower, otherLog, negative)
 		end
 		return negative and -abs(lk) or abs(lk), la, lb
 	end
@@ -1775,10 +1871,14 @@ local function regPow10(kind: number, a: number, b: number): (number, number, nu
 		if direct ~= huge and direct ~= -huge then return regFromSignedLog(direct, false) end
 		return K_LAYER, kind < 0 and -2 or 2, abs(a)
 	end
-	if absoluteKind == K_LAYER or absoluteKind == K_LAYER_LOG then
+	if absoluteKind == K_LAYER then
 		if a < 0 then return K_NUM, 1, 0 end
-		if absoluteKind == K_LAYER_LOG then return K_LAYER_LOG, a, b end
-		return K_LAYER, min(a + 1, NanoNum.MAX_LAYER), b
+		local layer = min(abs(a) + 1, NanoNum.MAX_LAYER)
+		return K_LAYER, kind < 0 and -layer or layer, b
+	end
+	if absoluteKind == K_LAYER_LOG then
+		if a < 0 then return K_NUM, 1, 0 end
+		return K_LAYER_LOG, kind < 0 and -abs(a) or abs(a), b
 	end
 	return K_NAN, 0, 0
 end
@@ -1787,7 +1887,7 @@ local function regIsInteger(kind: number, a: number, b: number): boolean
 	local absoluteKind = abs(kind)
 	if absoluteKind == K_NUM then return a == floor(a) end
 	if absoluteKind == K_LOG then return a >= 0 and a == floor(a) end
-	if absoluteKind == K_LAYER then return a > 0 and b >= 0 and b == floor(b) end
+	if absoluteKind == K_LAYER or absoluteKind == K_LAYER_LOG then return a > 0 and b >= 0 and b == floor(b) end
 	return false
 end
 
@@ -1803,15 +1903,30 @@ local function regPow(bk: number, ba: number, bb: number, ek: number, ea: number
 	local exponentKind = abs(ek)
 	if baseKind == K_NAN or exponentKind == K_NAN then return K_NAN, 0, 0 end
 	if ek == 0 then return K_NUM, 1, 0 end
-	if bk == 0 then
-		if ek > 0 then return 0, 0, 0 end
-		return K_INF, 0, 0
+	if bk == K_NUM and ba == 1 then return K_NUM, 1, 0 end
+	if bk == 0 then return ek > 0 and 0 or K_INF, 0, 0 end
+	if exponentKind == K_INF then
+		if bk < 0 then return K_NAN, 0, 0 end
+		if baseKind == K_INF then return ek < 0 and 0 or K_INF, 0, 0 end
+		local baseCmpOne = regCompare(bk, ba, bb, K_NUM, 1, 0)
+		if baseCmpOne == 0 then return K_NUM, 1, 0 end
+		if ek > 0 then return baseCmpOne > 0 and K_INF or 0, 0, 0 end
+		return baseCmpOne > 0 and 0 or K_INF, 0, 0
 	end
 	local negativeResult = false
 	if bk < 0 then
 		if not regIsInteger(ek, ea, eb) then return K_NAN, 0, 0 end
 		negativeResult = regIsOdd(ek, ea, eb)
 		bk = -bk
+	end
+	if ek == K_NUM and ea == 1 then
+		if negativeResult and bk ~= 0 then bk = -bk end
+		return bk, ba, bb
+	end
+	if bk == K_NUM and ba == 10 then
+		local rk, ra, rb = regPow10(ek, ea, eb)
+		if negativeResult and rk ~= 0 and abs(rk) ~= K_NAN then rk = -rk end
+		return rk, ra, rb
 	end
 	if abs(bk) == K_NUM and abs(ek) == K_NUM then
 		local exponent = ek < 0 and -ea or ea
@@ -1822,8 +1937,7 @@ local function regPow(bk: number, ba: number, bb: number, ek: number, ea: number
 	if baseLog ~= nil then
 		local exponent = regToNumber(ek, ea, eb)
 		if exponent == exponent and exponent ~= huge and exponent ~= -huge then
-			local rk, ra, rb = regFromSignedLog(baseLog * exponent, negativeResult)
-			return rk, ra, rb
+			return regFromSignedLogProduct(baseLog, exponent, negativeResult)
 		end
 	end
 	local lk, la, lb = regLog10(bk, ba, bb)
@@ -1850,6 +1964,14 @@ end
 function NanoNum.add(a: MathValue, b: MathValue): buffer
 	local at = typeof(a)
 	local bt = typeof(b)
+	if at == "buffer" and bt == "buffer" then
+		local av = a :: buffer
+		local bv = b :: buffer
+		if bufferReadU8(av, 0) == 255 and bufferReadU8(bv, 0) == 255 then
+			local value = bufferReadF64(av, 1) + bufferReadF64(bv, 1)
+			if value == value and value ~= huge and value ~= -huge then return NanoNum.fromNumber(value) end
+		end
+	end
 	if at == "number" and bt == "number" then
 		local x = a :: number
 		local y = b :: number
@@ -1889,6 +2011,14 @@ end
 function NanoNum.sub(a: MathValue, b: MathValue): buffer
 	local at = typeof(a)
 	local bt = typeof(b)
+	if at == "buffer" and bt == "buffer" then
+		local av = a :: buffer
+		local bv = b :: buffer
+		if bufferReadU8(av, 0) == 255 and bufferReadU8(bv, 0) == 255 then
+			local value = bufferReadF64(av, 1) - bufferReadF64(bv, 1)
+			if value == value and value ~= huge and value ~= -huge then return NanoNum.fromNumber(value) end
+		end
+	end
 	if at == "number" and bt == "number" then
 		local value = (a :: number) - (b :: number)
 		if value == value and value ~= huge and value ~= -huge then return NanoNum.fromNumber(value) end
@@ -1924,6 +2054,16 @@ end
 function NanoNum.mul(a: MathValue, b: MathValue): buffer
 	local at = typeof(a)
 	local bt = typeof(b)
+	if at == "buffer" and bt == "buffer" then
+		local av = a :: buffer
+		local bv = b :: buffer
+		if bufferReadU8(av, 0) == 255 and bufferReadU8(bv, 0) == 255 then
+			local x = bufferReadF64(av, 1)
+			local y = bufferReadF64(bv, 1)
+			local value = x * y
+			if value == value and value ~= huge and value ~= -huge and (value ~= 0 or x == 0 or y == 0) then return NanoNum.fromNumber(value) end
+		end
+	end
 	if at == "number" and bt == "number" then
 		local x = a :: number
 		local y = b :: number
@@ -1962,6 +2102,18 @@ end
 function NanoNum.div(a: MathValue, b: MathValue): buffer
 	local at = typeof(a)
 	local bt = typeof(b)
+	if at == "buffer" and bt == "buffer" then
+		local av = a :: buffer
+		local bv = b :: buffer
+		if bufferReadU8(av, 0) == 255 and bufferReadU8(bv, 0) == 255 then
+			local x = bufferReadF64(av, 1)
+			local y = bufferReadF64(bv, 1)
+			if y ~= 0 then
+				local value = x / y
+				if value == value and value ~= huge and value ~= -huge and (value ~= 0 or x == 0) then return NanoNum.fromNumber(value) end
+			end
+		end
+	end
 	if at == "number" and bt == "number" then
 		local x = a :: number
 		local y = b :: number
@@ -2003,12 +2155,28 @@ end
 function NanoNum.pow(a: MathValue, b: MathValue): buffer
 	local at = typeof(a)
 	local bt = typeof(b)
+	if at == "buffer" and bt == "buffer" then
+		local av = a :: buffer
+		local bv = b :: buffer
+		if bufferReadU8(av, 0) == 255 and bufferReadU8(bv, 0) == 255 then
+			local base = bufferReadF64(av, 1)
+			local exponent = bufferReadF64(bv, 1)
+			if base == base and exponent == exponent and (base >= 0 or exponent == floor(exponent)) then
+				local value = base ^ exponent
+				if value == value and value ~= huge and value ~= -huge and (value ~= 0 or base == 0) then return NanoNum.fromNumber(value) end
+			end
+		end
+	end
 	if at == "number" and bt == "number" then
 		local x = a :: number
 		local y = b :: number
-		if x >= 0 or y == floor(y) then
-			local value = x ^ y
-			if value == value and value ~= huge and value ~= -huge and (value ~= 0 or x == 0) then return NanoNum.fromNumber(value) end
+		if x == x and y == y then
+			if y == 0 or x == 1 then return NanoNum.fromNumber(1) end
+			if x == 10 then return NanoNum.fromLog10(y) end
+			if x >= 0 or y == floor(y) then
+				local value = x ^ y
+				if value == value and value ~= huge and value ~= -huge and (value ~= 0 or x == 0) then return NanoNum.fromNumber(value) end
+			end
 		end
 	end
 	local ak, aa, ab
@@ -2046,6 +2214,16 @@ end
 function NanoNum.compare(a: MathValue, b: MathValue): number
 	local at = typeof(a)
 	local bt = typeof(b)
+	if at == "buffer" and bt == "buffer" then
+		local av = a :: buffer
+		local bv = b :: buffer
+		if bufferReadU8(av, 0) == 255 and bufferReadU8(bv, 0) == 255 then
+			local x = bufferReadF64(av, 1)
+			local y = bufferReadF64(bv, 1)
+			if x ~= x or y ~= y then return NAN end
+			if x < y then return -1 elseif x > y then return 1 else return 0 end
+		end
+	end
 	if at == "number" and bt == "number" then
 		local x = a :: number
 		local y = b :: number
@@ -2753,15 +2931,19 @@ local function factorialLog10(n: number): number
 end
 
 function NanoNum.factorial(value: MathValue): buffer
-	local n = exactInteger(value)
-	if n == nil or n < 0 then return makeSpecial(SPECIAL_NAN) end
-	if n <= 1 then return NanoNum.fromNumber(1) end
-	if n <= 20 then
-		local result = 1
-		for i = 2, n do result *= i end
-		return NanoNum.fromNumber(result)
+	local k, a, b = decodeReg(value)
+	if k < 0 or not regIsInteger(k, a, b) then return makeSpecial(SPECIAL_NAN) end
+	if abs(k) == K_NUM and a <= SAFE_INTEGER then
+		local n = a
+		if n <= 1 then return NanoNum.fromNumber(1) end
+		if n <= 20 then
+			local result = 1
+			for i = 2, n do result *= i end
+			return NanoNum.fromNumber(result)
+		end
+		return NanoNum.fromLog10(factorialLog10(n))
 	end
-	return NanoNum.fromLog10(factorialLog10(n))
+	return NanoNum.gamma(NanoNum.add(value, 1))
 end
 
 local LANCZOS = {
@@ -2792,23 +2974,34 @@ function NanoNum.gammaSign(value: MathValue): number
 end
 
 function NanoNum.logGamma(value: MathValue): buffer
-	local n = NanoNum.toNumber(value)
-	if n ~= n then return makeSpecial(SPECIAL_NAN) end
-	if n == huge then return makeSpecial(SPECIAL_POS_INF) end
-	if n == 0 or n == floor(n) and n < 0 then return makeSpecial(SPECIAL_POS_INF) end
-	if n > 0 and n < 1e6 then return NanoNum.fromNumber(logGammaDirect(n)) end
-	if n < 0 and abs(n) < 1e6 then
-		local s = sin(pi * n)
-		if s == 0 then return makeSpecial(SPECIAL_POS_INF) end
-		return NanoNum.fromNumber(log(pi) - log(abs(s)) - logGammaDirect(1 - n))
+	local k, a, b = decodeReg(value)
+	local absoluteKind = abs(k)
+	if absoluteKind == K_NAN then return makeSpecial(SPECIAL_NAN) end
+	if absoluteKind == K_INF then return k > 0 and makeSpecial(SPECIAL_POS_INF) or makeSpecial(SPECIAL_NAN) end
+	local n = regToNumber(k, a, b)
+	if n == n and n ~= huge and n ~= -huge then
+		if n == 0 or n == floor(n) and n < 0 then return makeSpecial(SPECIAL_POS_INF) end
+		if n > 0 and n < 1e6 then return NanoNum.fromNumber(logGammaDirect(n)) end
+		if n < 0 and abs(n) < 1e6 then
+			local s = sin(pi * n)
+			if s == 0 then return makeSpecial(SPECIAL_POS_INF) end
+			return NanoNum.fromNumber(log(pi) - log(abs(s)) - logGammaDirect(1 - n))
+		end
+		if n < 0 then return makeSpecial(SPECIAL_NAN) end
 	end
-	if n > 0 then
-		local x = n
-		local inv = 1 / x
-		local valueLog = (x - 0.5) * log(x) - x + 0.5 * log(TWO_PI) + inv / 12 - inv ^ 3 / 360 + inv ^ 5 / 1260
-		return NanoNum.fromNumber(valueLog)
+	if k <= 0 then return makeSpecial(SPECIAL_NAN) end
+	local x = encodeReg(k, a, b)
+	local main = NanoNum.sub(NanoNum.mul(NanoNum.sub(x, 0.5), NanoNum.ln(x)), x)
+	local result = NanoNum.add(main, 0.5 * log(TWO_PI))
+	if NanoNum.lte(x, 1e12) then
+		local inv = NanoNum.reciprocal(x)
+		local inv2 = NanoNum.mul(inv, inv)
+		local inv3 = NanoNum.mul(inv2, inv)
+		local inv5 = NanoNum.mul(inv3, inv2)
+		result = NanoNum.add(result, NanoNum.sub(NanoNum.div(inv, 12), NanoNum.div(inv3, 360)))
+		result = NanoNum.add(result, NanoNum.div(inv5, 1260))
 	end
-	return makeSpecial(SPECIAL_NAN)
+	return result
 end
 
 function NanoNum.gamma(value: MathValue): buffer
@@ -2963,6 +3156,7 @@ function NanoNum.iteratedExp10(value: MathValue, timesValue: MathValue): buffer
 	local k, a, b = decodeReg(value)
 	if times == 0 then return encodeReg(k, a, b) end
 	if abs(k) == K_LAYER and k > 0 and a > 0 then return NanoNum.fromLayer(min(a + times, NanoNum.MAX_LAYER), b) end
+	if abs(k) == K_LAYER_LOG and k > 0 and a > 0 then return NanoNum.fromLayerLog10(a, b) end
 	for _ = 1, min(times, 32) do
 		k, a, b = regPow10(k, a, b)
 		if abs(k) == K_NAN or abs(k) == K_INF then break end
@@ -2988,7 +3182,13 @@ function NanoNum.iteratedLog10(value: MathValue, timesValue: MathValue): buffer
 end
 
 function NanoNum.tetrate10(heightValue: MathValue, payload: MathValue?): buffer
-	local height = NanoNum.toNumber(heightValue)
+	local hk, ha, hb = decodeReg(heightValue)
+	local heightKind = abs(hk)
+	if heightKind == K_NAN or heightKind == K_INF then return makeSpecial(SPECIAL_NAN) end
+	if payload == nil and hk > 0 and heightKind == K_LOG and ha >= 0 and ha <= NanoNum.MAX_LAYER_LOG10 and ha == floor(ha) then
+		return NanoNum.fromLayerLog10(ha, 1)
+	end
+	local height = regToNumber(hk, ha, hb)
 	if height ~= height or height == huge or height == -huge then return makeSpecial(SPECIAL_NAN) end
 	if payload ~= nil then
 		if height < 0 then return makeSpecial(SPECIAL_NAN) end
@@ -3101,9 +3301,112 @@ function NanoNum.compile(value: MathValue): buffer
 	return makeSpecial(SPECIAL_NAN)
 end
 
+function NanoNum.canonicalize(value: MathValue): buffer
+	local k, a, b = decodeReg(value)
+	return encodeReg(k, a, b)
+end
+
+function NanoNum.isCanonical(value: MathValue): boolean
+	if typeof(value) ~= "buffer" then return false end
+	local source = value :: buffer
+	if not NanoNum.isValid(source) then return false end
+	local k, a, b = decodeRegBuffer(source)
+	local canonical = encodeReg(k, a, b)
+	local sourceBytes = bufferLen(source)
+	local canonicalBytes = bufferLen(canonical)
+	if sourceBytes ~= canonicalBytes then return false end
+	for i = 0, sourceBytes - 1 do
+		if buffer.readu8(source, i) ~= buffer.readu8(canonical, i) then return false end
+	end
+	return true
+end
+
+function NanoNum.log10Abs(value: MathValue): buffer
+	local k, a, b = decodeReg(value)
+	if abs(k) == K_NAN then return makeSpecial(SPECIAL_NAN) end
+	if k < 0 then k = -k end
+	k, a, b = regLog10(k, a, b)
+	return encodeReg(k, a, b)
+end
+
+function NanoNum.scale10(value: MathValue, exponent: MathValue): buffer
+	local vk, va, vb = decodeReg(value)
+	local ek, ea, eb = decodeReg(exponent)
+	if abs(vk) == K_NAN or abs(ek) == K_NAN then return makeSpecial(SPECIAL_NAN) end
+	if vk == 0 then return NanoNum.fromNumber(0) end
+	local pk, pa, pb = regPow10(ek, ea, eb)
+	vk, va, vb = regMul(vk, va, vb, pk, pa, pb)
+	return encodeReg(vk, va, vb)
+end
+
+function NanoNum.fromScientific(mantissa: MathValue, exponent: MathValue): buffer
+	return NanoNum.scale10(mantissa, exponent)
+end
+
+function NanoNum.layerDepth(value: MathValue): buffer
+	local k, a = decodeReg(value)
+	local kind = abs(k)
+	if kind == K_NAN then return makeSpecial(SPECIAL_NAN) end
+	if kind == K_INF then return makeSpecial(SPECIAL_POS_INF) end
+	if kind == K_LAYER then return NanoNum.fromNumber(abs(a)) end
+	if kind == K_LAYER_LOG then return NanoNum.fromLog10(abs(a)) end
+	if kind == K_LOG then return NanoNum.fromNumber(1) end
+	return NanoNum.fromNumber(0)
+end
+
+function NanoNum.rangeClass(value: MathValue): string
+	local k = decodeReg(value)
+	local kind = abs(k)
+	if kind == K_NAN then return "nan" end
+	if kind == K_INF then return "infinity" end
+	if kind == K_LAYER_LOG then return "layer-log" end
+	if kind == K_LAYER then return "layer" end
+	if kind == K_LOG then return "log" end
+	if k == 0 then return "zero" end
+	return "finite"
+end
+
 local TYPE_CODE = {number = "N", buffer = "B", string = "S"}
 
 NanoNum.fast = {}
+
+NanoNum.fast.pow10B = function(value: buffer): buffer
+	if bufferReadU8(value, 0) == 255 then return NanoNum.fromLog10(bufferReadF64(value, 1)) end
+	local k, a, b = decodeRegBuffer(value)
+	k, a, b = regPow10(k, a, b)
+	return encodeReg(k, a, b)
+end
+
+NanoNum.fast.log10B = function(value: buffer): buffer
+	if bufferReadU8(value, 0) == 255 then
+		local x = bufferReadF64(value, 1)
+		if x < 0 or x ~= x then return makeSpecial(SPECIAL_NAN) end
+		if x == 0 then return makeSpecial(SPECIAL_NEG_INF) end
+		return NanoNum.fromNumber(log10(x))
+	end
+	local k, a, b = decodeRegBuffer(value)
+	k, a, b = regLog10(k, a, b)
+	return encodeReg(k, a, b)
+end
+
+NanoNum.fast.negB = function(value: buffer): buffer
+	if bufferReadU8(value, 0) == 255 then return NanoNum.fromNumber(-bufferReadF64(value, 1)) end
+	local k, a, b = decodeRegBuffer(value)
+	if k ~= 0 and abs(k) ~= K_NAN then k = -k end
+	return encodeReg(k, a, b)
+end
+
+NanoNum.fast.absB = function(value: buffer): buffer
+	if bufferReadU8(value, 0) == 255 then return NanoNum.fromNumber(abs(bufferReadF64(value, 1))) end
+	local k, a, b = decodeRegBuffer(value)
+	return encodeReg(abs(k), a, b)
+end
+
+NanoNum.fast.reciprocalB = function(value: buffer): buffer
+	local k, a, b = decodeRegBuffer(value)
+	k, a, b = regReciprocal(k, a, b)
+	return encodeReg(k, a, b)
+end
 
 local function fastDecodeN(value: number): (number, number, number)
 	if value ~= value then return K_NAN, 0, 0 end
@@ -3113,11 +3416,12 @@ local function fastDecodeN(value: number): (number, number, number)
 	return value < 0 and -K_NUM or K_NUM, value < 0 and -value or value, 0
 end
 
-local function fastDecodeS(value: string): (number, number, number)
-	return decodeRegBuffer(NanoNum.fromString(value))
-end
 
 NanoNum.fast.addBB = function(a: buffer, b: buffer): buffer
+	if bufferReadU8(a, 0) == 255 and bufferReadU8(b, 0) == 255 then
+		local value = bufferReadF64(a, 1) + bufferReadF64(b, 1)
+		if value == value and value ~= huge and value ~= -huge then return NanoNum.fromNumber(value) end
+	end
 	local ak, aa, ab = decodeRegBuffer(a)
 	local bk, ba, bb = decodeRegBuffer(b)
 	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
@@ -3129,6 +3433,10 @@ NanoNum.fast.addBB = function(a: buffer, b: buffer): buffer
 end
 
 NanoNum.fast.subBB = function(a: buffer, b: buffer): buffer
+	if bufferReadU8(a, 0) == 255 and bufferReadU8(b, 0) == 255 then
+		local value = bufferReadF64(a, 1) - bufferReadF64(b, 1)
+		if value == value and value ~= huge and value ~= -huge then return NanoNum.fromNumber(value) end
+	end
 	local ak, aa, ab = decodeRegBuffer(a)
 	local bk, ba, bb = decodeRegBuffer(b)
 	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
@@ -3140,6 +3448,12 @@ NanoNum.fast.subBB = function(a: buffer, b: buffer): buffer
 end
 
 NanoNum.fast.mulBB = function(a: buffer, b: buffer): buffer
+	if bufferReadU8(a, 0) == 255 and bufferReadU8(b, 0) == 255 then
+		local x = bufferReadF64(a, 1)
+		local y = bufferReadF64(b, 1)
+		local value = x * y
+		if value == value and value ~= huge and value ~= -huge and (value ~= 0 or x == 0 or y == 0) then return NanoNum.fromNumber(value) end
+	end
 	local ak, aa, ab = decodeRegBuffer(a)
 	local bk, ba, bb = decodeRegBuffer(b)
 	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
@@ -3152,6 +3466,14 @@ NanoNum.fast.mulBB = function(a: buffer, b: buffer): buffer
 end
 
 NanoNum.fast.divBB = function(a: buffer, b: buffer): buffer
+	if bufferReadU8(a, 0) == 255 and bufferReadU8(b, 0) == 255 then
+		local x = bufferReadF64(a, 1)
+		local y = bufferReadF64(b, 1)
+		if y ~= 0 then
+			local value = x / y
+			if value == value and value ~= huge and value ~= -huge and (value ~= 0 or x == 0) then return NanoNum.fromNumber(value) end
+		end
+	end
 	local ak, aa, ab = decodeRegBuffer(a)
 	local bk, ba, bb = decodeRegBuffer(b)
 	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
@@ -3165,6 +3487,14 @@ NanoNum.fast.divBB = function(a: buffer, b: buffer): buffer
 end
 
 NanoNum.fast.powBB = function(a: buffer, b: buffer): buffer
+	if bufferReadU8(a, 0) == 255 and bufferReadU8(b, 0) == 255 then
+		local base = bufferReadF64(a, 1)
+		local exponent = bufferReadF64(b, 1)
+		if base == base and exponent == exponent and (base >= 0 or exponent == floor(exponent)) then
+			local value = base ^ exponent
+			if value == value and value ~= huge and value ~= -huge and (value ~= 0 or base == 0) then return NanoNum.fromNumber(value) end
+		end
+	end
 	local ak, aa, ab = decodeRegBuffer(a)
 	local bk, ba, bb = decodeRegBuffer(b)
 	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
@@ -3180,6 +3510,12 @@ NanoNum.fast.powBB = function(a: buffer, b: buffer): buffer
 end
 
 NanoNum.fast.compareBB = function(a: buffer, b: buffer): number
+	if bufferReadU8(a, 0) == 255 and bufferReadU8(b, 0) == 255 then
+		local x = bufferReadF64(a, 1)
+		local y = bufferReadF64(b, 1)
+		if x ~= x or y ~= y then return NAN end
+		if x < y then return -1 elseif x > y then return 1 else return 0 end
+	end
 	local ak, aa, ab = decodeRegBuffer(a)
 	local bk, ba, bb = decodeRegBuffer(b)
 	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
@@ -3229,9 +3565,13 @@ NanoNum.fast.divNN = function(a: number, b: number): buffer
 end
 
 NanoNum.fast.powNN = function(a: number, b: number): buffer
-	if a >= 0 or b == floor(b) then
-		local value = a ^ b
-		if value == value and value ~= huge and value ~= -huge and (value ~= 0 or a == 0) then return NanoNum.fromNumber(value) end
+	if a == a and b == b then
+		if b == 0 or a == 1 then return NanoNum.fromNumber(1) end
+		if a == 10 then return NanoNum.fromLog10(b) end
+		if a >= 0 or b == floor(b) then
+			local value = a ^ b
+			if value == value and value ~= huge and value ~= -huge and (value ~= 0 or a == 0) then return NanoNum.fromNumber(value) end
+		end
 	end
 	local ak, aa, ab = fastDecodeN(a)
 	local bk, ba, bb = fastDecodeN(b)
@@ -3276,70 +3616,15 @@ NanoNum.fast.addNB = function(a: number, b: buffer): buffer
 	return encodeReg(k, x, y)
 end
 
-NanoNum.fast.addSS = function(a: string, b: string): buffer
-	local ak, aa, ab = fastDecodeS(a)
-	local bk, ba, bb = fastDecodeS(b)
-	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
-		local value = (ak < 0 and -aa or aa) + (bk < 0 and -ba or ba)
-		if value == value and value ~= huge and value ~= -huge then return NanoNum.fromNumber(value) end
-	end
-	local k, x, y = regAdd(ak, aa, ab, bk, ba, bb)
-	return encodeReg(k, x, y)
-end
+NanoNum.fast.addSS = function(a: string, b: string): buffer return NanoNum.fast.addBB(NanoNum.fromString(a), NanoNum.fromString(b)) end
 
-NanoNum.fast.addSB = function(a: string, b: buffer): buffer
-	local ak, aa, ab = fastDecodeS(a)
-	local bk, ba, bb = decodeRegBuffer(b)
-	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
-		local value = (ak < 0 and -aa or aa) + (bk < 0 and -ba or ba)
-		if value == value and value ~= huge and value ~= -huge then return NanoNum.fromNumber(value) end
-	end
-	local k, x, y = regAdd(ak, aa, ab, bk, ba, bb)
-	return encodeReg(k, x, y)
-end
+NanoNum.fast.addSB = function(a: string, b: buffer): buffer return NanoNum.fast.addBB(NanoNum.fromString(a), b) end
 
-NanoNum.fast.addBS = function(a: buffer, b: string): buffer
-	local ak, aa, ab = decodeRegBuffer(a)
-	local bk, ba, bb = fastDecodeS(b)
-	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
-		local value = (ak < 0 and -aa or aa) + (bk < 0 and -ba or ba)
-		if value == value and value ~= huge and value ~= -huge then return NanoNum.fromNumber(value) end
-	end
-	local k, x, y = regAdd(ak, aa, ab, bk, ba, bb)
-	return encodeReg(k, x, y)
-end
+NanoNum.fast.addBS = function(a: buffer, b: string): buffer return NanoNum.fast.addBB(a, NanoNum.fromString(b)) end
 
-NanoNum.fast.addSN = function(a: string, b: number): buffer
-	local ak, aa, ab = fastDecodeS(a)
-	local bk, ba, bb
-	if b ~= b then bk, ba, bb = K_NAN, 0, 0
-	elseif b == huge then bk, ba, bb = K_INF, 0, 0
-	elseif b == -huge then bk, ba, bb = -K_INF, 0, 0
-	elseif b == 0 then bk, ba, bb = 0, 0, 0
-	else bk, ba, bb = b < 0 and -K_NUM or K_NUM, b < 0 and -b or b, 0 end
-	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
-		local value = (ak < 0 and -aa or aa) + (bk < 0 and -ba or ba)
-		if value == value and value ~= huge and value ~= -huge then return NanoNum.fromNumber(value) end
-	end
-	local k, x, y = regAdd(ak, aa, ab, bk, ba, bb)
-	return encodeReg(k, x, y)
-end
+NanoNum.fast.addSN = function(a: string, b: number): buffer return NanoNum.fast.addBN(NanoNum.fromString(a), b) end
 
-NanoNum.fast.addNS = function(a: number, b: string): buffer
-	local ak, aa, ab
-	if a ~= a then ak, aa, ab = K_NAN, 0, 0
-	elseif a == huge then ak, aa, ab = K_INF, 0, 0
-	elseif a == -huge then ak, aa, ab = -K_INF, 0, 0
-	elseif a == 0 then ak, aa, ab = 0, 0, 0
-	else ak, aa, ab = a < 0 and -K_NUM or K_NUM, a < 0 and -a or a, 0 end
-	local bk, ba, bb = fastDecodeS(b)
-	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
-		local value = (ak < 0 and -aa or aa) + (bk < 0 and -ba or ba)
-		if value == value and value ~= huge and value ~= -huge then return NanoNum.fromNumber(value) end
-	end
-	local k, x, y = regAdd(ak, aa, ab, bk, ba, bb)
-	return encodeReg(k, x, y)
-end
+NanoNum.fast.addNS = function(a: number, b: string): buffer return NanoNum.fast.addNB(a, NanoNum.fromString(b)) end
 
 NanoNum.fast.subBN = function(a: buffer, b: number): buffer
 	local ak, aa, ab = decodeRegBuffer(a)
@@ -3373,70 +3658,15 @@ NanoNum.fast.subNB = function(a: number, b: buffer): buffer
 	return encodeReg(k, x, y)
 end
 
-NanoNum.fast.subSS = function(a: string, b: string): buffer
-	local ak, aa, ab = fastDecodeS(a)
-	local bk, ba, bb = fastDecodeS(b)
-	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
-		local value = (ak < 0 and -aa or aa) - (bk < 0 and -ba or ba)
-		if value == value and value ~= huge and value ~= -huge then return NanoNum.fromNumber(value) end
-	end
-	local k, x, y = regSub(ak, aa, ab, bk, ba, bb)
-	return encodeReg(k, x, y)
-end
+NanoNum.fast.subSS = function(a: string, b: string): buffer return NanoNum.fast.subBB(NanoNum.fromString(a), NanoNum.fromString(b)) end
 
-NanoNum.fast.subSB = function(a: string, b: buffer): buffer
-	local ak, aa, ab = fastDecodeS(a)
-	local bk, ba, bb = decodeRegBuffer(b)
-	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
-		local value = (ak < 0 and -aa or aa) - (bk < 0 and -ba or ba)
-		if value == value and value ~= huge and value ~= -huge then return NanoNum.fromNumber(value) end
-	end
-	local k, x, y = regSub(ak, aa, ab, bk, ba, bb)
-	return encodeReg(k, x, y)
-end
+NanoNum.fast.subSB = function(a: string, b: buffer): buffer return NanoNum.fast.subBB(NanoNum.fromString(a), b) end
 
-NanoNum.fast.subBS = function(a: buffer, b: string): buffer
-	local ak, aa, ab = decodeRegBuffer(a)
-	local bk, ba, bb = fastDecodeS(b)
-	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
-		local value = (ak < 0 and -aa or aa) - (bk < 0 and -ba or ba)
-		if value == value and value ~= huge and value ~= -huge then return NanoNum.fromNumber(value) end
-	end
-	local k, x, y = regSub(ak, aa, ab, bk, ba, bb)
-	return encodeReg(k, x, y)
-end
+NanoNum.fast.subBS = function(a: buffer, b: string): buffer return NanoNum.fast.subBB(a, NanoNum.fromString(b)) end
 
-NanoNum.fast.subSN = function(a: string, b: number): buffer
-	local ak, aa, ab = fastDecodeS(a)
-	local bk, ba, bb
-	if b ~= b then bk, ba, bb = K_NAN, 0, 0
-	elseif b == huge then bk, ba, bb = K_INF, 0, 0
-	elseif b == -huge then bk, ba, bb = -K_INF, 0, 0
-	elseif b == 0 then bk, ba, bb = 0, 0, 0
-	else bk, ba, bb = b < 0 and -K_NUM or K_NUM, b < 0 and -b or b, 0 end
-	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
-		local value = (ak < 0 and -aa or aa) - (bk < 0 and -ba or ba)
-		if value == value and value ~= huge and value ~= -huge then return NanoNum.fromNumber(value) end
-	end
-	local k, x, y = regSub(ak, aa, ab, bk, ba, bb)
-	return encodeReg(k, x, y)
-end
+NanoNum.fast.subSN = function(a: string, b: number): buffer return NanoNum.fast.subBN(NanoNum.fromString(a), b) end
 
-NanoNum.fast.subNS = function(a: number, b: string): buffer
-	local ak, aa, ab
-	if a ~= a then ak, aa, ab = K_NAN, 0, 0
-	elseif a == huge then ak, aa, ab = K_INF, 0, 0
-	elseif a == -huge then ak, aa, ab = -K_INF, 0, 0
-	elseif a == 0 then ak, aa, ab = 0, 0, 0
-	else ak, aa, ab = a < 0 and -K_NUM or K_NUM, a < 0 and -a or a, 0 end
-	local bk, ba, bb = fastDecodeS(b)
-	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
-		local value = (ak < 0 and -aa or aa) - (bk < 0 and -ba or ba)
-		if value == value and value ~= huge and value ~= -huge then return NanoNum.fromNumber(value) end
-	end
-	local k, x, y = regSub(ak, aa, ab, bk, ba, bb)
-	return encodeReg(k, x, y)
-end
+NanoNum.fast.subNS = function(a: number, b: string): buffer return NanoNum.fast.subNB(a, NanoNum.fromString(b)) end
 
 NanoNum.fast.mulBN = function(a: buffer, b: number): buffer
 	local ak, aa, ab = decodeRegBuffer(a)
@@ -3472,75 +3702,15 @@ NanoNum.fast.mulNB = function(a: number, b: buffer): buffer
 	return encodeReg(k, x, y)
 end
 
-NanoNum.fast.mulSS = function(a: string, b: string): buffer
-	local ak, aa, ab = fastDecodeS(a)
-	local bk, ba, bb = fastDecodeS(b)
-	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
-		if ak == 0 or bk == 0 then return NanoNum.fromNumber(0) end
-		local value = aa * ba
-		if value ~= huge and value ~= 0 then return NanoNum.fromNumber((ak < 0) ~= (bk < 0) and -value or value) end
-	end
-	local k, x, y = regMul(ak, aa, ab, bk, ba, bb)
-	return encodeReg(k, x, y)
-end
+NanoNum.fast.mulSS = function(a: string, b: string): buffer return NanoNum.fast.mulBB(NanoNum.fromString(a), NanoNum.fromString(b)) end
 
-NanoNum.fast.mulSB = function(a: string, b: buffer): buffer
-	local ak, aa, ab = fastDecodeS(a)
-	local bk, ba, bb = decodeRegBuffer(b)
-	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
-		if ak == 0 or bk == 0 then return NanoNum.fromNumber(0) end
-		local value = aa * ba
-		if value ~= huge and value ~= 0 then return NanoNum.fromNumber((ak < 0) ~= (bk < 0) and -value or value) end
-	end
-	local k, x, y = regMul(ak, aa, ab, bk, ba, bb)
-	return encodeReg(k, x, y)
-end
+NanoNum.fast.mulSB = function(a: string, b: buffer): buffer return NanoNum.fast.mulBB(NanoNum.fromString(a), b) end
 
-NanoNum.fast.mulBS = function(a: buffer, b: string): buffer
-	local ak, aa, ab = decodeRegBuffer(a)
-	local bk, ba, bb = fastDecodeS(b)
-	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
-		if ak == 0 or bk == 0 then return NanoNum.fromNumber(0) end
-		local value = aa * ba
-		if value ~= huge and value ~= 0 then return NanoNum.fromNumber((ak < 0) ~= (bk < 0) and -value or value) end
-	end
-	local k, x, y = regMul(ak, aa, ab, bk, ba, bb)
-	return encodeReg(k, x, y)
-end
+NanoNum.fast.mulBS = function(a: buffer, b: string): buffer return NanoNum.fast.mulBB(a, NanoNum.fromString(b)) end
 
-NanoNum.fast.mulSN = function(a: string, b: number): buffer
-	local ak, aa, ab = fastDecodeS(a)
-	local bk, ba, bb
-	if b ~= b then bk, ba, bb = K_NAN, 0, 0
-	elseif b == huge then bk, ba, bb = K_INF, 0, 0
-	elseif b == -huge then bk, ba, bb = -K_INF, 0, 0
-	elseif b == 0 then bk, ba, bb = 0, 0, 0
-	else bk, ba, bb = b < 0 and -K_NUM or K_NUM, b < 0 and -b or b, 0 end
-	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
-		if ak == 0 or bk == 0 then return NanoNum.fromNumber(0) end
-		local value = aa * ba
-		if value ~= huge and value ~= 0 then return NanoNum.fromNumber((ak < 0) ~= (bk < 0) and -value or value) end
-	end
-	local k, x, y = regMul(ak, aa, ab, bk, ba, bb)
-	return encodeReg(k, x, y)
-end
+NanoNum.fast.mulSN = function(a: string, b: number): buffer return NanoNum.fast.mulBN(NanoNum.fromString(a), b) end
 
-NanoNum.fast.mulNS = function(a: number, b: string): buffer
-	local ak, aa, ab
-	if a ~= a then ak, aa, ab = K_NAN, 0, 0
-	elseif a == huge then ak, aa, ab = K_INF, 0, 0
-	elseif a == -huge then ak, aa, ab = -K_INF, 0, 0
-	elseif a == 0 then ak, aa, ab = 0, 0, 0
-	else ak, aa, ab = a < 0 and -K_NUM or K_NUM, a < 0 and -a or a, 0 end
-	local bk, ba, bb = fastDecodeS(b)
-	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
-		if ak == 0 or bk == 0 then return NanoNum.fromNumber(0) end
-		local value = aa * ba
-		if value ~= huge and value ~= 0 then return NanoNum.fromNumber((ak < 0) ~= (bk < 0) and -value or value) end
-	end
-	local k, x, y = regMul(ak, aa, ab, bk, ba, bb)
-	return encodeReg(k, x, y)
-end
+NanoNum.fast.mulNS = function(a: number, b: string): buffer return NanoNum.fast.mulNB(a, NanoNum.fromString(b)) end
 
 NanoNum.fast.divBN = function(a: buffer, b: number): buffer
 	local ak, aa, ab = decodeRegBuffer(a)
@@ -3578,80 +3748,15 @@ NanoNum.fast.divNB = function(a: number, b: buffer): buffer
 	return encodeReg(k, x, y)
 end
 
-NanoNum.fast.divSS = function(a: string, b: string): buffer
-	local ak, aa, ab = fastDecodeS(a)
-	local bk, ba, bb = fastDecodeS(b)
-	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
-		if bk == 0 then return makeSpecial(ak == 0 and SPECIAL_NAN or ((ak < 0) and SPECIAL_NEG_INF or SPECIAL_POS_INF)) end
-		if ak == 0 then return NanoNum.fromNumber(0) end
-		local value = aa / ba
-		if value ~= huge and value ~= 0 then return NanoNum.fromNumber((ak < 0) ~= (bk < 0) and -value or value) end
-	end
-	local k, x, y = regDiv(ak, aa, ab, bk, ba, bb)
-	return encodeReg(k, x, y)
-end
+NanoNum.fast.divSS = function(a: string, b: string): buffer return NanoNum.fast.divBB(NanoNum.fromString(a), NanoNum.fromString(b)) end
 
-NanoNum.fast.divSB = function(a: string, b: buffer): buffer
-	local ak, aa, ab = fastDecodeS(a)
-	local bk, ba, bb = decodeRegBuffer(b)
-	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
-		if bk == 0 then return makeSpecial(ak == 0 and SPECIAL_NAN or ((ak < 0) and SPECIAL_NEG_INF or SPECIAL_POS_INF)) end
-		if ak == 0 then return NanoNum.fromNumber(0) end
-		local value = aa / ba
-		if value ~= huge and value ~= 0 then return NanoNum.fromNumber((ak < 0) ~= (bk < 0) and -value or value) end
-	end
-	local k, x, y = regDiv(ak, aa, ab, bk, ba, bb)
-	return encodeReg(k, x, y)
-end
+NanoNum.fast.divSB = function(a: string, b: buffer): buffer return NanoNum.fast.divBB(NanoNum.fromString(a), b) end
 
-NanoNum.fast.divBS = function(a: buffer, b: string): buffer
-	local ak, aa, ab = decodeRegBuffer(a)
-	local bk, ba, bb = fastDecodeS(b)
-	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
-		if bk == 0 then return makeSpecial(ak == 0 and SPECIAL_NAN or ((ak < 0) and SPECIAL_NEG_INF or SPECIAL_POS_INF)) end
-		if ak == 0 then return NanoNum.fromNumber(0) end
-		local value = aa / ba
-		if value ~= huge and value ~= 0 then return NanoNum.fromNumber((ak < 0) ~= (bk < 0) and -value or value) end
-	end
-	local k, x, y = regDiv(ak, aa, ab, bk, ba, bb)
-	return encodeReg(k, x, y)
-end
+NanoNum.fast.divBS = function(a: buffer, b: string): buffer return NanoNum.fast.divBB(a, NanoNum.fromString(b)) end
 
-NanoNum.fast.divSN = function(a: string, b: number): buffer
-	local ak, aa, ab = fastDecodeS(a)
-	local bk, ba, bb
-	if b ~= b then bk, ba, bb = K_NAN, 0, 0
-	elseif b == huge then bk, ba, bb = K_INF, 0, 0
-	elseif b == -huge then bk, ba, bb = -K_INF, 0, 0
-	elseif b == 0 then bk, ba, bb = 0, 0, 0
-	else bk, ba, bb = b < 0 and -K_NUM or K_NUM, b < 0 and -b or b, 0 end
-	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
-		if bk == 0 then return makeSpecial(ak == 0 and SPECIAL_NAN or ((ak < 0) and SPECIAL_NEG_INF or SPECIAL_POS_INF)) end
-		if ak == 0 then return NanoNum.fromNumber(0) end
-		local value = aa / ba
-		if value ~= huge and value ~= 0 then return NanoNum.fromNumber((ak < 0) ~= (bk < 0) and -value or value) end
-	end
-	local k, x, y = regDiv(ak, aa, ab, bk, ba, bb)
-	return encodeReg(k, x, y)
-end
+NanoNum.fast.divSN = function(a: string, b: number): buffer return NanoNum.fast.divBN(NanoNum.fromString(a), b) end
 
-NanoNum.fast.divNS = function(a: number, b: string): buffer
-	local ak, aa, ab
-	if a ~= a then ak, aa, ab = K_NAN, 0, 0
-	elseif a == huge then ak, aa, ab = K_INF, 0, 0
-	elseif a == -huge then ak, aa, ab = -K_INF, 0, 0
-	elseif a == 0 then ak, aa, ab = 0, 0, 0
-	else ak, aa, ab = a < 0 and -K_NUM or K_NUM, a < 0 and -a or a, 0 end
-	local bk, ba, bb = fastDecodeS(b)
-	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
-		if bk == 0 then return makeSpecial(ak == 0 and SPECIAL_NAN or ((ak < 0) and SPECIAL_NEG_INF or SPECIAL_POS_INF)) end
-		if ak == 0 then return NanoNum.fromNumber(0) end
-		local value = aa / ba
-		if value ~= huge and value ~= 0 then return NanoNum.fromNumber((ak < 0) ~= (bk < 0) and -value or value) end
-	end
-	local k, x, y = regDiv(ak, aa, ab, bk, ba, bb)
-	return encodeReg(k, x, y)
-end
+NanoNum.fast.divNS = function(a: number, b: string): buffer return NanoNum.fast.divNB(a, NanoNum.fromString(b)) end
 
 NanoNum.fast.powBN = function(a: buffer, b: number): buffer
 	local ak, aa, ab = decodeRegBuffer(a)
@@ -3693,90 +3798,15 @@ NanoNum.fast.powNB = function(a: number, b: buffer): buffer
 	return encodeReg(k, x, y)
 end
 
-NanoNum.fast.powSS = function(a: string, b: string): buffer
-	local ak, aa, ab = fastDecodeS(a)
-	local bk, ba, bb = fastDecodeS(b)
-	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
-		local base = ak < 0 and -aa or aa
-		local exponent = bk < 0 and -ba or ba
-		if base >= 0 or exponent == floor(exponent) then
-			local value = base ^ exponent
-			if value == value and value ~= huge and value ~= -huge and (value ~= 0 or base == 0) then return NanoNum.fromNumber(value) end
-		end
-	end
-	local k, x, y = regPow(ak, aa, ab, bk, ba, bb)
-	return encodeReg(k, x, y)
-end
+NanoNum.fast.powSS = function(a: string, b: string): buffer return NanoNum.fast.powBB(NanoNum.fromString(a), NanoNum.fromString(b)) end
 
-NanoNum.fast.powSB = function(a: string, b: buffer): buffer
-	local ak, aa, ab = fastDecodeS(a)
-	local bk, ba, bb = decodeRegBuffer(b)
-	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
-		local base = ak < 0 and -aa or aa
-		local exponent = bk < 0 and -ba or ba
-		if base >= 0 or exponent == floor(exponent) then
-			local value = base ^ exponent
-			if value == value and value ~= huge and value ~= -huge and (value ~= 0 or base == 0) then return NanoNum.fromNumber(value) end
-		end
-	end
-	local k, x, y = regPow(ak, aa, ab, bk, ba, bb)
-	return encodeReg(k, x, y)
-end
+NanoNum.fast.powSB = function(a: string, b: buffer): buffer return NanoNum.fast.powBB(NanoNum.fromString(a), b) end
 
-NanoNum.fast.powBS = function(a: buffer, b: string): buffer
-	local ak, aa, ab = decodeRegBuffer(a)
-	local bk, ba, bb = fastDecodeS(b)
-	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
-		local base = ak < 0 and -aa or aa
-		local exponent = bk < 0 and -ba or ba
-		if base >= 0 or exponent == floor(exponent) then
-			local value = base ^ exponent
-			if value == value and value ~= huge and value ~= -huge and (value ~= 0 or base == 0) then return NanoNum.fromNumber(value) end
-		end
-	end
-	local k, x, y = regPow(ak, aa, ab, bk, ba, bb)
-	return encodeReg(k, x, y)
-end
+NanoNum.fast.powBS = function(a: buffer, b: string): buffer return NanoNum.fast.powBB(a, NanoNum.fromString(b)) end
 
-NanoNum.fast.powSN = function(a: string, b: number): buffer
-	local ak, aa, ab = fastDecodeS(a)
-	local bk, ba, bb
-	if b ~= b then bk, ba, bb = K_NAN, 0, 0
-	elseif b == huge then bk, ba, bb = K_INF, 0, 0
-	elseif b == -huge then bk, ba, bb = -K_INF, 0, 0
-	elseif b == 0 then bk, ba, bb = 0, 0, 0
-	else bk, ba, bb = b < 0 and -K_NUM or K_NUM, b < 0 and -b or b, 0 end
-	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
-		local base = ak < 0 and -aa or aa
-		local exponent = bk < 0 and -ba or ba
-		if base >= 0 or exponent == floor(exponent) then
-			local value = base ^ exponent
-			if value == value and value ~= huge and value ~= -huge and (value ~= 0 or base == 0) then return NanoNum.fromNumber(value) end
-		end
-	end
-	local k, x, y = regPow(ak, aa, ab, bk, ba, bb)
-	return encodeReg(k, x, y)
-end
+NanoNum.fast.powSN = function(a: string, b: number): buffer return NanoNum.fast.powBN(NanoNum.fromString(a), b) end
 
-NanoNum.fast.powNS = function(a: number, b: string): buffer
-	local ak, aa, ab
-	if a ~= a then ak, aa, ab = K_NAN, 0, 0
-	elseif a == huge then ak, aa, ab = K_INF, 0, 0
-	elseif a == -huge then ak, aa, ab = -K_INF, 0, 0
-	elseif a == 0 then ak, aa, ab = 0, 0, 0
-	else ak, aa, ab = a < 0 and -K_NUM or K_NUM, a < 0 and -a or a, 0 end
-	local bk, ba, bb = fastDecodeS(b)
-	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
-		local base = ak < 0 and -aa or aa
-		local exponent = bk < 0 and -ba or ba
-		if base >= 0 or exponent == floor(exponent) then
-			local value = base ^ exponent
-			if value == value and value ~= huge and value ~= -huge and (value ~= 0 or base == 0) then return NanoNum.fromNumber(value) end
-		end
-	end
-	local k, x, y = regPow(ak, aa, ab, bk, ba, bb)
-	return encodeReg(k, x, y)
-end
+NanoNum.fast.powNS = function(a: number, b: string): buffer return NanoNum.fast.powNB(a, NanoNum.fromString(b)) end
 
 NanoNum.fast.compareBN = function(a: buffer, b: number): number
 	local ak, aa, ab = decodeRegBuffer(a)
@@ -3810,70 +3840,15 @@ NanoNum.fast.compareNB = function(a: number, b: buffer): number
 	return regCompare(ak, aa, ab, bk, ba, bb)
 end
 
-NanoNum.fast.compareSS = function(a: string, b: string): number
-	local ak, aa, ab = fastDecodeS(a)
-	local bk, ba, bb = fastDecodeS(b)
-	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
-		local x = ak < 0 and -aa or aa
-		local y = bk < 0 and -ba or ba
-		if x < y then return -1 elseif x > y then return 1 else return 0 end
-	end
-	return regCompare(ak, aa, ab, bk, ba, bb)
-end
+NanoNum.fast.compareSS = function(a: string, b: string): number return NanoNum.fast.compareBB(NanoNum.fromString(a), NanoNum.fromString(b)) end
 
-NanoNum.fast.compareSB = function(a: string, b: buffer): number
-	local ak, aa, ab = fastDecodeS(a)
-	local bk, ba, bb = decodeRegBuffer(b)
-	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
-		local x = ak < 0 and -aa or aa
-		local y = bk < 0 and -ba or ba
-		if x < y then return -1 elseif x > y then return 1 else return 0 end
-	end
-	return regCompare(ak, aa, ab, bk, ba, bb)
-end
+NanoNum.fast.compareSB = function(a: string, b: buffer): number return NanoNum.fast.compareBB(NanoNum.fromString(a), b) end
 
-NanoNum.fast.compareBS = function(a: buffer, b: string): number
-	local ak, aa, ab = decodeRegBuffer(a)
-	local bk, ba, bb = fastDecodeS(b)
-	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
-		local x = ak < 0 and -aa or aa
-		local y = bk < 0 and -ba or ba
-		if x < y then return -1 elseif x > y then return 1 else return 0 end
-	end
-	return regCompare(ak, aa, ab, bk, ba, bb)
-end
+NanoNum.fast.compareBS = function(a: buffer, b: string): number return NanoNum.fast.compareBB(a, NanoNum.fromString(b)) end
 
-NanoNum.fast.compareSN = function(a: string, b: number): number
-	local ak, aa, ab = fastDecodeS(a)
-	local bk, ba, bb
-	if b ~= b then bk, ba, bb = K_NAN, 0, 0
-	elseif b == huge then bk, ba, bb = K_INF, 0, 0
-	elseif b == -huge then bk, ba, bb = -K_INF, 0, 0
-	elseif b == 0 then bk, ba, bb = 0, 0, 0
-	else bk, ba, bb = b < 0 and -K_NUM or K_NUM, b < 0 and -b or b, 0 end
-	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
-		local x = ak < 0 and -aa or aa
-		local y = bk < 0 and -ba or ba
-		if x < y then return -1 elseif x > y then return 1 else return 0 end
-	end
-	return regCompare(ak, aa, ab, bk, ba, bb)
-end
+NanoNum.fast.compareSN = function(a: string, b: number): number return NanoNum.fast.compareBN(NanoNum.fromString(a), b) end
 
-NanoNum.fast.compareNS = function(a: number, b: string): number
-	local ak, aa, ab
-	if a ~= a then ak, aa, ab = K_NAN, 0, 0
-	elseif a == huge then ak, aa, ab = K_INF, 0, 0
-	elseif a == -huge then ak, aa, ab = -K_INF, 0, 0
-	elseif a == 0 then ak, aa, ab = 0, 0, 0
-	else ak, aa, ab = a < 0 and -K_NUM or K_NUM, a < 0 and -a or a, 0 end
-	local bk, ba, bb = fastDecodeS(b)
-	if (ak == K_NUM or ak == -K_NUM or ak == 0) and (bk == K_NUM or bk == -K_NUM or bk == 0) then
-		local x = ak < 0 and -aa or aa
-		local y = bk < 0 and -ba or ba
-		if x < y then return -1 elseif x > y then return 1 else return 0 end
-	end
-	return regCompare(ak, aa, ab, bk, ba, bb)
-end
+NanoNum.fast.compareNS = function(a: number, b: string): number return NanoNum.fast.compareNB(a, NanoNum.fromString(b)) end
 
 
 
@@ -3932,13 +3907,33 @@ function NanoNum.tryCompare(a: any, b: any): (boolean, number?)
 	return true, result
 end
 
+function NanoNum.engineInfo()
+	return {
+		Version = NanoNum.VERSION,
+		BinaryFormatVersion = NanoNum.BINARY_FORMAT_VERSION,
+		CanonicalVersion = NanoNum.CANONICAL_VERSION,
+		RangePromotionVersion = NanoNum.RANGE_PROMOTION_VERSION,
+		PowerVersion = NanoNum.POWER_VERSION,
+		CanonicalApiVersion = NanoNum.CANONICAL_API_VERSION,
+		ScientificApiVersion = NanoNum.SCIENTIFIC_API_VERSION,
+		FastUnaryVersion = NanoNum.FAST_UNARY_VERSION,
+		CompactKernelVersion = NanoNum.COMPACT_KERNEL_VERSION,
+		LegacyNormalRecords = false,
+		MaxLayer = NanoNum.MAX_LAYER,
+		MaxLayerLog10 = NanoNum.MAX_LAYER_LOG10,
+		ExactFinite = true,
+		HugePowerPromotion = true,
+		HugeFactorialApproximation = true,
+	}
+end
+
 function NanoNum.mathPerfInfo(): MathPerfInfo
 	return {
 		Version = NanoNum.MATH_PERF_VERSION,
 		PathVersion = NanoNum.MATH_PATH_VERSION,
 		DefaultPath = 0,
-		Path0 = "NanoNum 1.9 exact-f64 finite kernel; direct native math, layered fallback only",
-		Path1 = "layer/log fallback register kernel",
+		Path0 = "NanoNum 2.0.3 speed-tuned finite fast path; first-byte buffer dispatch; shared huge-range fallback",
+		Path1 = "compact log/layer promotion kernel; no generated macro duplication",
 		TemporaryDecodeTablesOnPath0 = 0,
 	}
 end
@@ -3971,6 +3966,18 @@ end
 local function shortNumber(value: number, decimalPlaces: number): string
 	local decimals = clamp(floor(decimalPlaces), 0, 12)
 	return trimZeros(format(FIXED_FORMATS[decimals + 1], value))
+end
+
+local function compactScalar(value: number, decimalPlaces: number): string
+	if value == 0 then return "0" end
+	local magnitude = abs(value)
+	if magnitude >= 1e9 or magnitude < 1e-6 then
+		local exponent = floor(log10(magnitude))
+		local mantissa = magnitude / 10 ^ exponent
+		local text = shortNumber(mantissa, decimalPlaces) .. "e" .. toString(exponent)
+		return value < 0 and "-" .. text or text
+	end
+	return shortNumber(value, decimalPlaces)
 end
 
 local function scientificText(mantissa: number, exponent: number, decimalPlaces: number): string
@@ -4080,11 +4087,16 @@ local function formatCore(value: buffer, precision: number, kind: string): strin
 		local exponent = a
 		local reciprocal = exponent < 0
 		exponent = abs(exponent)
-		local integerExponent = floor(exponent)
-		local mantissa = 10 ^ (exponent - integerExponent)
-		local scalarKind = kind
-		if scalarKind == "roman" or scalarKind == "romanextended" then scalarKind = "standard" end
-		local text = formatNormalParts(mantissa, integerExponent, precision, scalarKind)
+		local text
+		if exponent >= 1e9 then
+			text = "e" .. compactScalar(exponent, precision)
+		else
+			local integerExponent = floor(exponent)
+			local mantissa = 10 ^ (exponent - integerExponent)
+			local scalarKind = kind
+			if scalarKind == "roman" or scalarKind == "romanextended" then scalarKind = "standard" end
+			text = formatNormalParts(mantissa, integerExponent, precision, scalarKind)
+		end
 		if reciprocal then text = "1/" .. text end
 		return negative and "-" .. text or text
 	end
@@ -4092,13 +4104,13 @@ local function formatCore(value: buffer, precision: number, kind: string): strin
 	local layer = abs(a)
 	local text
 	if absoluteKind == K_LAYER_LOG then
-		text = "L(10^" .. shortNumber(layer, precision) .. ") " .. shortNumber(b, precision)
+		text = "L(10^" .. compactScalar(layer, precision) .. ") " .. compactScalar(b, precision)
 	elseif layer == 2 then
-		text = "ee" .. shortNumber(b, precision)
+		text = "ee" .. compactScalar(b, precision)
 	elseif layer == 3 then
-		text = "eee" .. shortNumber(b, precision)
+		text = "eee" .. compactScalar(b, precision)
 	else
-		text = "L" .. shortNumber(layer, precision) .. " " .. shortNumber(b, precision)
+		text = "L" .. compactScalar(layer, precision) .. " " .. compactScalar(b, precision)
 	end
 	if reciprocal then text = "1/" .. text end
 	return negative and "-" .. text or text
@@ -4332,6 +4344,8 @@ NanoNum.LB_SCOPE_VERSION = 1
 -- function register frame; this IIFE creates an actual register boundary.
 (function()
 	local LB_VERSION = 1
+	local LB_APPROX_BITS = 31
+	local LB_MANT_MAX = 65535
 	local LB_MAX = 9007199254740991
 	local LB_FINITE_MAX = LB_MAX - 1
 	local LB_ONE = 4503599627370496
@@ -4479,14 +4493,14 @@ NanoNum.LB_SCOPE_VERSION = 1
 			end
 			local magnitude = abs(data.Value)
 			local logMagnitude
-			if exactIntegerRecordBits(data.Value) <= NORMAL_BITS then
+			if exactIntegerRecordBits(data.Value) <= LB_APPROX_BITS then
 				logMagnitude = log10(magnitude)
 			else
 				local lg = log10(magnitude)
 				local exponent = floor(lg)
 				local mantissa = 10 ^ (lg - exponent)
-				local mantCode = quantizeMantissa(mantissa, NORMAL_MANT_MAX)
-				logMagnitude = exponent + log10(decodeMantissa(mantCode, NORMAL_MANT_MAX))
+				local mantCode = quantizeMantissa(mantissa, LB_MANT_MAX)
+				logMagnitude = exponent + log10(decodeMantissa(mantCode, LB_MANT_MAX))
 			end
 			return {
 				Kind = "Magnitude",
@@ -4503,20 +4517,9 @@ NanoNum.LB_SCOPE_VERSION = 1
 			local lg = log10(magnitude)
 			local exponent = floor(lg)
 			local mantissa = 10 ^ (lg - exponent)
-			local mantCode = quantizeMantissa(mantissa, NORMAL_MANT_MAX)
-			local legacyLog = exponent + log10(decodeMantissa(mantCode, NORMAL_MANT_MAX))
+			local mantCode = quantizeMantissa(mantissa, LB_MANT_MAX)
+			local legacyLog = exponent + log10(decodeMantissa(mantCode, LB_MANT_MAX))
 			return {Kind = "Magnitude", Negative = value < 0, Reciprocal = legacyLog < 0, Layer = 0, LogScale = abs(legacyLog)}
-		end
-		if data.Kind == "Normal" then
-			local logMagnitude = data.Exponent + log10(data.Mantissa)
-			local reciprocal = logMagnitude < 0
-			return {
-				Kind = "Magnitude",
-				Negative = data.Negative,
-				Reciprocal = reciprocal,
-				Layer = 0,
-				LogScale = abs(logMagnitude),
-			}
 		end
 		if data.Kind == "Log" then
 			return {
@@ -4699,33 +4702,20 @@ NanoNum.LB_SCOPE_VERSION = 1
 			if magnitude == 0 then return 0, true end
 			local logMagnitude
 			local signed = negative and -magnitude or magnitude
-			if exactIntegerRecordBits(signed) <= NORMAL_BITS then
+			if exactIntegerRecordBits(signed) <= LB_APPROX_BITS then
 				logMagnitude = log10(magnitude)
 			else
 				local lg = log10(magnitude)
 				local exponent = floor(lg)
 				local mantissa = 10 ^ (lg - exponent)
-				local mantCode = quantizeMantissa(mantissa, NORMAL_MANT_MAX)
-				logMagnitude = exponent + log10(decodeMantissa(mantCode, NORMAL_MANT_MAX))
+				local mantCode = quantizeMantissa(mantissa, LB_MANT_MAX)
+				logMagnitude = exponent + log10(decodeMantissa(mantCode, LB_MANT_MAX))
 			end
 			local delta = lbEncodeOrdinaryLog(logMagnitude)
 			return lbFinalizeFiniteCode(delta, negative, false), true
 		end
 
-		if band(raw, 15) == 7 then
-			local negative = bufferReadBits(value, 4, 1) == 1
-			local expCode = bufferReadBits(value, 5, NORMAL_EXP_BITS)
-			if expCode > NORMAL_EXP_MAX + NORMAL_EXP_BIAS then
-				error("NanoNum: invalid normal exponent code")
-			end
-			local mantCode = bufferReadBits(value, 5 + NORMAL_EXP_BITS, NORMAL_MANT_BITS)
-			local exponent = expCode - NORMAL_EXP_BIAS
-			local mantissa = decodeMantissa(mantCode, NORMAL_MANT_MAX)
-			local logMagnitude = exponent + log10(mantissa)
-			local reciprocal = logMagnitude < 0
-			local delta = lbEncodeOrdinaryLog(abs(logMagnitude))
-			return lbFinalizeFiniteCode(delta, negative, reciprocal), true
-		end
+		if band(raw, 15) == 7 then return 0, false end
 
 		if band(raw, 31) == 15 then
 			local negative = bufferReadBits(value, 5, 1) == 1
@@ -4776,8 +4766,8 @@ NanoNum.LB_SCOPE_VERSION = 1
 			local lg = log10(magnitude)
 			local exponent = floor(lg)
 			local mantissa = 10 ^ (lg - exponent)
-			local mantCode = quantizeMantissa(mantissa, NORMAL_MANT_MAX)
-			local legacyLog = exponent + log10(decodeMantissa(mantCode, NORMAL_MANT_MAX))
+			local mantCode = quantizeMantissa(mantissa, LB_MANT_MAX)
+			local legacyLog = exponent + log10(decodeMantissa(mantCode, LB_MANT_MAX))
 			local reciprocal = legacyLog < 0
 			local delta = lbEncodeOrdinaryLog(abs(legacyLog))
 			return lbFinalizeFiniteCode(delta, negative, reciprocal), true
