@@ -2,81 +2,147 @@
 
 **NanoNum** is a huge-number math, formatting, serialization, and leaderboard library for Roblox Luau.
 
-NanoNum is designed for simulator, clicker, incremental, economy, and progression systems that need to work with values far beyond normal Luau `number` range while still keeping ordinary finite math accurate and fast.
+NanoNum is built for simulator, clicker, incremental, economy, and progression systems that need ordinary finite math to stay accurate and fast while still supporting values far beyond the native Luau `number` range.
 
-> Current release: **v1.9.0 — AccurateFinite**  
+> Current release: **v2.0.3 — Speed-Tuned Compact Kernel**  
 > Typecheck: **v3**  
-> Parser: **v6**  
-> Notation: **v7**  
+> Binary format: **v2**  
+> Parser: **v8**  
+> Notation: **v9**  
 > Suffix system: **v5**  
-> Performance layout: **v10**  
-> Path architecture: **v4 / Path 0**  
-> Math: **v19**  
-> Math correctness: **v9**  
-> Math safety: **v5**  
-> Math performance: **v7 / Math Path v2**  
-> Tetration: **v5**  
-> Slog: **v4**  
-> Gamma/Beta: **v4**  
+> Performance layout: **v14**  
+> Path architecture: **v5 / Path 0**  
+> Math: **v23**  
+> Math correctness: **v13**  
+> Math safety: **v7**  
+> Math performance: **v12 / Math Path v7**  
+> Tetration: **v7**  
+> Slog: **v5**  
+> Gamma/Beta: **v5**  
 > Leaderboard codec: **LB v1**  
-> Register scopes: **v3**
+> Register scopes: **v4**  
+> Compact kernel: **v2**  
+> Fast unary API: **v3**
 
 ---
 
 ## Highlights
 
 - Exact ordinary finite math through a native **f64 finite record**
-- Small integers remain compact and exact
-- Safe integers use variable-bit exact integer records
-- Legacy 1.8.x 31-bit normal records remain decodable
-- Symbolic huge values such as `1e1000`
-- Symbolic tiny values such as `1e-1000`
-- Direct-layer and log-layer values
+- Compact exact small integers and variable-bit safe integers
+- Symbolic values far beyond native `number`, including `1e1000` and layered towers
+- Automatic range promotion:
+  `finite -> log10 -> layer -> layer-log -> infinity`
 - Mixed `number`, `buffer`, and `string` math inputs
-- **54 typed direct math kernels** under `NanoNum.fast`
+- **54 typed binary kernels** under `NanoNum.fast`
+- **5 typed unary buffer kernels** under `NanoNum.fast`
+- Direct exact-f64 shortcuts for common buffer arithmetic
+- First-byte buffer dispatch on common decode paths
 - `compile`, `bindBinary`, and `bindRight` for hot loops
+- Canonicalization and representation inspection APIs
 - Bit-level `packMany` / `unpackMany`
 - 53-bit-safe monotonic **LB v1** leaderboard codec
 - Standard, Extended, Hybrid, Alphabetic, Metric, Exponent, Scientific, Engineering, Roman, and Roman Extended formatting
-- Duration, clock, rate, byte-size, ordinal, and signed formatting
-- Logs, roots, powers, interpolation, series, combinatorics, economy helpers, tetration, slog, gamma, beta, and more
+- Logs, roots, powers, interpolation, combinatorics, economy helpers, tetration, slog, gamma, beta, and more
 - `--!native`
 - `--!optimize 2`
 
 ---
 
-# What changed in v1.9.0
+# What changed in v2.0.3
 
-v1.9.0 replaces the lossy ordinary-decimal path from v1.8.x with an exact native-double path.
+v2.0.3 is a performance-focused update. It keeps the v2 math model and public API while reducing work on the most common finite paths.
 
-In v1.8.x, ordinary decimals were normally stored as a 31-bit scientific record containing a 16-bit quantized mantissa. That was compact, but values could change slightly during construction and every later operation inherited that error.
+Main changes:
 
-For example, the old path could produce results such as:
+- Faster `fromNumber()` integer/exact encoding.
+- Faster first-byte dispatch when decoding NanoNum buffers.
+- Direct exact-f64 shortcuts in common `BB` math.
+- Faster `BN` / `NB` mixed math.
+- Faster buffer unary paths.
+- Faster generic finite arithmetic.
+- Shared huge/log/layer fallback is retained instead of duplicating the full kernel into every function.
+- The module remains compact instead of returning to the generated 30k+ line inline build.
+- Huge-number promotion and v2 power behavior are unchanged.
+
+The goal of v2.0.3 is:
 
 ```text
-12.5 + 7.25 -> 19.749141680018315
-100 / 8     -> 12.499427786678874
+common finite value
+    -> shortest possible finite path
+
+huge / log / layer value
+    -> shared symbolic kernel
 ```
 
-v1.9.0 stores ordinary non-integer finite values in a 9-byte exact-f64 record instead:
+rather than making every operation pay the full symbolic decode cost.
+
+---
+
+# Correctness status
+
+The supplied v2.0.3 benchmark completed its correctness/promotion checks with:
 
 ```text
-12.5 + 7.25 -> 19.75
-12.5 - 7.25 -> 5.25
-12.5 * 8    -> 100
-100 / 8     -> 12.5
+Passed: 23
+Failed: 0
 ```
 
-The huge-number log/layer architecture is unchanged in purpose: native finite math is used while it is representable, and symbolic log/layer storage handles values outside the ordinary finite range.
+Those checks include:
 
-### Compatibility
+- exact finite addition/multiplication/division
+- finite power
+- `10^1e308` log promotion
+- `10^(10^1e308)` layer promotion
+- third-level power towers
+- `pow(10, hugeLog)` vs `pow10(hugeLog)`
+- layer logarithm round trips
+- nested power parsing
+- canonical finite/layer values
+- scientific construction
+- `scale10`
+- fast `BB` arithmetic agreement
+- LB v1 round-trip stability
+- retained range/clamp/predicate APIs
 
-- Existing compact integer records remain supported.
-- Existing log/layer/special records remain supported.
-- Legacy 1.8.x quantized normal records remain **readable**.
-- New ordinary fractional finite values are written using the exact-f64 record.
-- **LB v1 remains the active leaderboard format.**
-- LB encoding intentionally preserves the legacy v1 ranking quantization so the finite-accuracy rewrite does not silently redesign leaderboard ordering.
+Run the included regression suite in Roblox Studio whenever changing the kernel.
+
+---
+
+# Compatibility
+
+## Current binary format
+
+```lua
+NanoNum.BINARY_FORMAT_VERSION
+-- 2
+```
+
+v2.0.3 supports the current record families:
+
+```text
+small integer
+exact variable-bit integer
+exact f64
+log
+layer
+layer-log
+special (NaN / +/-inf)
+```
+
+## Legacy Normal records
+
+The old v1.8.x 31-bit quantized **Normal** record is no longer accepted by the v2 runtime decoder.
+
+This is intentional. v2 removes that legacy path so the common decoder can stay smaller and faster.
+
+If persisted data may still contain v1.8 Normal records, migrate it through a version that can read those records before switching the save format permanently to v2.
+
+`DecodedNormal` remains in the exported type surface for source/type compatibility, but current v2 decoding does not produce a Normal value.
+
+`NORMAL_SIGNIFICAND_BITS` also remains exposed as a compatibility constant; current ordinary fractional values do not use that old record.
+
+For persisted data, keep your own schema/version field around NanoNum data.
 
 ---
 
@@ -88,7 +154,7 @@ Place `NanoNum.lua` in your game and require it normally:
 local NanoNum = require(path.To.NanoNum)
 ```
 
-The module table is named `NanoNum` internally and externally.
+The module table is named `NanoNum`.
 
 ---
 
@@ -99,7 +165,7 @@ local NanoNum = require(path.To.NanoNum)
 
 local normal = NanoNum.fromNumber(12.5)
 local huge = NanoNum.fromString("1e1000")
-local tiny = NanoNum.fromString("1e-1000")
+local tower = NanoNum.fromString("10^(10^1e308)")
 
 print(NanoNum.toNumber(NanoNum.add(normal, 7.25)))
 -- 19.75
@@ -107,14 +173,15 @@ print(NanoNum.toNumber(NanoNum.add(normal, 7.25)))
 print(NanoNum.formatScientific(huge))
 -- 1e1000
 
-print(NanoNum.formatScientific(tiny))
--- 1e-1000
+print(NanoNum.rangeClass(tower))
+-- layer
 ```
 
 NanoNum values are Roblox `buffer` values:
 
 ```lua
 local value = NanoNum.fromString("1e1000")
+
 print(typeof(value))
 -- buffer
 ```
@@ -127,35 +194,44 @@ local b = NanoNum.mul("1e1000", 10)
 local c = NanoNum.div(NanoNum.fromNumber(100), 8)
 ```
 
+For performance-critical code, compile strings once:
+
+```lua
+local increment = NanoNum.compile("1e1000")
+local value = NanoNum.fromNumber(0)
+
+for _ = 1, 1000 do
+    value = NanoNum.add(value, increment)
+end
+```
+
 ---
 
 # Representation
 
-NanoNum uses multiple record classes instead of forcing every value into one fixed-width huge-number structure.
-
-Conceptually:
+NanoNum uses multiple representations rather than forcing every value into one fixed-width structure.
 
 ```text
-small integer
-    -> 1-byte compact integer
+0..127
+    -> 1-byte positive tiny integer
+
+-1..-64
+    -> 1-byte negative tiny integer
 
 larger safe integer
     -> exact variable-bit integer
 
-ordinary fractional finite value
+ordinary finite fraction
     -> exact f64 record
 
-legacy v1.8.x ordinary decimal
-    -> old 31-bit normal record, decode-compatible only
+large/tiny magnitude
+    -> log record
 
-1e1000
-    -> logarithmic record
+power-tower range
+    -> layer record
 
-layer-2+ value
-    -> layered record
-
-very large layer count
-    -> log-layer field
+extreme layer count
+    -> layer-log record
 
 NaN / +/-inf
     -> special record
@@ -163,7 +239,7 @@ NaN / +/-inf
 
 ## Exact finite record
 
-New ordinary fractional finite values are stored using an exact Luau/IEEE-754 double payload.
+Ordinary non-integer finite values use an exact Luau/IEEE-754 double payload.
 
 ```lua
 local x = NanoNum.fromNumber(12.5)
@@ -179,50 +255,50 @@ print(info.Data.Kind)
 -- Exact
 ```
 
-The record uses one byte of NanoNum tagging plus an 8-byte `f64` payload.
+The standalone record is one NanoNum tag byte plus the 8-byte f64 payload.
 
-This intentionally trades a few bytes of storage for correct ordinary finite math.
+## Compact integers
 
-## Legacy normal record
+Small integers can use one byte:
 
-`NORMAL_SIGNIFICAND_BITS` is still exposed as `16` because NanoNum can decode legacy compact normal records created by older versions.
-
-```lua
-print(NanoNum.NORMAL_SIGNIFICAND_BITS)
--- 16
+```text
+0..127
+-1..-64
 ```
 
-That constant does **not** mean v1.9.0 writes new ordinary fractional numbers using the old 16-bit mantissa path.
+Larger safe integers use a variable-bit exact record through the normal IEEE-754 safe-integer envelope:
 
-## Scalar fields
+```text
+-9007199254740991 .. 9007199254740991
+```
 
-Huge-number metadata such as log/layer scalar fields still uses NanoNum's compact scalar codec.
+## Symbolic scalars
+
+Log/layer metadata uses NanoNum's compact scalar representation.
 
 ```lua
 print(NanoNum.SCALAR_SIGNIFICAND_BITS)
 -- 14
 ```
 
-Those symbolic fields are intentionally compact and should not be confused with the exact-f64 ordinary finite path.
+These fields are compact symbolic metadata, not arbitrary-precision decimal storage.
 
 ---
 
-# Storage Examples
+# Storage examples
 
-Storage depends on the value.
+Typical standalone storage from the current v2 benchmark:
 
-| Value class | Typical storage |
+| Value | Typical size |
 |---|---:|
-| `0..127` small positive integer | 1 byte |
-| `-1..-64` small negative integer | 1 byte |
-| larger safe integer | variable |
-| ordinary fractional finite | 9 bytes |
-| legacy normal record | 31 useful bits / 4 bytes |
-| huge log value | variable |
-| layer value | variable |
-| special value | 1 byte |
+| exact finite fraction | 9 bytes / 72 bits |
+| larger integer example | 4 bytes / 26 bits |
+| huge log value | 4 bytes / 32 bits |
+| layer-2 value | 5 bytes / 39 bits |
+| layer-3 value | 5 bytes / 39 bits |
+| scientific `1.25e1000` | 4 bytes / 32 bits |
 
-Use the runtime helpers instead of assuming a fixed size:
+Use runtime helpers instead of assuming a fixed size:
 
 ```lua
 local value = NanoNum.fromNumber(123.456)
@@ -231,13 +307,13 @@ print(NanoNum.bitLength(value))
 print(NanoNum.byteLength(value))
 ```
 
-For many values, use `packMany()` to remove repeated standalone byte padding between records.
+For multiple values, use `packMany()` to remove repeated standalone byte padding.
 
 ---
 
-# Number Range
+# Number range
 
-NanoNum separates ordinary finite values from its symbolic huge-number range.
+NanoNum separates native finite values from its symbolic huge-number range.
 
 ```lua
 NanoNum.MAX_LAYER
@@ -247,9 +323,7 @@ NanoNum.MAX_LAYER_LOG10
 -- 1e308
 ```
 
-These are carrier limits for layer metadata. They are not the maximum mathematical value NanoNum can describe.
-
-Huge values are represented symbolically through log, layer, and log-layer records rather than trying to materialize the entire number as an IEEE-754 double.
+These values limit the metadata carriers, not the mathematical magnitude NanoNum can represent.
 
 Examples:
 
@@ -257,7 +331,34 @@ Examples:
 local a = NanoNum.fromString("1e1000")
 local b = NanoNum.fromLayer(3, 1000)
 local c = NanoNum.fromLayerLog10(1e6, 1000)
+
+local inner = NanoNum.pow(10, 1e308)
+local tower = NanoNum.pow(10, inner)
 ```
+
+Nested parser form:
+
+```lua
+local tower = NanoNum.fromString("10^(10^1e308)")
+```
+
+Compact tower notation is also supported by the current parser/formatter:
+
+```text
+e1e308
+ee1e308
+eee1e308
+```
+
+Important: this cannot work as native Luau:
+
+```lua
+NanoNum.pow(10, 10 ^ 1e308)
+```
+
+because Luau evaluates `10 ^ 1e308` first and turns it into `math.huge` before NanoNum receives it.
+
+Use nested NanoNum operations instead.
 
 ---
 
@@ -269,37 +370,27 @@ local c = NanoNum.fromLayerLog10(1e6, 1000)
 local value = NanoNum.fromNumber(12345.678)
 ```
 
-v1.9.0 behavior:
+Behavior:
 
-- NaN -> special NaN record
-- `+math.huge` -> positive infinity record
-- `-math.huge` -> negative infinity record
-- `0..127` exact positive integer -> 1-byte record
-- `-1..-64` exact negative integer -> 1-byte record
-- other safe integers -> exact variable-bit integer record
-- other finite native numbers -> exact-f64 record
+- NaN -> special NaN
+- `+math.huge` -> positive infinity
+- `-math.huge` -> negative infinity
+- `0..127` exact integer -> 1 byte
+- `-1..-64` exact integer -> 1 byte
+- other safe integers -> variable-bit exact integer
+- other finite native numbers -> exact-f64
 
 ## `fromLog10`
 
 ```lua
 local huge = NanoNum.fromLog10(1000)
--- 10^1000
-
 local tiny = NanoNum.fromLog10(-1000)
--- 10^-1000
 ```
-
-If the result is directly representable as a finite native number, NanoNum can return through the exact finite constructor. Otherwise it stays symbolic.
 
 ## `fromLayer`
 
 ```lua
-local value = NanoNum.fromLayer(
-    1000,
-    5,
-    false,
-    false
-)
+local value = NanoNum.fromLayer(1000, 5, false, false)
 ```
 
 ## `fromLayerLog10`
@@ -308,7 +399,25 @@ local value = NanoNum.fromLayer(
 local value = NanoNum.fromLayerLog10(1e6, 1000)
 ```
 
-Use this when the layer count itself is more naturally represented by its logarithm.
+## `fromScientific`
+
+```lua
+local value = NanoNum.fromScientific(1.25, 1000)
+```
+
+Equivalent conceptually to:
+
+```text
+1.25 * 10^1000
+```
+
+without forcing the exponent through a native finite intermediate.
+
+## `scale10`
+
+```lua
+local value = NanoNum.scale10(1.25, 1000)
+```
 
 ## `fromString`
 
@@ -317,15 +426,15 @@ NanoNum.fromString("1250")
 NanoNum.fromString("12345.678")
 NanoNum.fromString("1e1000")
 NanoNum.fromString("1e-1000")
+NanoNum.fromString("10^(10^1e308)")
 NanoNum.fromString("1.25M")
 NanoNum.fromString("1/1k")
-NanoNum.fromString("E3,000")
-NanoNum.fromString("L3 1k")
+NanoNum.fromString("L3 1000")
 ```
 
 ## `compile`
 
-Compile a flexible value once before a hot loop:
+Compile flexible input once before a hot loop:
 
 ```lua
 local value = NanoNum.compile("1e1000")
@@ -334,14 +443,14 @@ local value = NanoNum.compile("1e1000")
 Input behavior:
 
 ```text
-buffer -> reused/validated NanoNum value
+buffer -> validated/reused NanoNum value
 number -> fromNumber
 string -> fromString
 ```
 
 ---
 
-# Decode API
+# Decode, validation, and inspection
 
 ## `decodeAt`
 
@@ -349,12 +458,11 @@ string -> fromString
 local decoded, nextBit = NanoNum.decodeAt(value, 0)
 ```
 
-Possible `Kind` values include:
+Current runtime `Kind` values are:
 
 ```text
 Integer
-Normal   -- legacy compact normal
-Exact    -- v1.9 exact finite f64
+Exact
 Log
 Layer
 Infinity
@@ -362,17 +470,7 @@ NaN
 Reserved
 ```
 
-Example exact finite result:
-
-```lua
-{
-    Kind = "Exact",
-    Value = 12.5,
-    Negative = false,
-}
-```
-
-`decodeAt()` is the trusted decoder and throws on malformed/truncated records.
+Legacy `Normal` records are rejected in binary format v2.
 
 ## `tryDecodeAt`
 
@@ -380,38 +478,41 @@ Example exact finite result:
 local ok, decoded, nextBit = NanoNum.tryDecodeAt(value, 0)
 ```
 
-Use this when the buffer may be invalid or untrusted.
+Use this for untrusted buffers.
 
----
-
-# Validation and Inspection
+## Validation helpers
 
 ```lua
-local value = NanoNum.fromNumber(12.5)
-
-print(NanoNum.isValid(value))
-print(NanoNum.bitLength(value))
-print(NanoNum.byteLength(value))
-
-local components = NanoNum.components(value)
-local info = NanoNum.inspect(value)
+NanoNum.isValid(value)
+NanoNum.bitLength(value)
+NanoNum.byteLength(value)
+NanoNum.components(value)
+NanoNum.inspect(value)
 ```
 
-`inspect()` returns:
+## Canonicalization
 
-```text
-Version
-Bits
-Bytes
-PaddingBits
-Data
+```lua
+local canonical = NanoNum.canonicalize(value)
+local alreadyCanonical = NanoNum.isCanonical(value)
 ```
+
+## Engine metadata
+
+```lua
+local info = NanoNum.engineInfo()
+
+print(info.Version)
+print(info.BinaryFormatVersion)
+print(info.CompactKernelVersion)
+print(info.LegacyNormalRecords)
+```
+
+Current v2.0.3 reports legacy Normal records as disabled.
 
 ---
 
 # Packing
-
-Pack multiple NanoNum buffers into one shared bitstream:
 
 ```lua
 local values = {
@@ -422,23 +523,18 @@ local values = {
 }
 
 local packed, totalBits = NanoNum.packMany(values)
-```
-
-Unpack them later:
-
-```lua
-local values2 = NanoNum.unpackMany(packed, #values, totalBits)
+local unpacked = NanoNum.unpackMany(packed, #values, totalBits)
 ```
 
 Protected unpacking:
 
 ```lua
-local ok, values2 = NanoNum.tryUnpackMany(packed, #values, totalBits)
+local ok, unpacked = NanoNum.tryUnpackMany(packed, #values, totalBits)
 ```
 
 ---
 
-# Core Math
+# Core math
 
 ```lua
 NanoNum.add(a, b)
@@ -447,11 +543,7 @@ NanoNum.mul(a, b)
 NanoNum.div(a, b)
 NanoNum.pow(a, b)
 NanoNum.compare(a, b)
-```
 
-Comparison helpers:
-
-```lua
 NanoNum.eq(a, b)
 NanoNum.lt(a, b)
 NanoNum.lte(a, b)
@@ -459,31 +551,31 @@ NanoNum.gt(a, b)
 NanoNum.gte(a, b)
 ```
 
-## Accurate finite math
-
-When both operands are ordinary finite values, v1.9.0 keeps the operation on the native finite path whenever possible.
+For ordinary native inputs, NanoNum attempts the native finite path first.
 
 ```lua
-local add = NanoNum.add(12.5, 7.25)
-local sub = NanoNum.sub(12.5, 7.25)
-local mul = NanoNum.mul(12.5, 8)
-local div = NanoNum.div(100, 8)
+print(NanoNum.toNumber(NanoNum.add(12.5, 7.25)))
+-- 19.75
 
-print(NanoNum.toNumber(add)) -- 19.75
-print(NanoNum.toNumber(sub)) -- 5.25
-print(NanoNum.toNumber(mul)) -- 100
-print(NanoNum.toNumber(div)) -- 12.5
+print(NanoNum.toNumber(NanoNum.sub(12.5, 7.25)))
+-- 5.25
+
+print(NanoNum.toNumber(NanoNum.mul(12.5, 8)))
+-- 100
+
+print(NanoNum.toNumber(NanoNum.div(100, 8)))
+-- 12.5
 ```
 
-When a result cannot stay on the native finite path, NanoNum falls back into the log/layer huge-number kernel.
+When a result leaves native finite range, NanoNum promotes into the symbolic log/layer kernel.
 
 ---
 
-# Direct Typed Math — `NanoNum.fast`
+# Direct typed math — `NanoNum.fast`
 
-`NanoNum.fast` contains 54 direct binary kernels.
+`NanoNum.fast` contains the typed hot-path matrix for known input types.
 
-Operations:
+Binary operations:
 
 ```text
 add
@@ -502,7 +594,7 @@ B = buffer
 S = string
 ```
 
-Each operation has:
+Each binary operation exposes:
 
 ```text
 NN
@@ -516,6 +608,8 @@ SN
 NS
 ```
 
+That is 54 binary entries.
+
 Examples:
 
 ```lua
@@ -527,11 +621,23 @@ NanoNum.fast.powSS("1e10", "2")
 NanoNum.fast.compareNN(10, 20)
 ```
 
-Use `fast` only when you already know the input types and trust the buffer inputs.
+v2 also provides five unary buffer fast paths:
+
+```lua
+NanoNum.fast.pow10B(value)
+NanoNum.fast.log10B(value)
+NanoNum.fast.negB(value)
+NanoNum.fast.absB(value)
+NanoNum.fast.reciprocalB(value)
+```
+
+Use `fast` when the operand types are already known.
+
+For exact-f64 buffers, v2.0.3 can bypass much of the generic symbolic decoder.
 
 ---
 
-# Binding Hot Paths
+# Binding hot paths
 
 ## `bindBinary`
 
@@ -547,29 +653,23 @@ local multiplyBy10 = NanoNum.bindRight("mul", 10, "B")
 local result = multiplyBy10(value)
 ```
 
-Strings bound as constants are compiled once when possible, avoiding repeated parser work.
+String constants can be compiled once when binding.
 
 ---
 
-# Safe Runtime Helpers
-
-For unknown or untrusted runtime values:
+# Safe runtime helpers
 
 ```lua
 local okValue, compiled = NanoNum.tryCompile(value)
 local okMath, result = NanoNum.tryMath("add", a, b)
 local okCompare, comparison = NanoNum.tryCompare(a, b)
-```
 
-Check supported input types with:
-
-```lua
-NanoNum.isMathValue(value)
+print(NanoNum.isMathValue(value))
 ```
 
 ---
 
-# Unary / Conversion
+# Unary and classification
 
 ```lua
 NanoNum.sign(value)
@@ -577,13 +677,10 @@ NanoNum.neg(value)
 NanoNum.abs(value)
 NanoNum.reciprocal(value)
 NanoNum.copySign(value, signSource)
+
 NanoNum.toNumber(value)
 NanoNum.toNumberSafe(value)
-```
 
-Classification:
-
-```lua
 NanoNum.isNaN(value)
 NanoNum.isInfinite(value)
 NanoNum.isFinite(value)
@@ -595,9 +692,29 @@ NanoNum.isPositive(value)
 NanoNum.isNegative(value)
 ```
 
+Range inspection:
+
+```lua
+NanoNum.rangeClass(value)
+NanoNum.layerDepth(value)
+NanoNum.log10Abs(value)
+```
+
+`rangeClass()` can return:
+
+```text
+nan
+infinity
+layer-log
+layer
+log
+zero
+finite
+```
+
 ---
 
-# Logs, Exponentials, Powers, and Roots
+# Logs, powers, roots, and exponentials
 
 ```lua
 NanoNum.log10(value)
@@ -620,9 +737,11 @@ NanoNum.cube(value)
 NanoNum.hypot(a, b)
 ```
 
+Power operations automatically promote instead of collapsing to native infinity when NanoNum can represent the result symbolically.
+
 ---
 
-# Rounding / Integer Helpers
+# Rounding and integer helpers
 
 ```lua
 NanoNum.floor(value)
@@ -634,41 +753,37 @@ NanoNum.frac(value)
 NanoNum.mod(a, b)
 NanoNum.fmod(a, b)
 NanoNum.divmod(a, b)
+
 NanoNum.gcd(a, b)
 NanoNum.lcm(a, b)
 ```
 
+Some exact integer helpers remain limited to values that can be treated as exact native-safe integers.
+
 ---
 
-# Range, Interpolation, and Statistics
+# Range, interpolation, and statistics
 
 ```lua
 NanoNum.min(a, b)
 NanoNum.max(a, b)
 NanoNum.clamp(value, low, high)
 NanoNum.clamp01(value)
+
 NanoNum.distance(a, b)
 NanoNum.ratio(a, b)
 NanoNum.relativeDifference(a, b)
 NanoNum.approxEq(a, b, relativeTolerance?, absoluteTolerance?)
 NanoNum.orderOfMagnitude(value)
 NanoNum.digitCount(value)
-```
 
-Interpolation:
-
-```lua
 NanoNum.lerp(a, b, t)
 NanoNum.inverseLerp(a, b, value)
 NanoNum.remap(value, inMin, inMax, outMin, outMax)
 NanoNum.moveTowards(current, target, maxDelta)
 NanoNum.smoothstep(edge0, edge1, value)
 NanoNum.smootherstep(edge0, edge1, value)
-```
 
-Aggregates:
-
-```lua
 NanoNum.sum(values)
 NanoNum.product(values)
 NanoNum.mean(values)
@@ -678,7 +793,7 @@ NanoNum.harmonicMean(values)
 
 ---
 
-# Combinatorics / Series
+# Combinatorics, Gamma, and Beta
 
 ```lua
 NanoNum.factorial(value)
@@ -686,25 +801,39 @@ NanoNum.factorialReal(value)
 NanoNum.permutation(n, r)
 NanoNum.combination(n, r)
 
-NanoNum.arithmeticSeries(first, difference, count)
-NanoNum.geometricSeries(first, ratio, count)
-NanoNum.compound(principal, rate, periods)
+NanoNum.gammaSign(value)
+NanoNum.logGamma(value)
+NanoNum.gamma(value)
+
+NanoNum.betaSign(a, b)
+NanoNum.logBeta(a, b)
+NanoNum.beta(a, b)
 ```
+
+v2 extends factorial/gamma handling into huge positive values through NanoNum-space approximations when direct native evaluation is not available.
 
 ---
 
-# Progression / Economy Helpers
+# Series and progression
 
 ```lua
+NanoNum.arithmeticSeries(first, difference, count)
+NanoNum.geometricSeries(first, ratio, count)
+NanoNum.compound(principal, rate, periods)
+
 NanoNum.softcap(value, start, power)
 NanoNum.inverseSoftcap(value, start, power)
+
 NanoNum.diminishingReturns(value, scale)
 NanoNum.inverseDiminishingReturns(value, scale)
+
 NanoNum.sigmoid(value)
 NanoNum.logit(value)
 ```
 
-Geometric upgrade helpers:
+---
+
+# Economy helpers
 
 ```lua
 NanoNum.geometricCost(baseCost, growth, owned, amount)
@@ -713,9 +842,11 @@ NanoNum.bulkBuyGeometric(currency, baseCost, growth, owned?)
 NanoNum.nextGeometricCost(baseCost, growth, owned)
 ```
 
+These are intended for incremental/clicker upgrade systems.
+
 ---
 
-# Tetration and Super-Logarithm
+# Tetration and super-logarithm
 
 ```lua
 NanoNum.iteratedExp10(value, times)
@@ -730,35 +861,7 @@ NanoNum.slog10(value)
 NanoNum.slog(value, base?)
 ```
 
-Current metadata:
-
-```lua
-NanoNum.TETRATION_VERSION
--- 5
-
-NanoNum.SLOG_VERSION
--- 4
-```
-
----
-
-# Gamma / Beta
-
-```lua
-NanoNum.gammaSign(value)
-NanoNum.logGamma(value)
-NanoNum.gamma(value)
-NanoNum.factorialReal(value)
-
-NanoNum.betaSign(a, b)
-NanoNum.logBeta(a, b)
-NanoNum.beta(a, b)
-```
-
-```lua
-NanoNum.GAMMA_VERSION
--- 4
-```
+Base-10 tetration can use the layer/log-layer representation for heights far beyond ordinary native iteration counts.
 
 ---
 
@@ -785,7 +888,7 @@ NanoNum.formatRoman(value, decimalPlaces?)
 NanoNum.formatRomanExtended(value, decimalPlaces?)
 ```
 
-Current suffix types:
+Suffix types:
 
 ```text
 standard
@@ -824,7 +927,7 @@ NanoNum.suffixIndex(suffix, typeName?)
 
 ---
 
-# Time / Utility Formatting
+# Time and utility formatting
 
 ```lua
 NanoNum.formatTime(value, style?, precision?, maxParts?)
@@ -848,36 +951,16 @@ seconds
 
 ---
 
-# Leaderboard Codec — LB v1
+# Leaderboard codec — LB v1
 
-NanoNum includes a monotonic signed-integer codec intended for Roblox `OrderedDataStore` ranking.
+NanoNum includes a monotonic signed-integer codec for Roblox `OrderedDataStore` ranking.
 
 ```lua
 print(NanoNum.lbcodecVersion())
 -- 1
 ```
 
-Important constants:
-
-```lua
-NanoNum.LB_MAX
--- 9007199254740991
-
-NanoNum.LB_ONE
--- 4503599627370496
-```
-
-Encode and decode:
-
-```lua
-local value = NanoNum.fromString("1e1000")
-local code = NanoNum.lbencode(value)
-local bucketValue = NanoNum.lbdecode(code)
-```
-
-LB v1 is intentionally **quantized**. It is a sortable ranking codec, not the lossless NanoNum serializer.
-
-Use:
+Core API:
 
 ```lua
 NanoNum.lbencode(value)
@@ -892,9 +975,19 @@ NanoNum.lbRoundTripStable(value)
 NanoNum.lbCompare(a, b)
 ```
 
-The v1.9 finite rewrite keeps LB v1 compatibility by mapping exact-f64 finite values through the legacy leaderboard quantization rules before generating their ranking code.
+Important constants:
 
-Do **not** assume `lbdecode(lbencode(x))` recreates the exact original NanoNum value. The intended invariant is:
+```lua
+NanoNum.LB_MAX
+-- 9007199254740991
+
+NanoNum.LB_ONE
+-- 4503599627370496
+```
+
+LB v1 is intentionally quantized. It is a ranking codec, not the lossless NanoNum serializer.
+
+The stability invariant is:
 
 ```text
 lbencode(x)
@@ -906,55 +999,126 @@ lbencode(lbdecode(lbencode(x)))
 
 # Performance
 
-v1.9.0 improved both correctness and core hot-path speed compared with v1.8.2.
+Benchmark numbers depend on hardware, Roblox runtime, Studio load, plugin activity, warmup, and the exact benchmark script.
 
-Example Roblox Studio full benchmark run:
+Always compare versions using the same script and environment.
 
-| Function | v1.8.2 | v1.9.0 | Approx. speedup |
-|---|---:|---:|---:|
-| `fromNumber` | 170.553 ns | **62.389 ns** | **2.73x** |
-| `add` | 582.375 ns | **268.587 ns** | **2.17x** |
-| `sub` | 579.756 ns | **264.620 ns** | **2.19x** |
-| `mul` | 587.734 ns | **268.954 ns** | **2.19x** |
-| `div` | 601.657 ns | **270.621 ns** | **2.22x** |
-| `compare` | 425.467 ns | **206.159 ns** | **2.06x** |
-| `toNumber` | 253.122 ns | **129.833 ns** | **1.95x** |
-| `log10` | 438.506 ns | **231.143 ns** | **1.90x** |
-| `sqrt` | 461.503 ns | **285.397 ns** | **1.62x** |
-| `compile.number` | 186.167 ns | **95.134 ns** | **1.96x** |
-| `fast.addNN` | 186.128 ns | **101.215 ns** | **1.84x** |
-| `fast.subNN` | 200.743 ns | **82.811 ns** | **2.42x** |
-| `fast.mulNN` | 185.295 ns | **91.349 ns** | **2.03x** |
-| `fast.divNN` | 189.510 ns | **89.387 ns** | **2.12x** |
-| `fast.compareBB` | 417.887 ns | **217.650 ns** | **1.92x** |
+## v2.0.3 current benchmark
 
-The v1.9.0 full benchmark also reported:
+The supplied v2.0.3 run completed:
 
 ```text
-Registered cases : 220
-Passed           : 220
-Failed           : 0
-Elapsed          : 62.043 s
+Tests: 90
+Correctness passed: 23
+Correctness failed: 0
+BENCH STATUS: PASS
 ```
 
-Correctness spot checks all passed:
+### Ordinary number math
 
-```text
-add 12.5+7.25   PASS 19.75
-sub 12.5-7.25   PASS 5.25
-mul 12.5*8      PASS 100
-div 100/8       PASS 12.5
-pow 10^2        PASS 100
-sqrt 100        PASS 10
-LB round-trip   PASS
-pack/unpack     PASS
-```
+| Operation | Median |
+|---|---:|
+| `NanoNum.add(number, number)` | **82.534 ns** |
+| `NanoNum.sub(number, number)` | **82.135 ns** |
+| `NanoNum.mul(number, number)` | **80.745 ns** |
+| `NanoNum.div(number, number)` | **83.447 ns** |
+| `NanoNum.pow(number, number)` | **180.484 ns** |
+| `NanoNum.compare(number, number)` | **32.204 ns** |
 
-Benchmark timings depend on machine, Roblox runtime, Studio state, plugins, warmup, and the exact benchmark script. Compare versions with the same test setup.
+### Typed `NN`
+
+| Operation | Median |
+|---|---:|
+| `fast.addNN` | **83.502 ns** |
+| `fast.subNN` | **82.080 ns** |
+| `fast.mulNN` | **80.884 ns** |
+| `fast.divNN` | **84.332 ns** |
+| `fast.powNN` | **177.430 ns** |
+| `fast.compareNN` | **31.188 ns** |
+
+### Typed `BB`
+
+| Operation | Median |
+|---|---:|
+| `fast.addBB` | **84.499 ns** |
+| `fast.subBB` | **87.877 ns** |
+| `fast.mulBB` | **87.506 ns** |
+| `fast.divBB` | **88.443 ns** |
+| `fast.powBB` | **135.003 ns** |
+| `fast.compareBB` | **34.432 ns** |
+
+### Generic buffer math
+
+| Operation | Median |
+|---|---:|
+| `add(buffer, buffer)` | **84.424 ns** |
+| `sub(buffer, buffer)` | **84.290 ns** |
+| `mul(buffer, buffer)` | **83.818 ns** |
+| `div(buffer, buffer)` | **84.115 ns** |
+| `pow(buffer, buffer)` | **129.437 ns** |
+| `compare(buffer, buffer)` | **34.618 ns** |
+
+### Unary buffer paths
+
+| Operation | Median |
+|---|---:|
+| `fast.pow10B` | **147.835 ns** |
+| `fast.log10B` | **94.589 ns** |
+| `fast.negB` | **81.467 ns** |
+| `fast.absB` | **80.519 ns** |
+| `fast.reciprocalB` | **183.309 ns** |
+
+### Higher math
+
+| Operation | Median |
+|---|---:|
+| `sqrt` finite | **191.669 ns** |
+| `root` finite | **294.419 ns** |
+| `log(x, 2)` | **308.384 ns** |
+| `exp` finite | **205.904 ns** |
+| `gamma(12.5)` | **491.867 ns** |
+| `slog10(layer3)` | **391.747 ns** |
+| `geometricCost` | **1139.500 ns** |
+| `maxAffordableGeometric` | **3618.267 ns** |
+
+### Huge-range examples
+
+| Operation | Median |
+|---|---:|
+| `pow(10, 1e308)` | **198.697 ns** |
+| `pow(10, hugeLog)` | **518.521 ns** |
+| `pow10(hugeLog)` | **468.360 ns** |
+| `log10(layer2)` | **471.693 ns** |
+| `mul(hugeLog, hugeLog)` | **719.644 ns** |
+| `compare(layer3, layer2)` | **564.533 ns** |
+
+## v2.0.2 -> v2.0.3 examples
+
+The v2.0.3 speed pass notably improved the common exact-buffer path.
+
+Approximate changes from the supplied runs:
+
+| Path | v2.0.2 | v2.0.3 |
+|---|---:|---:|
+| `fast.addBB` | 271.314 ns | **84.499 ns** |
+| `fast.mulBB` | 268.589 ns | **87.506 ns** |
+| `fast.powBB` | 313.624 ns | **135.003 ns** |
+| `fast.compareBB` | 205.570 ns | **34.432 ns** |
+| `fast.log10B` | 228.695 ns | **94.589 ns** |
+| `fast.negB` | 192.268 ns | **81.467 ns** |
+| `fast.absB` | 190.807 ns | **80.519 ns** |
+
+Do not treat tiny sub-percent differences as meaningful without multiple isolated runs.
+
+## Historical v1.9 note
+
+The old v1.9 README reported results from a different benchmark generation.
+
+Those numbers are useful as historical context, but they should not be treated as a strict apples-to-apples comparison with the current v2.0.3 suite unless both versions are run under the same script, Studio state, and hardware.
 
 ---
 
-# Performance Guidance
+# Performance guidance
 
 For ordinary code:
 
@@ -962,17 +1126,13 @@ For ordinary code:
 NanoNum.add(a, b)
 ```
 
-For repeated string constants, compile once:
+For repeated strings:
 
 ```lua
 local huge = NanoNum.compile("1e1000")
-
-for _ = 1, 1000 do
-    value = NanoNum.add(value, huge)
-end
 ```
 
-If the operand types are known in a hot loop, use the typed API:
+For known input types:
 
 ```lua
 local addBB = NanoNum.fast.addBB
@@ -982,29 +1142,25 @@ for _ = 1, 1000 do
 end
 ```
 
-Or bind once:
+Benchmark both generic and typed paths in your real workload.
 
-```lua
-local addBuffers = NanoNum.bindBinary("add", "B", "B")
-```
+In v2.0.3, generic exact-buffer arithmetic can be as fast as or slightly faster than some `fast.BB` calls because both now receive specialized exact-f64 handling. `fast` is still useful for known-type dispatch and non-generic call sites.
 
-Avoid repeatedly parsing strings in performance-critical loops.
+Avoid parsing strings repeatedly inside hot loops.
 
 ---
 
-# Precision Model
+# Precision model
 
-NanoNum v1.9.0 has two different precision goals depending on the value class.
+NanoNum has different precision goals for different ranges.
 
-## Ordinary finite values
+## Native finite values
 
-Ordinary non-integer finite values use an exact native-double payload, so NanoNum preserves the same finite precision that Luau's `number` type provides.
-
-This fixes the old false-math behavior caused by repeatedly quantizing an ordinary decimal mantissa.
+Ordinary non-integer finite values store a native f64 payload, preserving the finite precision Luau already provides.
 
 ## Safe integers
 
-Safe integers are stored exactly through the IEEE-754 exact integer envelope:
+Safe integers are stored exactly through:
 
 ```text
 -9007199254740991 .. 9007199254740991
@@ -1012,14 +1168,15 @@ Safe integers are stored exactly through the IEEE-754 exact integer envelope:
 
 ## Huge symbolic values
 
-Log/layer metadata remains a compact huge-number representation. Scalar fields can be quantized and should not be treated as an arbitrary-precision decimal engine.
+Log/layer scalar metadata is compact and may be quantized.
 
 NanoNum is therefore:
 
 - exact for the native finite value it stores,
 - exact for supported safe integers,
 - symbolic/compact for enormous values,
-- not an arbitrary-precision decimal or arbitrary-precision integer library.
+- not an arbitrary-precision decimal package,
+- not an arbitrary-precision integer package.
 
 ## Leaderboard values
 
@@ -1027,348 +1184,425 @@ LB v1 is intentionally quantized for sortable 53-bit-safe ranking keys.
 
 ---
 
-# Version Metadata
+# Version metadata
 
 ```lua
 NanoNum.VERSION
--- "1.9.0"
+-- "2.0.3"
 
 NanoNum.TYPECHECK_VERSION
 -- 3
 
 NanoNum.REGISTER_SCOPE_VERSION
--- 3
-
-NanoNum.PARSER_VERSION
--- 6
-
-NanoNum.NOTATION_VERSION
--- 7
-
-NanoNum.SUFFIX_VERSION
--- 5
-
-NanoNum.ROMAN_VERSION
--- 1
-
-NanoNum.TIME_VERSION
--- 1
-
-NanoNum.UTILITY_FORMAT_VERSION
--- 3
-
-NanoNum.PERF_VERSION
--- 10
-
-NanoNum.PATH_VERSION
 -- 4
 
-NanoNum.MATH_SCOPE_VERSION
--- 4
-
-NanoNum.MATH_VERSION
--- 19
-
-NanoNum.MATH_CLEANUP_VERSION
--- 5
-
-NanoNum.MATH_CORRECTNESS_VERSION
--- 9
-
-NanoNum.MATH_SAFETY_VERSION
--- 5
-
-NanoNum.MATH_PERF_VERSION
--- 7
-
-NanoNum.MATH_PATH_VERSION
+NanoNum.BINARY_FORMAT_VERSION
 -- 2
 
-NanoNum.CALL_VERSION
--- 6
+NanoNum.PARSER_VERSION
+-- 8
 
-NanoNum.DIRECT_CALL_VERSION
--- 6
+NanoNum.NOTATION_VERSION
+-- 9
 
-NanoNum.BIND_VERSION
--- 6
-
-NanoNum.COMPILE_VERSION
--- 6
-
-NanoNum.TETRATION_VERSION
+NanoNum.SUFFIX_VERSION
 -- 5
 
-NanoNum.SLOG_VERSION
--- 4
-
-NanoNum.GAMMA_VERSION
--- 4
-
-NanoNum.LB_SCOPE_VERSION
--- 1
-
-NanoNum.LB_VERSION
--- 1
-```
-
-Subsystem version numbers are independent. A math update does not automatically imply a leaderboard codec migration.
-
----
-
-# Public Constants
-
-Important public values include:
-
-```lua
-NanoNum.VERSION
-NanoNum.TYPECHECK_VERSION
-NanoNum.REGISTER_SCOPE_VERSION
-
-NanoNum.MAX_LAYER
-NanoNum.MAX_LAYER_LOG10
-NanoNum.NORMAL_SIGNIFICAND_BITS
-NanoNum.SCALAR_SIGNIFICAND_BITS
-
-NanoNum.PARSER_VERSION
-NanoNum.NOTATION_VERSION
-NanoNum.SUFFIX_VERSION
 NanoNum.ROMAN_VERSION
+-- 1
+
 NanoNum.TIME_VERSION
+-- 1
+
 NanoNum.UTILITY_FORMAT_VERSION
+-- 5
+
 NanoNum.PERF_VERSION
+-- 14
+
 NanoNum.PATH_VERSION
-NanoNum.DEFAULT_PATH
-
-NanoNum.DEFAULT_SUFFIX_TYPE
-NanoNum.DEFAULT_PRECISION
-NanoNum.MAX_PRECISION
-NanoNum.FORMAT_PRECISION_MODE
-NanoNum.E_NOTATION_START
-NanoNum.STANDARD_SUFFIX_MAX_INDEX
-NanoNum.METRIC_SUFFIX_MAX_INDEX
-NanoNum.SUFFIX_TYPES
-
-NanoNum.ROMAN_CLASSICAL_MAX
-NanoNum.ROMAN_EXTENDED_MAX
-
-NanoNum.LB_SCOPE_VERSION
-NanoNum.LB_VERSION
-NanoNum.LB_MAX
-NanoNum.LB_FINITE_MAX
-NanoNum.LB_ONE
-NanoNum.LB_POSITIVE_SPAN
+-- 5
 
 NanoNum.MATH_SCOPE_VERSION
+-- 7
+
 NanoNum.MATH_VERSION
+-- 23
+
 NanoNum.MATH_CLEANUP_VERSION
+-- 8
+
 NanoNum.MATH_CORRECTNESS_VERSION
+-- 13
+
 NanoNum.MATH_SAFETY_VERSION
+-- 7
+
 NanoNum.MATH_PERF_VERSION
+-- 12
+
 NanoNum.MATH_PATH_VERSION
-NanoNum.MATH_DEFAULT_PATH
+-- 7
 
 NanoNum.CALL_VERSION
+-- 10
+
 NanoNum.DIRECT_CALL_VERSION
+-- 10
+
 NanoNum.BIND_VERSION
+-- 7
+
 NanoNum.COMPILE_VERSION
+-- 7
 
 NanoNum.TETRATION_VERSION
+-- 7
+
 NanoNum.SLOG_VERSION
+-- 5
+
 NanoNum.GAMMA_VERSION
+-- 5
+
+NanoNum.POWER_VERSION
+-- 2
+
+NanoNum.CANONICAL_VERSION
+-- 1
+
+NanoNum.CANONICAL_API_VERSION
+-- 1
+
+NanoNum.RANGE_PROMOTION_VERSION
+-- 1
+
+NanoNum.SCIENTIFIC_API_VERSION
+-- 1
+
+NanoNum.FAST_UNARY_VERSION
+-- 3
+
+NanoNum.COMPACT_KERNEL_VERSION
+-- 2
+
+NanoNum.LB_SCOPE_VERSION
+-- 1
+
+NanoNum.LB_VERSION
+-- 1
 ```
+
+Subsystem versions are independent.
 
 ---
 
-# Public API Summary
+# Public API summary
 
-Construction / parsing:
-
-```text
-fromNumber, fromLog10, fromLayer, fromLayerLog10, fromString
-compile, tryCompile, isMathValue
-```
-
-Decode / validation:
+## Construction / parsing
 
 ```text
-decodeAt, tryDecodeAt, isValid, components, bitLength, byteLength, inspect
+fromNumber
+fromLog10
+fromLayer
+fromLayerLog10
+fromScientific
+fromString
+scale10
+compile
+tryCompile
+isMathValue
 ```
 
-Core math:
+## Decode / validation / representation
 
 ```text
-add, sub, mul, div, pow, compare
-eq, lt, lte, gt, gte
+decodeAt
+tryDecodeAt
+isValid
+components
+bitLength
+byteLength
+inspect
+canonicalize
+isCanonical
+rangeClass
+layerDepth
+log10Abs
+engineInfo
 ```
 
-Unary / classification:
+## Core math
 
 ```text
-sign, neg, abs, reciprocal, copySign, toNumber, toNumberSafe
-isNaN, isInfinite, isFinite, isZero, isInteger
-isOdd, isEven, isPositive, isNegative
+add
+sub
+mul
+div
+pow
+compare
+eq
+lt
+lte
+gt
+gte
 ```
 
-Range / rounding:
+## Unary / classification
 
 ```text
-min, max, clamp, clamp01
-floor, ceil, trunc, round, frac
-mod, fmod, divmod
+sign
+neg
+abs
+reciprocal
+copySign
+toNumber
+toNumberSafe
+isNaN
+isInfinite
+isFinite
+isZero
+isInteger
+isOdd
+isEven
+isPositive
+isNegative
 ```
 
-Logs / powers / roots:
+## Range / rounding
 
 ```text
-log10, ln, log, log2, log1p
-exp, exp2, expm1, pow10, powInt
-sqrt, cbrt, root, square, cube, hypot
+min
+max
+clamp
+clamp01
+floor
+ceil
+trunc
+round
+frac
+mod
+fmod
+divmod
 ```
 
-Interpolation / distance:
+## Logs / powers / roots
 
 ```text
-lerp, inverseLerp, remap, moveTowards
-distance, ratio, relativeDifference, approxEq
-orderOfMagnitude, digitCount, smoothstep, smootherstep
+log10
+ln
+log
+log2
+log1p
+exp
+exp2
+expm1
+pow10
+powInt
+sqrt
+cbrt
+root
+square
+cube
+hypot
 ```
 
-Aggregates:
+## Interpolation / distance / statistics
 
 ```text
-sum, product, mean, geometricMean, harmonicMean
+lerp
+inverseLerp
+remap
+moveTowards
+distance
+ratio
+relativeDifference
+approxEq
+orderOfMagnitude
+digitCount
+smoothstep
+smootherstep
+sum
+product
+mean
+geometricMean
+harmonicMean
 ```
 
-Combinatorics / special math:
+## Combinatorics / special math
 
 ```text
-factorial, gammaSign, logGamma, gamma, factorialReal
-permutation, combination, gcd, lcm
-betaSign, logBeta, beta
+factorial
+factorialReal
+permutation
+combination
+gcd
+lcm
+gammaSign
+logGamma
+gamma
+betaSign
+logBeta
+beta
 ```
 
-Series / progression:
+## Series / progression
 
 ```text
-arithmeticSeries, geometricSeries, compound
-softcap, inverseSoftcap
-diminishingReturns, inverseDiminishingReturns
-sigmoid, logit
+arithmeticSeries
+geometricSeries
+compound
+softcap
+inverseSoftcap
+diminishingReturns
+inverseDiminishingReturns
+sigmoid
+logit
 ```
 
-Economy:
+## Economy
 
 ```text
-geometricCost, maxAffordableGeometric, bulkBuyGeometric, nextGeometricCost
+geometricCost
+maxAffordableGeometric
+bulkBuyGeometric
+nextGeometricCost
 ```
 
-Iteration / hyper-operations:
+## Iteration / hyper-operations
 
 ```text
-iteratedExp10, iteratedLog10
-tetrate10, tetrate, tetrateInteger, tetrate10Integer
-slog10, slog
+iteratedExp10
+iteratedLog10
+tetrate10
+tetrate
+tetrateInteger
+tetrate10Integer
+slog10
+slog
 ```
 
-Formatting:
+## Formatting
 
 ```text
-format, formatStandard, formatExtended, formatExponent
-formatHybrid, formatAlphabetic, formatMetric
-formatScientific, formatEngineering
-formatRoman, formatRomanExtended
-formatTime, formatClock, parseTime
-formatRate, formatBytes, formatOrdinal, formatSigned
+format
+formatStandard
+formatExtended
+formatExponent
+formatHybrid
+formatAlphabetic
+formatMetric
+formatScientific
+formatEngineering
+formatRoman
+formatRomanExtended
+formatTime
+formatClock
+parseTime
+formatRate
+formatBytes
+formatOrdinal
+formatSigned
 ```
 
-Packing:
+## Packing
 
 ```text
-packMany, unpackMany, tryUnpackMany
+packMany
+unpackMany
+tryUnpackMany
 ```
 
-Leaderboard:
+## Leaderboard
 
 ```text
-isLBCode, tryLBEncode, lbencode, lbdecode, lbcodecVersion
-lbinfo, lbquantize, lbSameBucket, lbRoundTripStable, lbCompare
+isLBCode
+tryLBEncode
+lbencode
+lbdecode
+lbcodecVersion
+lbinfo
+lbquantize
+lbSameBucket
+lbRoundTripStable
+lbCompare
 ```
 
-Hot-path API:
+## Hot-path / runtime helpers
 
 ```text
 NanoNum.fast
-bindBinary, bindRight
-mathPerfInfo, callPerfInfo
-tryMath, tryCompare
+bindBinary
+bindRight
+mathPerfInfo
+callPerfInfo
+tryMath
+tryCompare
 ```
 
 ---
 
-# Migration from v1.8.x
+# Migration from v1.9 / v1.8
 
-The main compatibility consideration is the ordinary finite record.
+## From v1.9
 
-### Old
+The v2 math model keeps the exact-f64 ordinary finite architecture and expands the huge-number system with stronger promotion and power handling.
 
-```text
-ordinary fractional number
--> 31-bit quantized normal
--> 4 standalone bytes
-```
+If your stored values are current integer/exact/log/layer/special records, test them against the v2 migration path before deploying.
 
-### v1.9.0
+## From v1.8
 
-```text
-ordinary fractional number
--> exact f64
--> 9 standalone bytes
-```
+v1.8 Normal records are no longer decoded by v2.
 
-This means new finite fractions can consume more storage, but arithmetic no longer starts from an already-quantized value.
+If those records exist in persistent storage:
 
-If maximum storage compression matters more than exact normal-number behavior, v1.8.x was smaller. If mathematical correctness and hot-path arithmetic are the priority, v1.9.0 is the recommended architecture.
+1. Load them with a version that still understands the old Normal format.
+2. Re-encode them into current exact/integer/log/layer NanoNum values.
+3. Save with your own schema version updated.
+4. Only then remove the migration reader.
 
-Legacy normal buffers remain decodable, so old serialized NanoNum values do not need to be immediately rewritten just to be read.
-
-For persisted data, it is still good practice to store a schema/data version around your save format so future migrations can be controlled explicitly.
+Do not deploy a format-2-only decoder against unknown historical data without a migration plan.
 
 ---
 
-# Design Goals
+# Design goals
 
 NanoNum prioritizes:
 
 1. Correct ordinary finite math.
 2. Fast common arithmetic.
 3. Symbolic huge-number range.
-4. Compact small integers.
-5. Backward readability of legacy normal records.
+4. Compact exact integers.
+5. Predictable range promotion instead of premature native infinity.
 6. Stable LB v1 ranking behavior.
 7. Typed hot paths for performance-sensitive Roblox code.
-8. A broad simulator-oriented math and formatting API.
+8. A compact maintainable kernel instead of generated code duplication.
+9. Simulator-oriented math, progression, economy, and formatting APIs.
 
-NanoNum does not attempt to be a general arbitrary-precision decimal package. It combines native finite precision with a symbolic layered huge-number system built for Roblox gameplay workloads.
+NanoNum does **not** attempt to be a general arbitrary-precision decimal engine.
 
 ---
 
-# Current Status
+# Current status
 
-The v1.9.0 full benchmark exercised **220 registered benchmark cases** and completed with:
+v2.0.3 currently has:
 
 ```text
-Passed: 220
-Failed: 0
+Benchmark tests: 90
+Correctness checks passed: 23
+Correctness checks failed: 0
+Benchmark status: PASS
 ```
 
-The most important correctness regression tests now pass exactly, while the main `add/sub/mul/div` buffer paths are roughly twice as fast as the previous v1.8.2 build in the supplied benchmark run.
-
-For development, continue testing both:
+Continue testing:
 
 - finite correctness,
 - huge/log/layer correctness,
-- legacy buffer decode compatibility,
+- integer boundary encoding,
+- canonicalization,
 - LB v1 bucket stability,
 - pack/unpack round trips,
+- persisted-data migration,
 - and hot-path performance.
+
+For performance comparisons, always benchmark the exact versions under the same Roblox Studio conditions.
