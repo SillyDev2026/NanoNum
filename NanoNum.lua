@@ -49,14 +49,14 @@ export type BoundBinaryFunction = (MathValue, MathValue) -> BoundBinaryResult
 export type BoundUnaryFunction = (MathValue) -> BoundBinaryResult
 
 NanoNum.TYPECHECK_VERSION = 3
-NanoNum.VERSION = "2.0.4"
+NanoNum.VERSION = "2.0.5"
 NanoNum.REGISTER_SCOPE_VERSION = 4
 NanoNum.MAX_LAYER = 1e308
 NanoNum.MAX_LAYER_LOG10 = 1e308
 NanoNum.NORMAL_SIGNIFICAND_BITS = 16
 NanoNum.SCALAR_SIGNIFICAND_BITS = 14
-NanoNum.PARSER_VERSION = 9
-NanoNum.NOTATION_VERSION = 10
+NanoNum.PARSER_VERSION = 10
+NanoNum.NOTATION_VERSION = 11
 NanoNum.PERF_VERSION = 15
 NanoNum.PATH_VERSION = 5
 NanoNum.DEFAULT_PATH = 0
@@ -70,7 +70,7 @@ NanoNum.COMPILE_VERSION = 7
 NanoNum.MATH_PERF_VERSION = 12
 NanoNum.MATH_PATH_VERSION = 7
 NanoNum.MATH_DEFAULT_PATH = 0
-NanoNum.MATH_CORRECTNESS_VERSION = 14
+NanoNum.MATH_CORRECTNESS_VERSION = 15
 NanoNum.TETRATION_VERSION = 7
 NanoNum.SLOG_VERSION = 5
 NanoNum.GAMMA_VERSION = 5
@@ -82,7 +82,7 @@ NanoNum.POWER_VERSION = 2
 NanoNum.CANONICAL_API_VERSION = 1
 NanoNum.SCIENTIFIC_API_VERSION = 1
 NanoNum.FAST_UNARY_VERSION = 3
-NanoNum.COMPACT_KERNEL_VERSION = 3
+NanoNum.COMPACT_KERNEL_VERSION = 4
 
 local floor = math.floor
 local ceil = math.ceil
@@ -165,8 +165,8 @@ local K_NAN = 6
 NanoNum.SUFFIX_VERSION = 5
 NanoNum.ROMAN_VERSION = 1
 NanoNum.TIME_VERSION = 1
-NanoNum.UTILITY_FORMAT_VERSION = 5
-NanoNum.FORMAT_SCOPE_VERSION = 4
+NanoNum.UTILITY_FORMAT_VERSION = 6
+NanoNum.FORMAT_SCOPE_VERSION = 5
 NanoNum.UTILITY_SCOPE_VERSION = 2
 NanoNum.PACK_SCOPE_VERSION = 2
 NanoNum.LB_SCOPE_VERSION = 1
@@ -689,6 +689,30 @@ local function parseLayerTopToken(text: string): number?
 	return clamp(value, -1e308, 1e308)
 end
 
+local function parseDisplayScalarToken(text: string): number?
+	local clean = find(text, ",", 1, true) and gsub(text, ",", "") or text
+	if clean == "" then return nil end
+	local direct = toNumber(clean)
+	if direct ~= nil and direct == direct and direct ~= huge and direct ~= -huge then return direct end
+	local suffixStart = 0
+	for i = 2, #clean do
+		local ch = byte(clean, i)
+		if (ch >= 65 and ch <= 90) or (ch >= 97 and ch <= 122) then suffixStart = i break end
+	end
+	if suffixStart == 0 then return nil end
+	local mantissa = toNumber(sub(clean, 1, suffixStart - 1))
+	if mantissa == nil or mantissa ~= mantissa or mantissa == huge or mantissa == -huge then return nil end
+	local suffix = sub(clean, suffixStart)
+	local index = STANDARD_SUFFIX_TO_INDEX[suffix]
+	if index == nil then index = METRIC_SUFFIX_TO_INDEX[suffix] end
+	if index == nil then return nil end
+	local exponent = index * 3
+	if exponent > 308 then return nil end
+	local result = mantissa * 10 ^ exponent
+	if result ~= result or result == huge or result == -huge then return nil end
+	return result
+end
+
 function NanoNum.fromString(value: string, suffixType: SuffixName?): buffer
 	local length = #value
 	local first = 1
@@ -1067,23 +1091,45 @@ function NanoNum.fromString(value: string, suffixType: SuffixName?): buffer
 				end
 			end
 		else
-			local layerStart = p
+			local tokenStart = p
 			while p <= last do
 				local ch = byte(value, p)
 				if ch == 32 or ch == 9 or ch == 10 or ch == 13 then break end
 				p += 1
 			end
-			if p > layerStart and p <= last then
-				local directLayer, layerLog10, validLayer = parseLayerCountToken(sub(value, layerStart, p - 1))
+			if p > tokenStart then
+				local firstToken = sub(value, tokenStart, p - 1)
 				while p <= last do
 					local ws = byte(value, p)
 					if ws == 32 or ws == 9 or ws == 10 or ws == 13 then p += 1 else break end
 				end
-				if validLayer and p <= last then
-					local top = parseLayerTopToken(sub(value, p, last))
-					if top ~= nil then
-						if layerLog10 ~= nil then return NanoNum.fromLayerLog10(layerLog10, top, negative, reciprocal) end
-						if directLayer ~= nil then return NanoNum.fromLayer(directLayer, top, negative, reciprocal) end
+				local displayTop = parseDisplayScalarToken(firstToken)
+				if displayTop ~= nil then
+					if p > last then
+						return NanoNum.fromLayer(2, displayTop, negative, reciprocal)
+					end
+					local depthToken = sub(value, p, last)
+					local depthFirst = byte(depthToken, 1)
+					if depthFirst == 101 or depthFirst == 69 then
+						local layerLog10 = parseDisplayScalarToken(sub(depthToken, 2))
+						if layerLog10 ~= nil and layerLog10 >= 0 then
+							return NanoNum.fromLayerLog10(layerLog10, displayTop, negative, reciprocal)
+						end
+					else
+						local extraDepth = parseDisplayScalarToken(depthToken)
+						if extraDepth ~= nil and extraDepth >= 1 then
+							return NanoNum.fromLayer(extraDepth + 1, displayTop, negative, reciprocal)
+						end
+					end
+				end
+				if p <= last then
+					local directLayer, layerLog10, validLayer = parseLayerCountToken(firstToken)
+					if validLayer then
+						local top = parseLayerTopToken(sub(value, p, last))
+						if top ~= nil then
+							if layerLog10 ~= nil then return NanoNum.fromLayerLog10(layerLog10, top, negative, reciprocal) end
+							if directLayer ~= nil then return NanoNum.fromLayer(directLayer, top, negative, reciprocal) end
+						end
 					end
 				end
 			end
@@ -3913,7 +3959,7 @@ function NanoNum.mathPerfInfo(): MathPerfInfo
 		Version = NanoNum.MATH_PERF_VERSION,
 		PathVersion = NanoNum.MATH_PATH_VERSION,
 		DefaultPath = 0,
-		Path0 = "NanoNum 2.0.4 speed-tuned finite path; symbolic layer parser; exact safe layer-log scalars",
+		Path0 = "NanoNum 2.0.5 speed-tuned finite path; compact E/L display ladder; symbolic layer parser",
 		Path1 = "compact log/layer promotion kernel; no generated macro duplication",
 		TemporaryDecodeTablesOnPath0 = 0,
 	}
@@ -3961,12 +4007,6 @@ local function compactScalar(value: number, decimalPlaces: number): string
 	return shortNumber(value, decimalPlaces)
 end
 
-local function layerLogExponentText(value: number, decimalPlaces: number): string
-	if value == floor(value) and value >= 0 and value <= SAFE_INTEGER then return toString(value) end
-	local text = toString(value)
-	if find(text, "e", 1, true) ~= nil or find(text, "E", 1, true) ~= nil then return text end
-	return shortNumber(value, max(decimalPlaces, 6))
-end
 
 local function scientificText(mantissa: number, exponent: number, decimalPlaces: number): string
 	if mantissa >= 10 then
@@ -4004,6 +4044,34 @@ local function formatNormalParts(mantissa: number, exponent: number, precision: 
 		return "1/" .. formatNormalParts(inverseMantissa, inverseExponent, precision, kind)
 	end
 	return scientificText(mantissa, exponent, precision)
+end
+
+local function formatDisplayScalar(value: number, precision: number): string
+	if value ~= value then return "NaN" end
+	if value == huge then return "inf" end
+	if value == -huge then return "-inf" end
+	if value == 0 then return "0" end
+	local negative = value < 0
+	local magnitude = negative and -value or value
+	local text
+	if magnitude < 1000 then
+		text = shortNumber(magnitude, precision)
+	else
+		local exponent = floor(log10(magnitude))
+		local mantissa = magnitude / 10 ^ exponent
+		text = formatNormalParts(mantissa, exponent, precision, "standard")
+	end
+	return negative and "-" .. text or text
+end
+
+local function formatLayerDisplay(layer: number, top: number, precision: number): string
+	local text = "L" .. formatDisplayScalar(top, precision)
+	if layer > 2 then text ..= " " .. formatDisplayScalar(layer - 1, precision) end
+	return text
+end
+
+local function formatLayerLogDisplay(layerLog10: number, top: number, precision: number): string
+	return "L" .. formatDisplayScalar(top, precision) .. " E" .. formatDisplayScalar(layerLog10, precision)
 end
 
 local ROMAN_VALUES = {1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1}
@@ -4076,8 +4144,8 @@ local function formatCore(value: buffer, precision: number, kind: string): strin
 		local reciprocal = exponent < 0
 		exponent = abs(exponent)
 		local text
-		if exponent >= 1e9 then
-			text = "e" .. compactScalar(exponent, precision)
+		if exponent >= NanoNum.E_NOTATION_START then
+			text = "E" .. formatDisplayScalar(exponent, precision)
 		else
 			local integerExponent = floor(exponent)
 			local mantissa = 10 ^ (exponent - integerExponent)
@@ -4092,13 +4160,9 @@ local function formatCore(value: buffer, precision: number, kind: string): strin
 	local layer = abs(a)
 	local text
 	if absoluteKind == K_LAYER_LOG then
-		text = "L1e" .. layerLogExponentText(layer, precision) .. " " .. compactScalar(b, precision)
-	elseif layer == 2 then
-		text = "ee" .. compactScalar(b, precision)
-	elseif layer == 3 then
-		text = "eee" .. compactScalar(b, precision)
+		text = formatLayerLogDisplay(layer, b, precision)
 	else
-		text = "L" .. compactScalar(layer, precision) .. " " .. compactScalar(b, precision)
+		text = formatLayerDisplay(layer, b, precision)
 	end
 	if reciprocal then text = "1/" .. text end
 	return negative and "-" .. text or text
