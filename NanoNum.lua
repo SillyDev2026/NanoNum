@@ -177,8 +177,8 @@ local K_NAN = 7
 NanoNum.SUFFIX_VERSION = 5
 NanoNum.ROMAN_VERSION = 2
 NanoNum.TIME_VERSION = 4
-NanoNum.UTILITY_FORMAT_VERSION = 10
-NanoNum.FORMAT_SCOPE_VERSION = 10
+NanoNum.UTILITY_FORMAT_VERSION = 11
+NanoNum.FORMAT_SCOPE_VERSION = 11
 NanoNum.UTILITY_SCOPE_VERSION = 2
 NanoNum.PACK_SCOPE_VERSION = 2
 NanoNum.LB_SCOPE_VERSION = 2
@@ -866,6 +866,14 @@ end
 		return result
 	end
 
+	local function parseScientificExponentDescriptor(text: string, first: number, last: number, suffixType: string?): (number?, number?, boolean)
+		local exponent, exponentLog10, valid = parsePositiveIntegerDescriptor(text, first, last)
+		if valid then return exponent, exponentLog10, true end
+		local display = parseDisplayScalarRange(text, first, last, suffixType)
+		if display == nil or display < 0 or display ~= floor(display) then return nil, nil, false end
+		return display, display == 0 and -huge or log10(display), true
+	end
+
 	-- Returns mode 0=direct layer count, 1=log10(layer), 2=log10(log10(layer)).
 	local function parseLayerCountRange(text: string, first: number, last: number): (number?, number?, boolean)
 		first, last = trimRange(text, first, last)
@@ -1083,7 +1091,7 @@ end
 				local exponentNegative = false
 				local ch = byte(text, expFirst)
 				if ch == 45 then exponentNegative = true; expFirst += 1 elseif ch == 43 then expFirst += 1 end
-				local exponent, exponentLog10, valid = parsePositiveIntegerDescriptor(text, expFirst, last)
+				local exponent, exponentLog10, valid = parseScientificExponentDescriptor(text, expFirst, last, suffixType)
 				if valid then
 					if exponent ~= nil then
 						if exponentNegative then exponent = -exponent end
@@ -8509,6 +8517,29 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 		return negative and "-" .. text or text
 	end
 
+	local function groupedIntegerText(value: number): string
+		local raw = format("%.0f", value)
+		local length = #raw
+		if length <= 3 then return raw end
+		local firstGroup = length % 3
+		if firstGroup == 0 then firstGroup = 3 end
+		local out = tableCreate(ceil(length / 3))
+		local count = 1
+		out[count] = sub(raw, 1, firstGroup)
+		local i = firstGroup + 1
+		while i <= length do count += 1; out[count] = sub(raw, i, i + 2); i += 3 end
+		return concat(out, ",", 1, count)
+	end
+
+	local function formatLargeScientificLog(exponent: number, precision: number): string
+		local integerExponent = floor(exponent)
+		local mantissa = 10 ^ (exponent - integerExponent)
+		mantissa = roundedPositive(mantissa, precision)
+		if mantissa >= 10 then mantissa /= 10; integerExponent += 1 end
+		local exponentText = integerExponent < 1000000 and groupedIntegerText(integerExponent) or formatDisplayScalar(integerExponent, precision)
+		return shortNumber(mantissa, precision) .. "e" .. exponentText
+	end
+
 	local function formatLayerDisplay(layer: number, top: number, precision: number): string
 		return "L" .. formatDisplayScalar(layer, precision) .. " " .. formatDisplayScalar(top, precision)
 	end
@@ -8594,12 +8625,7 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 			exponent = abs(exponent)
 			local text
 			if exponent >= NanoNum.E_NOTATION_START then
-				local eText = "E" .. formatDisplayScalar(exponent, precision)
-				text = eText
-				if exponent > 1 then
-					local lText = formatLayerDisplay(2, log10(exponent), precision)
-					if #lText <= #eText then text = lText end
-				end
+				text = formatLargeScientificLog(exponent, precision)
 			else
 				local integerExponent = floor(exponent)
 				local mantissa = 10 ^ (exponent - integerExponent)
