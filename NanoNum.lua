@@ -3,6 +3,10 @@
 
 local NanoNum = {}
 
+-- NanoNum v2.1.6 time/integer-decode correctness release.
+-- Fixes 9-bit integer length decoding across inline paths and rebuilds time format/parse correctness.
+-- Public API, math semantics, LB v2, Binary Format v3, parser, and canonical layer formatting remain compatible.
+
 export type MathValue = number | string | buffer
 export type MathBinaryOperation = "add" | "sub" | "mul" | "div" | "pow"
 export type MathCompareOperation = "compare" | "eq" | "lt" | "lte" | "gt" | "gte"
