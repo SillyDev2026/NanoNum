@@ -3,10 +3,6 @@
 
 local NanoNum = {}
 
--- NanoNum v2.1.6 time/integer-decode correctness release.
--- Fixes 9-bit integer length decoding across inline paths and rebuilds time format/parse correctness.
--- Public API, math semantics, LB v2, Binary Format v3, parser, and canonical layer formatting remain compatible.
-
 export type MathValue = number | string | buffer
 export type MathBinaryOperation = "add" | "sub" | "mul" | "div" | "pow"
 export type MathCompareOperation = "compare" | "eq" | "lt" | "lte" | "gt" | "gte"
@@ -50,7 +46,7 @@ export type BoundBinaryFunction = (MathValue, MathValue) -> BoundBinaryResult
 export type BoundUnaryFunction = (MathValue) -> BoundBinaryResult
 
 NanoNum.TYPECHECK_VERSION = 3
-NanoNum.VERSION = "2.1.9"
+NanoNum.VERSION = "2.2.0"
 NanoNum.REGISTER_SCOPE_VERSION = 6
 NanoNum.MAX_LAYER = 1e308
 NanoNum.MAX_LAYER_LOG10 = 1e308
@@ -60,18 +56,18 @@ NanoNum.NORMAL_SIGNIFICAND_BITS = 16
 NanoNum.SCALAR_SIGNIFICAND_BITS = 14
 NanoNum.PARSER_VERSION = 11
 NanoNum.NOTATION_VERSION = 14
-NanoNum.PERF_VERSION = 19
-NanoNum.PATH_VERSION = 5
+NanoNum.PERF_VERSION = 20
+NanoNum.PATH_VERSION = 6
 NanoNum.DEFAULT_PATH = 0
 NanoNum.MATH_SCOPE_VERSION = 9
-NanoNum.MATH_VERSION = 27
+NanoNum.MATH_VERSION = 28
 NanoNum.MATH_CLEANUP_VERSION = 16
 NanoNum.CALL_VERSION = 12
 NanoNum.DIRECT_CALL_VERSION = 12
 NanoNum.BIND_VERSION = 7
 NanoNum.COMPILE_VERSION = 7
-NanoNum.MATH_PERF_VERSION = 16
-NanoNum.MATH_PATH_VERSION = 9
+NanoNum.MATH_PERF_VERSION = 17
+NanoNum.MATH_PATH_VERSION = 10
 NanoNum.MATH_DEFAULT_PATH = 0
 NanoNum.MATH_CORRECTNESS_VERSION = 20
 NanoNum.TETRATION_VERSION = 8
@@ -88,7 +84,7 @@ NanoNum.FAST_UNARY_VERSION = 3
 NanoNum.COMPACT_KERNEL_VERSION = 8
 NanoNum.HYPER_LAYER_VERSION = 1
 NanoNum.STRING_PARSER_VERSION = 1
-NanoNum.INLINE_MATH_VERSION = 2
+NanoNum.INLINE_MATH_VERSION = 3
 NanoNum.COLD_FALLBACK_VERSION = 1
 NanoNum.REGISTER_FRAME_VERSION = 2
 NanoNum.SOURCE_STYLE_VERSION = 2
@@ -128,6 +124,7 @@ local bufferWriteF64 = buffer.writef64
 local bufferLen = buffer.len
 local bufferCopy = buffer.copy
 local band = bit32.band
+local countlz = bit32.countlz
 local toNumber = tonumber
 local toString = tostring
 local fastPcall = pcall
@@ -141,6 +138,8 @@ local SAFE_INTEGER = 9007199254740991
 local DIRECT_LOG_MAX = 308.25471555991675
 local DIRECT_LOG_MIN = -323.3062153431158
 local NAN = 0 / 0
+local POW10_DECIMAL = {1, 10, 100, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12}
+
 
 local SPECIAL_POS_INF = 0
 local SPECIAL_NEG_INF = 1
@@ -177,8 +176,8 @@ local K_NAN = 7
 NanoNum.SUFFIX_VERSION = 5
 NanoNum.ROMAN_VERSION = 2
 NanoNum.TIME_VERSION = 4
-NanoNum.UTILITY_FORMAT_VERSION = 11
-NanoNum.FORMAT_SCOPE_VERSION = 11
+NanoNum.UTILITY_FORMAT_VERSION = 10
+NanoNum.FORMAT_SCOPE_VERSION = 10
 NanoNum.UTILITY_SCOPE_VERSION = 2
 NanoNum.PACK_SCOPE_VERSION = 2
 NanoNum.LB_SCOPE_VERSION = 2
@@ -259,7 +258,8 @@ METRIC_SUFFIX_TO_INDEX.K = 1
 
 local function bitsRequired(value: number): number
 	if value <= 0 then return 0 end
-	return floor(log(value) / LN2) + 1
+	if value < 4294967296 then return 32 - countlz(value) end
+	return 64 - countlz(floor(value / 4294967296))
 end
 
 local function isSafeInteger(value: number): boolean
@@ -505,7 +505,7 @@ function NanoNum.fromNumber(value: number): buffer
 		local negative = value < 0
 		local magnitude = negative and -value or value
 		if magnitude <= SAFE_INTEGER then
-			local n = floor(log(magnitude) / LN2) + 1
+			local n = bitsRequired(magnitude)
 			if n <= 31 then
 				local bits = 9 + n
 				local data = bufferCreate(floor((bits + 7) / 8))
@@ -866,14 +866,6 @@ end
 		return result
 	end
 
-	local function parseScientificExponentDescriptor(text: string, first: number, last: number, suffixType: string?): (number?, number?, boolean)
-		local exponent, exponentLog10, valid = parsePositiveIntegerDescriptor(text, first, last)
-		if valid then return exponent, exponentLog10, true end
-		local display = parseDisplayScalarRange(text, first, last, suffixType)
-		if display == nil or display < 0 or display ~= floor(display) then return nil, nil, false end
-		return display, display == 0 and -huge or log10(display), true
-	end
-
 	-- Returns mode 0=direct layer count, 1=log10(layer), 2=log10(log10(layer)).
 	local function parseLayerCountRange(text: string, first: number, last: number): (number?, number?, boolean)
 		first, last = trimRange(text, first, last)
@@ -1091,7 +1083,7 @@ end
 				local exponentNegative = false
 				local ch = byte(text, expFirst)
 				if ch == 45 then exponentNegative = true; expFirst += 1 elseif ch == 43 then expFirst += 1 end
-				local exponent, exponentLog10, valid = parseScientificExponentDescriptor(text, expFirst, last, suffixType)
+				local exponent, exponentLog10, valid = parsePositiveIntegerDescriptor(text, expFirst, last)
 				if valid then
 					if exponent ~= nil then
 						if exponentNegative then exponent = -exponent end
@@ -1159,7 +1151,21 @@ end
 end)()
 
 local function trimText(value: string): string
-	return match(value, "^%s*(.-)%s*$") or ""
+	local first = 1
+	local last = #value
+	while first <= last do
+		local c = byte(value, first)
+		if c ~= 32 and c ~= 9 and c ~= 10 and c ~= 13 then break end
+		first += 1
+	end
+	while last >= first do
+		local c = byte(value, last)
+		if c ~= 32 and c ~= 9 and c ~= 10 and c ~= 13 then break end
+		last -= 1
+	end
+	if first == 1 and last == #value then return value end
+	if first > last then return "" end
+	return sub(value, first, last)
 end
 
 
@@ -1876,6 +1882,37 @@ local function directDecode(value: any): (number, number, number)
 	return K_NAN, 0, 0
 end
 
+
+-- FastME-style direct finite bridge for higher-level APIs.
+-- Returns nil for log/layer/hyper/special/string inputs so the canonical NanoNum kernel stays the fallback.
+local function directFiniteNumber(value: MathValue): number?
+	local kind = typeof(value)
+	if kind == "number" then
+		local x = value :: number
+		return x == x and x ~= huge and x ~= -huge and x or nil
+	end
+	if kind ~= "buffer" then return nil end
+	local data = value :: buffer
+	local first = bufferReadU8(data, 0)
+	if first == 255 then
+		local x = bufferReadF64(data, 1)
+		return x == x and x ~= huge and x ~= -huge and x or nil
+	end
+	if band(first, 1) == 0 then return floor(first / 2) end
+	if band(first, 3) == 1 then return -(floor(first / 4) + 1) end
+	if band(first, 7) ~= 3 then return nil end
+	local negative = band(first, 8) ~= 0
+	local n = bufferReadBits(data, 4, 5)
+	local offset = 9
+	if n == 0 then n = 32 + bufferReadBits(data, offset, 5); offset = 14 end
+	if n > MAX_INTEGER_MODE_BITS then return nil end
+	local magnitude
+	if n <= 26 then magnitude = bufferReadBits(data, offset, n)
+	elseif n <= 52 then magnitude = bufferReadBits(data, offset, 26) + bufferReadBits(data, offset + 26, n - 26) * 67108864
+	else magnitude = bufferReadBits(data, offset, 26) + bufferReadBits(data, offset + 26, 26) * 67108864 + bufferReadBits(data, offset + 52, n - 52) * 4503599627370496 end
+	return negative and -magnitude or magnitude
+end
+
 local function coldAdd(a: MathValue, b: MathValue): buffer
 	if a == b then
 		local k, x, y = directDecode(a)
@@ -2110,7 +2147,7 @@ function NanoNum.add(a: MathValue, b: MathValue): buffer
 				local negative = value < 0
 				local magnitude = negative and -value or value
 				if magnitude <= SAFE_INTEGER then
-					local n = floor(log(magnitude) / LN2) + 1
+					local n = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
 						local data = bufferCreate(floor((bits + 7) / 8))
@@ -2248,7 +2285,7 @@ function NanoNum.sub(a: MathValue, b: MathValue): buffer
 				local negative = value < 0
 				local magnitude = negative and -value or value
 				if magnitude <= SAFE_INTEGER then
-					local n = floor(log(magnitude) / LN2) + 1
+					local n = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
 						local data = bufferCreate(floor((bits + 7) / 8))
@@ -2386,7 +2423,7 @@ function NanoNum.mul(a: MathValue, b: MathValue): buffer
 				local negative = value < 0
 				local magnitude = negative and -value or value
 				if magnitude <= SAFE_INTEGER then
-					local n = floor(log(magnitude) / LN2) + 1
+					local n = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
 						local data = bufferCreate(floor((bits + 7) / 8))
@@ -2525,7 +2562,7 @@ function NanoNum.div(a: MathValue, b: MathValue): buffer
 					local negative = value < 0
 					local magnitude = negative and -value or value
 					if magnitude <= SAFE_INTEGER then
-						local n = floor(log(magnitude) / LN2) + 1
+						local n = bitsRequired(magnitude)
 						if n <= 31 then
 							local bits = 9 + n
 							local data = bufferCreate(floor((bits + 7) / 8))
@@ -2664,7 +2701,7 @@ function NanoNum.pow(a: MathValue, b: MathValue): buffer
 				local negative = value < 0
 				local magnitude = negative and -value or value
 				if magnitude <= SAFE_INTEGER then
-					local n = floor(log(magnitude) / LN2) + 1
+					local n = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
 						local data = bufferCreate(floor((bits + 7) / 8))
@@ -2719,7 +2756,7 @@ function NanoNum.pow(a: MathValue, b: MathValue): buffer
 					local negative = value < 0
 					local magnitude = negative and -value or value
 					if magnitude <= SAFE_INTEGER then
-						local n = floor(log(magnitude) / LN2) + 1
+						local n = bitsRequired(magnitude)
 						if n <= 31 then
 							local bits = 9 + n
 							local data = bufferCreate(floor((bits + 7) / 8))
@@ -3227,7 +3264,7 @@ function NanoNum.neg(value: MathValue): buffer
 				local negative = result < 0
 				local magnitude = negative and -result or result
 				if magnitude <= SAFE_INTEGER then
-					local n = floor(log(magnitude) / LN2) + 1
+					local n = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
 						local data = bufferCreate(floor((bits + 7) / 8))
@@ -3326,7 +3363,7 @@ function NanoNum.abs(value: MathValue): buffer
 				local negative = result < 0
 				local magnitude = negative and -result or result
 				if magnitude <= SAFE_INTEGER then
-					local n = floor(log(magnitude) / LN2) + 1
+					local n = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
 						local data = bufferCreate(floor((bits + 7) / 8))
@@ -3426,7 +3463,7 @@ function NanoNum.reciprocal(value: MathValue): buffer
 				local negative = result < 0
 				local magnitude = negative and -result or result
 				if magnitude <= SAFE_INTEGER then
-					local n = floor(log(magnitude) / LN2) + 1
+					local n = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
 						local data = bufferCreate(floor((bits + 7) / 8))
@@ -3635,7 +3672,7 @@ function NanoNum.min(a: MathValue, b: MathValue): buffer
 			local negative = value < 0
 			local magnitude = negative and -value or value
 			if magnitude <= SAFE_INTEGER then
-				local n = floor(log(magnitude) / LN2) + 1
+				local n = bitsRequired(magnitude)
 				if n <= 31 then
 					local bits = 9 + n
 					local data = bufferCreate(floor((bits + 7) / 8))
@@ -3737,7 +3774,7 @@ function NanoNum.max(a: MathValue, b: MathValue): buffer
 			local negative = value < 0
 			local magnitude = negative and -value or value
 			if magnitude <= SAFE_INTEGER then
-				local n = floor(log(magnitude) / LN2) + 1
+				local n = bitsRequired(magnitude)
 				if n <= 31 then
 					local bits = 9 + n
 					local data = bufferCreate(floor((bits + 7) / 8))
@@ -3829,13 +3866,14 @@ function NanoNum.round(value: MathValue, decimals: number?): buffer
 		if n == 0 then return NanoNum.fromNumber(0) end
 		if places == 0 then return NanoNum.fromNumber(n >= 0 and floor(n + 0.5) or ceil(n - 0.5)) end
 		if places > 0 then
-			local scale = 10 ^ places
+			local scale = places <= 12 and POW10_DECIMAL[places + 1] or 10 ^ places
 			if abs(n) > huge / scale then return NanoNum.fromNumber(n) end
 			local scaled = n * scale
 			local rounded = scaled >= 0 and floor(scaled + 0.5) or ceil(scaled - 0.5)
 			return NanoNum.fromNumber(rounded / scale)
 		end
-		local scale = 10 ^ (-places)
+		local digits = -places
+		local scale = digits <= 12 and POW10_DECIMAL[digits + 1] or 10 ^ digits
 		local scaled = n / scale
 		local rounded = scaled >= 0 and floor(scaled + 0.5) or ceil(scaled - 0.5)
 		if rounded ~= 0 and abs(rounded) > huge / scale then return NanoNum.fromLog10(log10(abs(rounded)) - places, rounded < 0) end
@@ -3862,8 +3900,8 @@ function NanoNum.frac(value: MathValue): buffer
 end
 
 local function exactInteger(value: MathValue): number?
-	local k, a, b = decodeReg(value)
-	if abs(k) == K_NUM and a == floor(a) and a <= SAFE_INTEGER then return k < 0 and -a or a end
+	local x = directFiniteNumber(value)
+	if x ~= nil and x == floor(x) and abs(x) <= SAFE_INTEGER then return x end
 	return nil
 end
 
@@ -3969,7 +4007,7 @@ function NanoNum.log10(value: MathValue): buffer
 				local negative = result < 0
 				local magnitude = negative and -result or result
 				if magnitude <= SAFE_INTEGER then
-					local n = floor(log(magnitude) / LN2) + 1
+					local n = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
 						local data = bufferCreate(floor((bits + 7) / 8))
@@ -4068,7 +4106,7 @@ function NanoNum.ln(value: MathValue): buffer
 				local negative = result < 0
 				local magnitude = negative and -result or result
 				if magnitude <= SAFE_INTEGER then
-					local n = floor(log(magnitude) / LN2) + 1
+					local n = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
 						local data = bufferCreate(floor((bits + 7) / 8))
@@ -4184,7 +4222,7 @@ function NanoNum.log2(value: MathValue): buffer
 				local negative = result < 0
 				local magnitude = negative and -result or result
 				if magnitude <= SAFE_INTEGER then
-					local n = floor(log(magnitude) / LN2) + 1
+					local n = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
 						local data = bufferCreate(floor((bits + 7) / 8))
@@ -4303,7 +4341,7 @@ function NanoNum.exp(value: MathValue): buffer
 				local negative = result < 0
 				local magnitude = negative and -result or result
 				if magnitude <= SAFE_INTEGER then
-					local n = floor(log(magnitude) / LN2) + 1
+					local n = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
 						local data = bufferCreate(floor((bits + 7) / 8))
@@ -4402,7 +4440,7 @@ function NanoNum.exp2(value: MathValue): buffer
 				local negative = result < 0
 				local magnitude = negative and -result or result
 				if magnitude <= SAFE_INTEGER then
-					local n = floor(log(magnitude) / LN2) + 1
+					local n = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
 						local data = bufferCreate(floor((bits + 7) / 8))
@@ -4535,7 +4573,7 @@ function NanoNum.sqrt(value: MathValue): buffer
 				local negative = result < 0
 				local magnitude = negative and -result or result
 				if magnitude <= SAFE_INTEGER then
-					local n = floor(log(magnitude) / LN2) + 1
+					local n = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
 						local data = bufferCreate(floor((bits + 7) / 8))
@@ -4634,7 +4672,7 @@ function NanoNum.cbrt(value: MathValue): buffer
 				local negative = result < 0
 				local magnitude = negative and -result or result
 				if magnitude <= SAFE_INTEGER then
-					local n = floor(log(magnitude) / LN2) + 1
+					local n = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
 						local data = bufferCreate(floor((bits + 7) / 8))
@@ -4701,12 +4739,22 @@ function NanoNum.root(value: MathValue, degree: MathValue): buffer
 end
 
 function NanoNum.square(value: MathValue): buffer
+	local x = directFiniteNumber(value)
+	if x ~= nil then
+		local result = x * x
+		if result ~= huge and (result ~= 0 or x == 0) then return NanoNum.fromNumber(result) end
+	end
 	local k, a, b = decodeReg(value)
 	k, a, b = regMul(k, a, b, k, a, b)
 	return encodeReg(k, a, b)
 end
 
 function NanoNum.cube(value: MathValue): buffer
+	local x = directFiniteNumber(value)
+	if x ~= nil then
+		local result = x * x * x
+		if result ~= huge and result ~= -huge and (result ~= 0 or x == 0) then return NanoNum.fromNumber(result) end
+	end
 	local k, a, b = decodeReg(value)
 	local k2, a2, b2 = regMul(k, a, b, k, a, b)
 	k, a, b = regMul(k2, a2, b2, k, a, b)
@@ -4714,29 +4762,36 @@ function NanoNum.cube(value: MathValue): buffer
 end
 
 function NanoNum.hypot(a: MathValue, b: MathValue): buffer
-	if typeof(a) == "number" and typeof(b) == "number" then
-		local x = a :: number
-		local y = b :: number
-		if x ~= x or y ~= y then return makeSpecial(SPECIAL_NAN) end
-		if x == huge or x == -huge or y == huge or y == -huge then return makeSpecial(SPECIAL_POS_INF) end
+	local x = directFiniteNumber(a)
+	local y = directFiniteNumber(b)
+	if x ~= nil and y ~= nil then
 		x = abs(x); y = abs(y)
 		local m = max(x, y)
 		if m == 0 then return NanoNum.fromNumber(0) end
 		local sx = x / m
 		local sy = y / m
-		return NanoNum.fromNumber(m * sqrt(sx * sx + sy * sy))
+		local result = m * sqrt(sx * sx + sy * sy)
+		if result ~= huge then return NanoNum.fromNumber(result) end
 	end
 	local ak, aa, ab = decodeReg(a)
 	local bk, ba, bb = decodeReg(b)
 	local a2k, a2a, a2b = regMul(ak, aa, ab, ak, aa, ab)
 	local b2k, b2a, b2b = regMul(bk, ba, bb, bk, ba, bb)
 	local sk, sa, sb = regAdd(a2k, a2a, a2b, b2k, b2a, b2b)
-	local ek, ea, eb = regFromNumber(0.5)
-	sk, sa, sb = regPow(sk, sa, sb, ek, ea, eb)
+	sk, sa, sb = regPow(sk, sa, sb, K_NUM, 0.5, 0)
 	return encodeReg(sk, sa, sb)
 end
 
 function NanoNum.lerp(a: MathValue, b: MathValue, t: MathValue): buffer
+	local x = directFiniteNumber(a)
+	local y = directFiniteNumber(b)
+	local f = directFiniteNumber(t)
+	if x ~= nil and y ~= nil and f ~= nil then
+		if f == 0 then return NanoNum.fromNumber(x) end
+		if f == 1 or x == y then return NanoNum.fromNumber(y) end
+		local result = x + (y - x) * f
+		if result == result and result ~= huge and result ~= -huge then return NanoNum.fromNumber(result) end
+	end
 	local ak, aa, ab = decodeReg(a)
 	local bk, ba, bb = decodeReg(b)
 	local tk, ta, tb = decodeReg(t)
@@ -4751,6 +4806,15 @@ function NanoNum.lerp(a: MathValue, b: MathValue, t: MathValue): buffer
 end
 
 function NanoNum.inverseLerp(a: MathValue, b: MathValue, value: MathValue): buffer
+	local x = directFiniteNumber(a)
+	local y = directFiniteNumber(b)
+	local v = directFiniteNumber(value)
+	if x ~= nil and y ~= nil and v ~= nil then
+		local d = y - x
+		if d == 0 then return makeSpecial(SPECIAL_NAN) end
+		local result = (v - x) / d
+		if result == result and result ~= huge and result ~= -huge then return NanoNum.fromNumber(result) end
+	end
 	local ak, aa, ab = decodeReg(a)
 	local bk, ba, bb = decodeReg(b)
 	local vk, va, vb = decodeReg(value)
@@ -4762,6 +4826,17 @@ function NanoNum.inverseLerp(a: MathValue, b: MathValue, value: MathValue): buff
 end
 
 function NanoNum.remap(value: MathValue, inMin: MathValue, inMax: MathValue, outMin: MathValue, outMax: MathValue): buffer
+	local v = directFiniteNumber(value)
+	local a = directFiniteNumber(inMin)
+	local b = directFiniteNumber(inMax)
+	local c = directFiniteNumber(outMin)
+	local d = directFiniteNumber(outMax)
+	if v ~= nil and a ~= nil and b ~= nil and c ~= nil and d ~= nil then
+		local span = b - a
+		if span == 0 then return makeSpecial(SPECIAL_NAN) end
+		local result = c + (d - c) * ((v - a) / span)
+		if result == result and result ~= huge and result ~= -huge then return NanoNum.fromNumber(result) end
+	end
 	local t = NanoNum.inverseLerp(inMin, inMax, value)
 	if NanoNum.isNaN(t) then return t end
 	return NanoNum.lerp(outMin, outMax, t)
@@ -4775,6 +4850,12 @@ function NanoNum.moveTowards(current: MathValue, target: MathValue, maxDelta: Ma
 end
 
 function NanoNum.distance(a: MathValue, b: MathValue): buffer
+	local x = directFiniteNumber(a)
+	local y = directFiniteNumber(b)
+	if x ~= nil and y ~= nil then
+		local result = abs(x - y)
+		if result ~= huge then return NanoNum.fromNumber(result) end
+	end
 	local ak, aa, ab = decodeReg(a)
 	local bk, ba, bb = decodeReg(b)
 	if abs(ak) == K_NAN or abs(bk) == K_NAN then return makeSpecial(SPECIAL_NAN) end
@@ -4819,11 +4900,27 @@ function NanoNum.digitCount(value: MathValue): buffer
 end
 
 function NanoNum.smoothstep(edge0: MathValue, edge1: MathValue, value: MathValue): buffer
+	local a = directFiniteNumber(edge0)
+	local b = directFiniteNumber(edge1)
+	local v = directFiniteNumber(value)
+	if a ~= nil and b ~= nil and v ~= nil and a ~= b then
+		local t = clamp((v - a) / (b - a), 0, 1)
+		return NanoNum.fromNumber(t * t * (3 - 2 * t))
+	end
 	local t = NanoNum.clamp01(NanoNum.inverseLerp(edge0, edge1, value))
 	return NanoNum.mul(NanoNum.mul(t, t), NanoNum.sub(3, NanoNum.mul(2, t)))
 end
 
 function NanoNum.smootherstep(edge0: MathValue, edge1: MathValue, value: MathValue): buffer
+	local a = directFiniteNumber(edge0)
+	local b = directFiniteNumber(edge1)
+	local v = directFiniteNumber(value)
+	if a ~= nil and b ~= nil and v ~= nil and a ~= b then
+		local t = clamp((v - a) / (b - a), 0, 1)
+		local t2 = t * t
+		local t3 = t2 * t
+		return NanoNum.fromNumber(t3 * (t * (t * 6 - 15) + 10))
+	end
 	local t = NanoNum.clamp01(NanoNum.inverseLerp(edge0, edge1, value))
 	local t2 = NanoNum.mul(t, t)
 	local t3 = NanoNum.mul(t2, t)
@@ -4831,9 +4928,16 @@ function NanoNum.smootherstep(edge0: MathValue, edge1: MathValue, value: MathVal
 end
 
 function NanoNum.sum(values: MathValueArray): buffer
-	local rk = 0
-	local ra = 0
-	local rb = 0
+	local total = 0
+	local direct = true
+	for i = 1, #values do
+		local x = directFiniteNumber(values[i])
+		if x == nil then direct = false; break end
+		total += x
+		if total == huge or total == -huge then direct = false; break end
+	end
+	if direct then return NanoNum.fromNumber(total) end
+	local rk, ra, rb = 0, 0, 0
 	for i = 1, #values do
 		local vk, va, vb = decodeReg(values[i])
 		rk, ra, rb = regAdd(rk, ra, rb, vk, va, vb)
@@ -4842,9 +4946,17 @@ function NanoNum.sum(values: MathValueArray): buffer
 end
 
 function NanoNum.product(values: MathValueArray): buffer
-	local rk = K_NUM
-	local ra = 1
-	local rb = 0
+	local total = 1
+	local direct = true
+	for i = 1, #values do
+		local x = directFiniteNumber(values[i])
+		if x == nil then direct = false; break end
+		local nextValue = total * x
+		if nextValue ~= nextValue or nextValue == huge or nextValue == -huge or (nextValue == 0 and total ~= 0 and x ~= 0) then direct = false; break end
+		total = nextValue
+	end
+	if direct then return NanoNum.fromNumber(total) end
+	local rk, ra, rb = K_NUM, 1, 0
 	for i = 1, #values do
 		local vk, va, vb = decodeReg(values[i])
 		rk, ra, rb = regMul(rk, ra, rb, vk, va, vb)
@@ -4853,8 +4965,18 @@ function NanoNum.product(values: MathValueArray): buffer
 end
 
 function NanoNum.mean(values: MathValueArray): buffer
-	if #values == 0 then return makeSpecial(SPECIAL_NAN) end
-	return NanoNum.div(NanoNum.sum(values), #values)
+	local count = #values
+	if count == 0 then return makeSpecial(SPECIAL_NAN) end
+	local total = 0
+	local direct = true
+	for i = 1, count do
+		local x = directFiniteNumber(values[i])
+		if x == nil then direct = false; break end
+		total += x
+		if total == huge or total == -huge then direct = false; break end
+	end
+	if direct then return NanoNum.fromNumber(total / count) end
+	return NanoNum.div(NanoNum.sum(values), count)
 end
 
 function NanoNum.geometricMean(values: MathValueArray): buffer
@@ -4876,30 +4998,52 @@ function NanoNum.geometricMean(values: MathValueArray): buffer
 end
 
 function NanoNum.harmonicMean(values: MathValueArray): buffer
-	if #values == 0 then return makeSpecial(SPECIAL_NAN) end
-	local totalK = 0
-	local totalA = 0
-	local totalB = 0
-	for i = 1, #values do
+	local count = #values
+	if count == 0 then return makeSpecial(SPECIAL_NAN) end
+	local reciprocalSum = 0
+	local direct = true
+	for i = 1, count do
+		local x = directFiniteNumber(values[i])
+		if x == nil then direct = false; break end
+		if x == 0 then return NanoNum.fromNumber(0) end
+		reciprocalSum += 1 / x
+		if reciprocalSum ~= reciprocalSum or reciprocalSum == huge or reciprocalSum == -huge then direct = false; break end
+	end
+	if direct and reciprocalSum ~= 0 then return NanoNum.fromNumber(count / reciprocalSum) end
+	local totalK, totalA, totalB = 0, 0, 0
+	for i = 1, count do
 		local k, a, b = decodeReg(values[i])
 		if k == 0 then return NanoNum.fromNumber(0) end
 		k, a, b = regReciprocal(k, a, b)
 		totalK, totalA, totalB = regAdd(totalK, totalA, totalB, k, a, b)
 	end
-	local ck, ca, cb = regFromNumber(#values)
+	local ck, ca, cb = regFromNumber(count)
 	ck, ca, cb = regDiv(ck, ca, cb, totalK, totalA, totalB)
 	return encodeReg(ck, ca, cb)
 end
 
+local FACTORIAL_NUMBER_CACHE = tableCreate(171)
+local LOG_FACTORIAL_CACHE = tableCreate(257)
+do
+	local factorialValue = 1
+	local logValue = 0
+	FACTORIAL_NUMBER_CACHE[1] = 1
+	LOG_FACTORIAL_CACHE[1] = 0
+	for i = 1, 256 do
+		logValue += log10(i)
+		LOG_FACTORIAL_CACHE[i + 1] = logValue
+		if i <= 170 then factorialValue *= i; FACTORIAL_NUMBER_CACHE[i + 1] = factorialValue end
+	end
+end
+
 local function factorialLog10(n: number): number
 	if n < 2 then return 0 end
-	if n <= 256 then
-		local total = 0
-		for i = 2, n do total += log10(i) end
-		return total
-	end
+	if n <= 256 then return LOG_FACTORIAL_CACHE[n + 1] end
 	local inv = 1 / n
-	local correction = inv / 12 - inv ^ 3 / 360 + inv ^ 5 / 1260
+	local inv2 = inv * inv
+	local inv3 = inv2 * inv
+	local inv5 = inv3 * inv2
+	local correction = inv / 12 - inv3 / 360 + inv5 / 1260
 	return (n + 0.5) * log10(n) - n * LOG10_E + 0.5 * log10(TWO_PI) + correction * LOG10_E
 end
 
@@ -4911,11 +5055,7 @@ function NanoNum.factorial(value: MathValue): buffer
 	if abs(k) == K_NUM and a <= SAFE_INTEGER then
 		local n = a
 		if n <= 1 then return NanoNum.fromNumber(1) end
-		if n <= 170 then
-			local result = 1
-			for i = 2, n do result *= i end
-			return NanoNum.fromNumber(result)
-		end
+		if n <= 170 then return NanoNum.fromNumber(FACTORIAL_NUMBER_CACHE[n + 1]) end
 		return NanoNum.fromLog10(factorialLog10(n))
 	end
 	return NanoNum.gamma(NanoNum.add(value, 1))
@@ -4927,16 +5067,18 @@ local function nativeGCD(a: number, b: number): number
 	return a
 end
 
-local LANCZOS = {
-	676.5203681218851, -1259.1392167224028, 771.32342877765313, -176.61502916214059,
-	12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7,
-}
-
 local function logGammaDirect(x: number): number
 	if x <= 0 then return NAN end
 	local z = x - 1
 	local a = 0.99999999999980993
-	for i = 1, #LANCZOS do a += LANCZOS[i] / (z + i) end
+	a += 676.5203681218851 / (z + 1)
+	a -= 1259.1392167224028 / (z + 2)
+	a += 771.32342877765313 / (z + 3)
+	a -= 176.61502916214059 / (z + 4)
+	a += 12.507343278686905 / (z + 5)
+	a -= 0.13857109526572012 / (z + 6)
+	a += 9.9843695780195716e-6 / (z + 7)
+	a += 1.5056327351493116e-7 / (z + 8)
 	local t = z + 7.5
 	return 0.5 * log(TWO_PI) + (z + 0.5) * log(t) - t + log(a)
 end
@@ -5549,7 +5691,7 @@ NanoNum.fast.pow10B = function(value: buffer): buffer
 				local negative = result < 0
 				local magnitude = negative and -result or result
 				if magnitude <= SAFE_INTEGER then
-					local n = floor(log(magnitude) / LN2) + 1
+					local n = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
 						local data = bufferCreate(floor((bits + 7) / 8))
@@ -5645,7 +5787,7 @@ NanoNum.fast.log10B = function(value: buffer): buffer
 			local negative = result < 0
 			local magnitude = negative and -result or result
 			if magnitude <= SAFE_INTEGER then
-				local n = floor(log(magnitude) / LN2) + 1
+				local n = bitsRequired(magnitude)
 				if n <= 31 then
 					local bits = 9 + n
 					local data = bufferCreate(floor((bits + 7) / 8))
@@ -5737,7 +5879,7 @@ NanoNum.fast.negB = function(value: buffer): buffer
 			local negative = result < 0
 			local magnitude = negative and -result or result
 			if magnitude <= SAFE_INTEGER then
-				local n = floor(log(magnitude) / LN2) + 1
+				local n = bitsRequired(magnitude)
 				if n <= 31 then
 					local bits = 9 + n
 					local data = bufferCreate(floor((bits + 7) / 8))
@@ -5829,7 +5971,7 @@ NanoNum.fast.absB = function(value: buffer): buffer
 			local negative = result < 0
 			local magnitude = negative and -result or result
 			if magnitude <= SAFE_INTEGER then
-				local n = floor(log(magnitude) / LN2) + 1
+				local n = bitsRequired(magnitude)
 				if n <= 31 then
 					local bits = 9 + n
 					local data = bufferCreate(floor((bits + 7) / 8))
@@ -5922,7 +6064,7 @@ NanoNum.fast.reciprocalB = function(value: buffer): buffer
 				local negative = result < 0
 				local magnitude = negative and -result or result
 				if magnitude <= SAFE_INTEGER then
-					local n = floor(log(magnitude) / LN2) + 1
+					local n = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
 						local data = bufferCreate(floor((bits + 7) / 8))
@@ -6057,7 +6199,7 @@ NanoNum.fast.addBB = function(a: buffer, b: buffer): buffer
 				local negative = value < 0
 				local magnitude = negative and -value or value
 				if magnitude <= SAFE_INTEGER then
-					local n = floor(log(magnitude) / LN2) + 1
+					local n = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
 						local data = bufferCreate(floor((bits + 7) / 8))
@@ -6181,7 +6323,7 @@ NanoNum.fast.subBB = function(a: buffer, b: buffer): buffer
 				local negative = value < 0
 				local magnitude = negative and -value or value
 				if magnitude <= SAFE_INTEGER then
-					local n = floor(log(magnitude) / LN2) + 1
+					local n = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
 						local data = bufferCreate(floor((bits + 7) / 8))
@@ -6305,7 +6447,7 @@ NanoNum.fast.mulBB = function(a: buffer, b: buffer): buffer
 				local negative = value < 0
 				local magnitude = negative and -value or value
 				if magnitude <= SAFE_INTEGER then
-					local n = floor(log(magnitude) / LN2) + 1
+					local n = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
 						local data = bufferCreate(floor((bits + 7) / 8))
@@ -6430,7 +6572,7 @@ NanoNum.fast.divBB = function(a: buffer, b: buffer): buffer
 					local negative = value < 0
 					local magnitude = negative and -value or value
 					if magnitude <= SAFE_INTEGER then
-						local n = floor(log(magnitude) / LN2) + 1
+						local n = bitsRequired(magnitude)
 						if n <= 31 then
 							local bits = 9 + n
 							local data = bufferCreate(floor((bits + 7) / 8))
@@ -6555,7 +6697,7 @@ NanoNum.fast.powBB = function(a: buffer, b: buffer): buffer
 				local negative = value < 0
 				local magnitude = negative and -value or value
 				if magnitude <= SAFE_INTEGER then
-					local n = floor(log(magnitude) / LN2) + 1
+					local n = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
 						local data = bufferCreate(floor((bits + 7) / 8))
@@ -6610,7 +6752,7 @@ NanoNum.fast.powBB = function(a: buffer, b: buffer): buffer
 					local negative = value < 0
 					local magnitude = negative and -value or value
 					if magnitude <= SAFE_INTEGER then
-						local n = floor(log(magnitude) / LN2) + 1
+						local n = bitsRequired(magnitude)
 						if n <= 31 then
 							local bits = 9 + n
 							local data = bufferCreate(floor((bits + 7) / 8))
@@ -6749,7 +6891,7 @@ NanoNum.fast.addNN = function(a: number, b: number): buffer
 			local negative = value < 0
 			local magnitude = negative and -value or value
 			if magnitude <= SAFE_INTEGER then
-				local n = floor(log(magnitude) / LN2) + 1
+				local n = bitsRequired(magnitude)
 				if n <= 31 then
 					local bits = 9 + n
 					local data = bufferCreate(floor((bits + 7) / 8))
@@ -6807,7 +6949,7 @@ NanoNum.fast.subNN = function(a: number, b: number): buffer
 			local negative = value < 0
 			local magnitude = negative and -value or value
 			if magnitude <= SAFE_INTEGER then
-				local n = floor(log(magnitude) / LN2) + 1
+				local n = bitsRequired(magnitude)
 				if n <= 31 then
 					local bits = 9 + n
 					local data = bufferCreate(floor((bits + 7) / 8))
@@ -6865,7 +7007,7 @@ NanoNum.fast.mulNN = function(a: number, b: number): buffer
 			local negative = value < 0
 			local magnitude = negative and -value or value
 			if magnitude <= SAFE_INTEGER then
-				local n = floor(log(magnitude) / LN2) + 1
+				local n = bitsRequired(magnitude)
 				if n <= 31 then
 					local bits = 9 + n
 					local data = bufferCreate(floor((bits + 7) / 8))
@@ -6924,7 +7066,7 @@ NanoNum.fast.divNN = function(a: number, b: number): buffer
 				local negative = value < 0
 				local magnitude = negative and -value or value
 				if magnitude <= SAFE_INTEGER then
-					local n = floor(log(magnitude) / LN2) + 1
+					local n = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
 						local data = bufferCreate(floor((bits + 7) / 8))
@@ -6984,7 +7126,7 @@ NanoNum.fast.powNN = function(a: number, b: number): buffer
 				local negative = value < 0
 				local magnitude = negative and -value or value
 				if magnitude <= SAFE_INTEGER then
-					local n = floor(log(magnitude) / LN2) + 1
+					local n = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
 						local data = bufferCreate(floor((bits + 7) / 8))
@@ -7039,7 +7181,7 @@ NanoNum.fast.powNN = function(a: number, b: number): buffer
 					local negative = value < 0
 					local magnitude = negative and -value or value
 					if magnitude <= SAFE_INTEGER then
-						local n = floor(log(magnitude) / LN2) + 1
+						local n = bitsRequired(magnitude)
 						if n <= 31 then
 							local bits = 9 + n
 							local data = bufferCreate(floor((bits + 7) / 8))
@@ -7140,7 +7282,7 @@ NanoNum.fast.addBN = function(a: buffer, b: number): buffer
 				local negative = value < 0
 				local magnitude = negative and -value or value
 				if magnitude <= SAFE_INTEGER then
-					local n = floor(log(magnitude) / LN2) + 1
+					local n = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
 						local data = bufferCreate(floor((bits + 7) / 8))
@@ -7235,7 +7377,7 @@ NanoNum.fast.addNB = function(a: number, b: buffer): buffer
 				local negative = value < 0
 				local magnitude = negative and -value or value
 				if magnitude <= SAFE_INTEGER then
-					local n = floor(log(magnitude) / LN2) + 1
+					local n = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
 						local data = bufferCreate(floor((bits + 7) / 8))
@@ -7340,7 +7482,7 @@ NanoNum.fast.subBN = function(a: buffer, b: number): buffer
 				local negative = value < 0
 				local magnitude = negative and -value or value
 				if magnitude <= SAFE_INTEGER then
-					local n = floor(log(magnitude) / LN2) + 1
+					local n = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
 						local data = bufferCreate(floor((bits + 7) / 8))
@@ -7435,7 +7577,7 @@ NanoNum.fast.subNB = function(a: number, b: buffer): buffer
 				local negative = value < 0
 				local magnitude = negative and -value or value
 				if magnitude <= SAFE_INTEGER then
-					local n = floor(log(magnitude) / LN2) + 1
+					local n = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
 						local data = bufferCreate(floor((bits + 7) / 8))
@@ -7540,7 +7682,7 @@ NanoNum.fast.mulBN = function(a: buffer, b: number): buffer
 				local negative = value < 0
 				local magnitude = negative and -value or value
 				if magnitude <= SAFE_INTEGER then
-					local n = floor(log(magnitude) / LN2) + 1
+					local n = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
 						local data = bufferCreate(floor((bits + 7) / 8))
@@ -7635,7 +7777,7 @@ NanoNum.fast.mulNB = function(a: number, b: buffer): buffer
 				local negative = value < 0
 				local magnitude = negative and -value or value
 				if magnitude <= SAFE_INTEGER then
-					local n = floor(log(magnitude) / LN2) + 1
+					local n = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
 						local data = bufferCreate(floor((bits + 7) / 8))
@@ -7741,7 +7883,7 @@ NanoNum.fast.divBN = function(a: buffer, b: number): buffer
 					local negative = value < 0
 					local magnitude = negative and -value or value
 					if magnitude <= SAFE_INTEGER then
-						local n = floor(log(magnitude) / LN2) + 1
+						local n = bitsRequired(magnitude)
 						if n <= 31 then
 							local bits = 9 + n
 							local data = bufferCreate(floor((bits + 7) / 8))
@@ -7838,7 +7980,7 @@ NanoNum.fast.divNB = function(a: number, b: buffer): buffer
 					local negative = value < 0
 					local magnitude = negative and -value or value
 					if magnitude <= SAFE_INTEGER then
-						local n = floor(log(magnitude) / LN2) + 1
+						local n = bitsRequired(magnitude)
 						if n <= 31 then
 							local bits = 9 + n
 							local data = bufferCreate(floor((bits + 7) / 8))
@@ -7944,7 +8086,7 @@ NanoNum.fast.powBN = function(a: buffer, b: number): buffer
 				local negative = value < 0
 				local magnitude = negative and -value or value
 				if magnitude <= SAFE_INTEGER then
-					local n = floor(log(magnitude) / LN2) + 1
+					local n = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
 						local data = bufferCreate(floor((bits + 7) / 8))
@@ -7999,7 +8141,7 @@ NanoNum.fast.powBN = function(a: buffer, b: number): buffer
 					local negative = value < 0
 					local magnitude = negative and -value or value
 					if magnitude <= SAFE_INTEGER then
-						local n = floor(log(magnitude) / LN2) + 1
+						local n = bitsRequired(magnitude)
 						if n <= 31 then
 							local bits = 9 + n
 							local data = bufferCreate(floor((bits + 7) / 8))
@@ -8095,7 +8237,7 @@ NanoNum.fast.powNB = function(a: number, b: buffer): buffer
 				local negative = value < 0
 				local magnitude = negative and -value or value
 				if magnitude <= SAFE_INTEGER then
-					local n = floor(log(magnitude) / LN2) + 1
+					local n = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
 						local data = bufferCreate(floor((bits + 7) / 8))
@@ -8150,7 +8292,7 @@ NanoNum.fast.powNB = function(a: number, b: buffer): buffer
 					local negative = value < 0
 					local magnitude = negative and -value or value
 					if magnitude <= SAFE_INTEGER then
-						local n = floor(log(magnitude) / LN2) + 1
+						local n = bitsRequired(magnitude)
 						if n <= 31 then
 							local bits = 9 + n
 							local data = bufferCreate(floor((bits + 7) / 8))
@@ -8384,8 +8526,8 @@ function NanoNum.mathPerfInfo(): MathPerfInfo
 		Version = NanoNum.MATH_PERF_VERSION,
 		PathVersion = NanoNum.MATH_PATH_VERSION,
 		DefaultPath = 0,
-		Path0 = "NanoNum 2.1.4 macro-inline finite math; typed direct decode/encode; zero-substring parser",
-		Path1 = "one-call cold log/layer/hyper-layer fallback kernel; compact source under 10k lines",
+		Path0 = "NanoNum 2.2 FastME-derived finite kernel; countlz integer encoding; direct finite high-level math; byte parser",
+		Path1 = "canonical log/layer/hyper-layer fallback kernel; cached combinatorics; compact source under 10k lines",
 		TemporaryDecodeTablesOnPath0 = 0,
 	}
 end
@@ -8411,14 +8553,16 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 	local ROMAN_VALUES = {1000,900,500,400,100,90,50,40,10,9,5,4,1}
 	local ROMAN_SYMBOLS = {"M","CM","D","CD","C","XC","L","XL","X","IX","V","IV","I"}
 	local function trimZeros(value: string): string
-		local dot = find(value, ".", 1, true)
-		if dot == nil then return value end
-		local i = #value
-		while i > dot and byte(value, i) == 48 do i -= 1 end
-		if i == dot then i -= 1 end
-		local result = sub(value, 1, i)
-		if result == "-0" then return "0" end
-		return result
+		local n = #value
+		local dot = 0
+		for i = 1, n do if byte(value, i) == 46 then dot = i; break end end
+		if dot == 0 then return value end
+		local last = n
+		while last > dot and byte(value, last) == 48 do last -= 1 end
+		if last == dot then last -= 1 end
+		if last == n then return value end
+		local result = sub(value, 1, last)
+		return result == "-0" and "0" or result
 	end
 
 	local function shortNumber(value: number, decimalPlaces: number): string
@@ -8429,7 +8573,7 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 
 	local function roundedPositive(value: number, decimalPlaces: number): number
 		local decimals = clamp(floor(decimalPlaces), 0, 12)
-		local scale = 10 ^ decimals
+		local scale = POW10_DECIMAL[decimals + 1]
 		return floor(value * scale + 0.5) / scale
 	end
 
@@ -8517,29 +8661,6 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 		return negative and "-" .. text or text
 	end
 
-	local function groupedIntegerText(value: number): string
-		local raw = format("%.0f", value)
-		local length = #raw
-		if length <= 3 then return raw end
-		local firstGroup = length % 3
-		if firstGroup == 0 then firstGroup = 3 end
-		local out = tableCreate(ceil(length / 3))
-		local count = 1
-		out[count] = sub(raw, 1, firstGroup)
-		local i = firstGroup + 1
-		while i <= length do count += 1; out[count] = sub(raw, i, i + 2); i += 3 end
-		return concat(out, ",", 1, count)
-	end
-
-	local function formatLargeScientificLog(exponent: number, precision: number): string
-		local integerExponent = floor(exponent)
-		local mantissa = 10 ^ (exponent - integerExponent)
-		mantissa = roundedPositive(mantissa, precision)
-		if mantissa >= 10 then mantissa /= 10; integerExponent += 1 end
-		local exponentText = integerExponent < 1000000 and groupedIntegerText(integerExponent) or formatDisplayScalar(integerExponent, precision)
-		return shortNumber(mantissa, precision) .. "e" .. exponentText
-	end
-
 	local function formatLayerDisplay(layer: number, top: number, precision: number): string
 		return "L" .. formatDisplayScalar(layer, precision) .. " " .. formatDisplayScalar(top, precision)
 	end
@@ -8625,7 +8746,12 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 			exponent = abs(exponent)
 			local text
 			if exponent >= NanoNum.E_NOTATION_START then
-				text = formatLargeScientificLog(exponent, precision)
+				local eText = "E" .. formatDisplayScalar(exponent, precision)
+				text = eText
+				if exponent > 1 then
+					local lText = formatLayerDisplay(2, log10(exponent), precision)
+					if #lText <= #eText then text = lText end
+				end
 			else
 				local integerExponent = floor(exponent)
 				local mantissa = 10 ^ (exponent - integerExponent)
