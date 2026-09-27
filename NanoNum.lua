@@ -1,9 +1,8 @@
 --!native
 --!optimize 2
-
 local NanoNum = {}
-
 export type MathValue = number | string | buffer
+export type EN = {number}
 export type MathBinaryOperation = "add" | "sub" | "mul" | "div" | "pow"
 export type MathCompareOperation = "compare" | "eq" | "lt" | "lte" | "gt" | "gte"
 export type BindOperation = MathBinaryOperation | "compare"
@@ -12,7 +11,6 @@ export type MathValueArray = {MathValue}
 export type SuffixType = "standard" | "extended" | "hybrid" | "alphabetic" | "metric" | "exponent" | "scientific" | "engineering" | "roman" | "romanextended"
 export type SuffixName = SuffixType
 export type TimeStyle = "compact" | "long" | "clock" | "seconds"
-
 export type DecodedInteger = {Kind: "Integer", Value: number, Negative: boolean}
 export type DecodedNormal = {Kind: "Normal", Negative: boolean, Exponent: number, Mantissa: number}
 export type DecodedExact = {Kind: "Exact", Value: number, Negative: boolean}
@@ -22,7 +20,6 @@ export type DecodedInfinity = {Kind: "Infinity", Negative: boolean}
 export type DecodedNaN = {Kind: "NaN", Negative: boolean}
 export type DecodedReserved = {Kind: "Reserved", Negative: boolean}
 export type DecodedValue = DecodedInteger | DecodedNormal | DecodedExact | DecodedLog | DecodedLayer | DecodedInfinity | DecodedNaN | DecodedReserved
-
 export type InspectInfo = {Version: string, Bits: number, Bytes: number, PaddingBits: number, Data: DecodedValue}
 export type LBInfo = {version: number, code: number, band: string, negative: boolean, reciprocal: boolean, distanceFromOne: number}
 export type MathPerfInfo = {Version: number, PathVersion: number, DefaultPath: number, Path0: string, Path1: string, TemporaryDecodeTablesOnPath0: number}
@@ -37,16 +34,14 @@ export type CallPerfInfo = {
 	DirectTypeChecksPerBinaryCall: number,
 	StringParsingCanBeEliminatedByCompile: boolean,
 }
-
 export type MathBinaryFunction = (MathValue, MathValue) -> buffer
 export type MathCompareFunction = (MathValue, MathValue) -> number
 export type MathPredicateFunction = (MathValue, MathValue) -> boolean
 export type BoundBinaryResult = buffer | number
 export type BoundBinaryFunction = (MathValue, MathValue) -> BoundBinaryResult
 export type BoundUnaryFunction = (MathValue) -> BoundBinaryResult
-
 NanoNum.TYPECHECK_VERSION = 3
-NanoNum.VERSION = "2.2.0"
+NanoNum.VERSION = "2.3.3"
 NanoNum.REGISTER_SCOPE_VERSION = 6
 NanoNum.MAX_LAYER = 1e308
 NanoNum.MAX_LAYER_LOG10 = 1e308
@@ -54,41 +49,41 @@ NanoNum.MAX_LAYER_LOG10_LOG10 = 1e308
 NanoNum.MAX_HYPER_LAYER_LOG10 = NanoNum.MAX_LAYER_LOG10_LOG10
 NanoNum.NORMAL_SIGNIFICAND_BITS = 16
 NanoNum.SCALAR_SIGNIFICAND_BITS = 14
-NanoNum.PARSER_VERSION = 11
-NanoNum.NOTATION_VERSION = 14
+NanoNum.PARSER_VERSION = 13
+NanoNum.NOTATION_VERSION = 17
 NanoNum.PERF_VERSION = 20
 NanoNum.PATH_VERSION = 6
 NanoNum.DEFAULT_PATH = 0
-NanoNum.MATH_SCOPE_VERSION = 9
-NanoNum.MATH_VERSION = 28
-NanoNum.MATH_CLEANUP_VERSION = 16
+NanoNum.MATH_SCOPE_VERSION = 10
+NanoNum.MATH_VERSION = 30
+NanoNum.MATH_CLEANUP_VERSION = 17
 NanoNum.CALL_VERSION = 12
 NanoNum.DIRECT_CALL_VERSION = 12
 NanoNum.BIND_VERSION = 7
 NanoNum.COMPILE_VERSION = 7
-NanoNum.MATH_PERF_VERSION = 17
+NanoNum.MATH_PERF_VERSION = 18
 NanoNum.MATH_PATH_VERSION = 10
 NanoNum.MATH_DEFAULT_PATH = 0
-NanoNum.MATH_CORRECTNESS_VERSION = 20
+NanoNum.MATH_CORRECTNESS_VERSION = 22
 NanoNum.TETRATION_VERSION = 8
 NanoNum.SLOG_VERSION = 6
-NanoNum.GAMMA_VERSION = 6
-NanoNum.MATH_SAFETY_VERSION = 10
+NanoNum.GAMMA_VERSION = 7
+NanoNum.MATH_SAFETY_VERSION = 11
 NanoNum.BINARY_FORMAT_VERSION = 3
 NanoNum.CANONICAL_VERSION = 4
 NanoNum.RANGE_PROMOTION_VERSION = 2
-NanoNum.POWER_VERSION = 2
-NanoNum.CANONICAL_API_VERSION = 1
-NanoNum.SCIENTIFIC_API_VERSION = 1
-NanoNum.FAST_UNARY_VERSION = 3
-NanoNum.COMPACT_KERNEL_VERSION = 8
+NanoNum.POWER_VERSION = 3
+NanoNum.CANONICAL_API_VERSION = 2
+NanoNum.EN_VERSION = 2
+NanoNum.SCIENTIFIC_API_VERSION = 2
+NanoNum.FAST_UNARY_VERSION = 4
+NanoNum.COMPACT_KERNEL_VERSION = 9
 NanoNum.HYPER_LAYER_VERSION = 1
-NanoNum.STRING_PARSER_VERSION = 1
+NanoNum.STRING_PARSER_VERSION = 3
 NanoNum.INLINE_MATH_VERSION = 3
 NanoNum.COLD_FALLBACK_VERSION = 1
 NanoNum.REGISTER_FRAME_VERSION = 2
 NanoNum.SOURCE_STYLE_VERSION = 2
-
 local floor = math.floor
 local ceil = math.ceil
 local abs = math.abs
@@ -128,26 +123,27 @@ local countlz = bit32.countlz
 local toNumber = tonumber
 local toString = tostring
 local fastPcall = pcall
-
-local LN2 = log(2)
-local LN10 = log(10)
-local LOG10_2 = log10(2)
-local LOG10_E = log10(exp(1))
-local TWO_PI = 2 * pi
+local LN2 = 0.6931471805599453
+local LN10 = 2.302585092994046
+local LOG10_2 = 0.3010299956639812
+local LOG10_E = 0.4342944819032518
+local TWO_PI = 6.283185307179586
 local SAFE_INTEGER = 9007199254740991
 local DIRECT_LOG_MAX = 308.25471555991675
 local DIRECT_LOG_MIN = -323.3062153431158
 local NAN = 0 / 0
 local POW10_DECIMAL = {1, 10, 100, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12}
-
-
+local function oneMinusPow10Neg(distance: number): number
+	local x = -distance * LN10
+	if x <= -1e-4 then return 1 - 10 ^ (-distance) end
+	local x2 = x * x
+	return -(x + x2 * 0.5 + x2 * x / 6 + x2 * x2 / 24 + x2 * x2 * x / 120 + x2 * x2 * x2 / 720)
+end
 local SPECIAL_POS_INF = 0
 local SPECIAL_NEG_INF = 1
 local SPECIAL_NAN = 2
 local SPECIAL_RESERVED = 3
-
 local HYPER_LAYER_PREFIX = 23
-
 local SCALAR_EXP_BITS = 10
 local SCALAR_EXP_BIAS = 324
 local SCALAR_EXP_MIN = -324
@@ -156,7 +152,6 @@ local SCALAR_MANT_BITS = 14
 local SCALAR_MANT_MAX = 16383
 local SCALAR_APPROX_BITS = 25
 local SCALAR_SAFE_EXACT_BITS = 60
-
 local EXACT_LEN_BITS = 6
 local INTEGER_LEN_BITS = 5
 local MAX_INTEGER_MODE_BITS = 53
@@ -164,7 +159,6 @@ local MAX_STANDALONE_BYTES = 12
 local EXACT_F64_BITS = 72
 local EXACT_F64_BYTES = 9
 local DIRECT_LAYER_LOG10_MAX = 308
-
 local K_NUM = 1
 local K_LOG = 2
 local K_LAYER = 3
@@ -172,18 +166,17 @@ local K_LAYER_LOG = 4
 local K_HYPER_LAYER = 5
 local K_INF = 6
 local K_NAN = 7
-
-NanoNum.SUFFIX_VERSION = 5
+NanoNum.SUFFIX_VERSION = 7
 NanoNum.ROMAN_VERSION = 2
 NanoNum.TIME_VERSION = 4
-NanoNum.UTILITY_FORMAT_VERSION = 10
-NanoNum.FORMAT_SCOPE_VERSION = 10
+NanoNum.UTILITY_FORMAT_VERSION = 11
+NanoNum.FORMAT_SCOPE_VERSION = 11
 NanoNum.UTILITY_SCOPE_VERSION = 2
 NanoNum.PACK_SCOPE_VERSION = 2
 NanoNum.LB_SCOPE_VERSION = 2
 NanoNum.ROMAN_CLASSICAL_MAX = 3999
 NanoNum.ROMAN_EXTENDED_MAX = SAFE_INTEGER
-NanoNum.STANDARD_SUFFIX_MAX_INDEX = 101
+NanoNum.STANDARD_SUFFIX_MAX_INDEX = 999
 NanoNum.METRIC_SUFFIX_MAX_INDEX = 10
 NanoNum.DEFAULT_SUFFIX_TYPE = "standard"
 NanoNum.DEFAULT_PRECISION = 2
@@ -202,101 +195,79 @@ NanoNum.SUFFIX_TYPES = {
 	roman = true,
 	romanextended = true,
 }
-
-local STANDARD_SUFFIXES = {
-	"k", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No",
-	"Dc", "Ud", "Dd", "Td", "Qad", "Qid", "Sxd", "Spd", "Ocd", "Nod",
-}
-local STANDARD_FAMILIES = {
-	{21, "Vg", "vg"},
-	{31, "Tg", "tg"},
-	{41, "Qag", "qag"},
-	{51, "Qig", "qig"},
-	{61, "Sxg", "sxg"},
-	{71, "Spg", "spg"},
-	{81, "Og", "og"},
-	{91, "Ng", "ng"},
-}
-local STANDARD_UNIT_PREFIXES = {"U", "D", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No"}
-
-for _, family in STANDARD_FAMILIES do
-	local baseIndex = family[1]
-	STANDARD_SUFFIXES[baseIndex] = family[2]
-	local tail = family[3]
-	for unit = 1, 9 do
-		STANDARD_SUFFIXES[baseIndex + unit] = STANDARD_UNIT_PREFIXES[unit] .. tail
+local STANDARD_BEGINNING = {"k", "m", "b"}
+local STANDARD_FIRST = {"", "U","D","T","Qd","Qn","Sx","Sp","Oc","No"}
+local STANDARD_SECOND = {"", "De","Vt","Tg","qg","Qg","sg","Sg","Og","Ng"}
+local STANDARD_THIRD = {"", "Ce", "Du","Tr","Qa","Qi","Se","Si","Ot","Ni"}
+local STANDARD_SUFFIXES = tableCreate(NanoNum.STANDARD_SUFFIX_MAX_INDEX)
+for index = 1, NanoNum.STANDARD_SUFFIX_MAX_INDEX do
+	if index <= 3 then STANDARD_SUFFIXES[index] = STANDARD_BEGINNING[index]
+	else
+		local n = index - 1
+		local hundred = floor(n / 100)
+		local rem = n - hundred * 100
+		local ten = floor(rem / 10)
+		local one = rem - ten * 10
+		STANDARD_SUFFIXES[index] = (STANDARD_FIRST[one + 1] or "") .. (STANDARD_SECOND[ten + 1] or "") .. (STANDARD_THIRD[hundred + 1] or "")
 	end
 end
-
-STANDARD_SUFFIXES[101] = "Ce"
-
 local METRIC_SUFFIXES = {"k", "M", "G", "T", "P", "E", "Z", "Y", "R", "Q"}
 local STANDARD_SUFFIX_TO_INDEX = {}
 local METRIC_SUFFIX_TO_INDEX = {}
 local STANDARD_SUFFIX_HASH = {}
 local METRIC_SUFFIX_HASH = {}
 local ALPHABETIC_SUFFIX_CACHE = {}
-
 local function suffixHashLiteral(text: string): number
 	local h = #text
 	for i = 1, #text do h = (h * 131 + byte(text, i)) % 4294967291 end
 	return h
 end
-
 for i, suffix in STANDARD_SUFFIXES do
 	STANDARD_SUFFIX_TO_INDEX[suffix] = i
 	STANDARD_SUFFIX_HASH[suffixHashLiteral(suffix)] = i
 end
-
 for i, suffix in METRIC_SUFFIXES do
 	METRIC_SUFFIX_TO_INDEX[suffix] = i
 	METRIC_SUFFIX_HASH[suffixHashLiteral(suffix)] = i
 end
-
 STANDARD_SUFFIX_TO_INDEX.K = 1
+STANDARD_SUFFIX_TO_INDEX.M = 2
+STANDARD_SUFFIX_TO_INDEX.B = 3
+STANDARD_SUFFIX_TO_INDEX.t = 4
 METRIC_SUFFIX_TO_INDEX.K = 1
-
 local function bitsRequired(value: number): number
 	if value <= 0 then return 0 end
 	if value < 4294967296 then return 32 - countlz(value) end
 	return 64 - countlz(floor(value / 4294967296))
 end
-
 local function isSafeInteger(value: number): boolean
 	return value >= 0 and value <= SAFE_INTEGER and value == floor(value)
 end
-
 local function ceilBytes(bits: number): number
 	return max(1, floor((bits + 7) / 8))
 end
-
 local function quantizeMantissa(mantissa: number, maxCode: number): number
 	return clamp(floor(((mantissa - 1) / 9) * maxCode + 0.5), 0, maxCode)
 end
-
 local function decodeMantissa(code: number, maxCode: number): number
 	return 1 + code / maxCode * 9
 end
-
 local function scalarExactBits(value: number): number
 	if not isSafeInteger(value) then return huge end
 	local n = bitsRequired(value)
 	if n > 53 then return huge end
 	return 1 + EXACT_LEN_BITS + n
 end
-
 local function scalarBits(value: number, exactSafe: boolean?): number
 	local exact = scalarExactBits(value)
 	local limit = exactSafe and SCALAR_SAFE_EXACT_BITS or SCALAR_APPROX_BITS
 	if exact <= limit then return exact end
 	return SCALAR_APPROX_BITS
 end
-
 local function integerLengthFieldBits(bitLength: number): number
 	if bitLength <= 31 then return INTEGER_LEN_BITS end
 	return INTEGER_LEN_BITS + 5
 end
-
 local function exactIntegerRecordBits(value: number): number
 	local magnitude = abs(value)
 	if not isSafeInteger(magnitude) then return huge end
@@ -304,11 +275,9 @@ local function exactIntegerRecordBits(value: number): number
 	if n == 0 or n > MAX_INTEGER_MODE_BITS then return huge end
 	return 3 + 1 + integerLengthFieldBits(n) + n
 end
-
 local function logRecordBits(exponentMagnitude: number): number
 	return 7 + scalarBits(exponentMagnitude)
 end
-
 local function writeUIntExactAtFast(data: buffer, bitOffset: number, value: number, count: number)
 	local remaining = count
 	local shift = 0
@@ -321,7 +290,6 @@ local function writeUIntExactAtFast(data: buffer, bitOffset: number, value: numb
 		remaining -= chunk
 	end
 end
-
 local function readUIntExactAtFast(data: buffer, bitOffset: number, count: number): number
 	if count <= 0 then return 0 end
 	if count <= 26 then return bufferReadBits(data, bitOffset, count) end
@@ -331,7 +299,6 @@ local function readUIntExactAtFast(data: buffer, bitOffset: number, count: numbe
 	value += bufferReadBits(data, bitOffset + 26, 26) * 67108864
 	return value + bufferReadBits(data, bitOffset + 52, remaining - 26) * 4503599627370496
 end
-
 local function writeScalarAtFast(data: buffer, bitOffset: number, value: number, exactSafe: boolean?)
 	value = abs(value)
 	local exactBits = scalarExactBits(value)
@@ -350,7 +317,6 @@ local function writeScalarAtFast(data: buffer, bitOffset: number, value: number,
 	local packed = 1 + expCode * 2 + mantCode * 2048
 	bufferWriteBits(data, bitOffset, SCALAR_APPROX_BITS, packed)
 end
-
 local function readScalarAtFast(data: buffer, bitOffset: number): (number, number)
 	local approximate = bufferReadBits(data, bitOffset, 1)
 	if approximate == 0 then
@@ -364,7 +330,6 @@ local function readScalarAtFast(data: buffer, bitOffset: number): (number, numbe
 	local exponent = expCode - SCALAR_EXP_BIAS
 	return decodeMantissa(mantCode, SCALAR_MANT_MAX) * (10 ^ exponent), bitOffset + SCALAR_APPROX_BITS
 end
-
 local function readExactF64At(data: buffer, bitOffset: number): number
 	if band(bitOffset, 7) == 0 then
 		return bufferReadF64(data, bitOffset / 8 + 1)
@@ -374,20 +339,17 @@ local function readExactF64At(data: buffer, bitOffset: number): number
 	bufferWriteBits(temp, 32, 32, bufferReadBits(data, bitOffset + 40, 32))
 	return bufferReadF64(temp, 0)
 end
-
 local function makeExactNumber(value: number): buffer
 	local data = bufferCreate(EXACT_F64_BYTES)
 	bufferWriteU8(data, 0, 255)
 	bufferWriteF64(data, 1, value)
 	return data
 end
-
 local function makeSpecial(code: number): buffer
 	local data = bufferCreate(1)
 	bufferWriteU8(data, 0, 63 + code * 64)
 	return data
 end
-
 local function makeInteger(value: number): buffer
 	local negative = value < 0
 	local magnitude = abs(value)
@@ -409,7 +371,6 @@ local function makeInteger(value: number): buffer
 	end
 	return data
 end
-
 local function makeLog(exponent: number, negative: boolean): buffer
 	local reciprocal = exponent < 0
 	local magnitude = abs(exponent)
@@ -419,12 +380,10 @@ local function makeLog(exponent: number, negative: boolean): buffer
 	writeScalarAtFast(data, 7, magnitude)
 	return data
 end
-
 local function layerFieldBits(layer: number, layerIsLog: boolean): number
 	if not layerIsLog and layer == floor(layer) and layer >= 2 and layer <= 33 then return 6 end
 	return 2 + scalarBits(layer, layerIsLog)
 end
-
 local function makeLayer(layer: number, top: number, negative: boolean, reciprocal: boolean, layerIsLog: boolean): buffer
 	if top < 0 then top = 0 end
 	if layerIsLog then
@@ -449,7 +408,6 @@ local function makeLayer(layer: number, top: number, negative: boolean, reciproc
 	writeScalarAtFast(data, bitOffset, top)
 	return data
 end
-
 local function makeHyperLayer(layerLog10Log10: number, top: number, negative: boolean, reciprocal: boolean): buffer
 	if top < 0 then top = 0 end
 	layerLog10Log10 = clamp(layerLog10Log10, 0, NanoNum.MAX_LAYER_LOG10_LOG10)
@@ -462,7 +420,6 @@ local function makeHyperLayer(layerLog10Log10: number, top: number, negative: bo
 	writeScalarAtFast(data, 8 + hyperBits, top)
 	return data
 end
-
 local function readLayerFieldAtFast(data: buffer, bitOffset: number): (number, boolean, number)
 	if bufferReadBits(data, bitOffset, 1) == 0 then
 		return bufferReadBits(data, bitOffset + 1, 5) + 2, false, bitOffset + 6
@@ -471,7 +428,6 @@ local function readLayerFieldAtFast(data: buffer, bitOffset: number): (number, b
 	local layer, nextBit = readScalarAtFast(data, bitOffset + 2)
 	return layer, layerIsLog, nextBit
 end
-
 local function normalizeLayerInput(layer: number, top: number, layerIsLog: boolean): (number, number, boolean)
 	if layerIsLog and layer <= DIRECT_LAYER_LOG10_MAX then
 		layer = 10 ^ layer
@@ -489,7 +445,6 @@ local function normalizeLayerInput(layer: number, top: number, layerIsLog: boole
 	end
 	return layer, top, layerIsLog
 end
-
 function NanoNum.fromNumber(value: number): buffer
 	if value ~= value then local data = bufferCreate(1); bufferWriteU8(data, 0, 191); return data end
 	if value == huge then local data = bufferCreate(1); bufferWriteU8(data, 0, 63); return data end
@@ -540,7 +495,6 @@ function NanoNum.fromNumber(value: number): buffer
 	bufferWriteF64(data, 1, value)
 	return data
 end
-
 function NanoNum.fromLog10(exponent: number, negative: boolean?): buffer
 	if exponent ~= exponent then return makeSpecial(SPECIAL_NAN) end
 	if exponent == huge then return makeSpecial(negative and SPECIAL_NEG_INF or SPECIAL_POS_INF) end
@@ -552,7 +506,6 @@ function NanoNum.fromLog10(exponent: number, negative: boolean?): buffer
 	end
 	return makeLog(exponent, negative == true)
 end
-
 function NanoNum.fromLayer(layer: number, top: number, negative: boolean?, reciprocal: boolean?): buffer
 	if layer ~= layer or top ~= top then return makeSpecial(SPECIAL_NAN) end
 	if layer == huge then return makeSpecial(negative and SPECIAL_NEG_INF or SPECIAL_POS_INF) end
@@ -572,7 +525,6 @@ function NanoNum.fromLayer(layer: number, top: number, negative: boolean?, recip
 	end
 	return makeLayer(normalizedLayer, normalizedTop, negative == true, reciprocal == true, false)
 end
-
 function NanoNum.fromLayerLog10(layerLog10: number, top: number, negative: boolean?, reciprocal: boolean?): buffer
 	if layerLog10 ~= layerLog10 or top ~= top then return makeSpecial(SPECIAL_NAN) end
 	if layerLog10 == huge then return makeSpecial(negative and SPECIAL_NEG_INF or SPECIAL_POS_INF) end
@@ -581,7 +533,6 @@ function NanoNum.fromLayerLog10(layerLog10: number, top: number, negative: boole
 	if not layerIsLog then return NanoNum.fromLayer(normalizedLayer, normalizedTop, negative, reciprocal) end
 	return makeLayer(normalizedLayer, normalizedTop, negative == true, reciprocal == true, true)
 end
-
 function NanoNum.fromLayerLog10Log10(layerLog10Log10: number, top: number, negative: boolean?, reciprocal: boolean?): buffer
 	if layerLog10Log10 ~= layerLog10Log10 or top ~= top then return makeSpecial(SPECIAL_NAN) end
 	if layerLog10Log10 == huge or layerLog10Log10 > NanoNum.MAX_LAYER_LOG10_LOG10 then return makeSpecial(negative and SPECIAL_NEG_INF or SPECIAL_POS_INF) end
@@ -592,9 +543,7 @@ function NanoNum.fromLayerLog10Log10(layerLog10Log10: number, top: number, negat
 	end
 	return makeHyperLayer(layerLog10Log10, top, negative == true, reciprocal == true)
 end
-
 NanoNum.fromHyperLayerLog10 = NanoNum.fromLayerLog10Log10
-
 local function normalizeSuffixType(suffixType: string?): string
 	if suffixType == nil then return NanoNum.DEFAULT_SUFFIX_TYPE end
 	if NanoNum.SUFFIX_TYPES[suffixType] then return suffixType end
@@ -602,7 +551,6 @@ local function normalizeSuffixType(suffixType: string?): string
 	if NanoNum.SUFFIX_TYPES[kind] then return kind end
 	return NanoNum.DEFAULT_SUFFIX_TYPE
 end
-
 local function alphabeticSuffix(index: number): string?
 	if index < 1 or index ~= floor(index) or index > SAFE_INTEGER then return nil end
 	local cached = ALPHABETIC_SUFFIX_CACHE[index]
@@ -626,7 +574,6 @@ local function alphabeticSuffix(index: number): string?
 	if index <= 4096 then ALPHABETIC_SUFFIX_CACHE[index] = result end
 	return result
 end
-
 local function alphabeticSuffixIndex(suffix: string): number?
 	local text = lower(suffix)
 	local length = #text
@@ -645,39 +592,34 @@ local function alphabeticSuffixIndex(suffix: string): number?
 	if index > SAFE_INTEGER then return nil end
 	return index
 end
-
 local function suffixForIndex(index: number, suffixType: string): string?
 	if index < 1 or index ~= floor(index) then return nil end
 	if suffixType == "standard" then return STANDARD_SUFFIXES[index] end
 	if suffixType == "metric" then return METRIC_SUFFIXES[index] end
 	if suffixType == "alphabetic" then return alphabeticSuffix(index) end
 	if suffixType == "extended" then
-		if index <= 101 then return STANDARD_SUFFIXES[index] end
-		if index < 1000 then return alphabeticSuffix(index - 101) end
+		if index <= NanoNum.STANDARD_SUFFIX_MAX_INDEX then return STANDARD_SUFFIXES[index] end
+		if index < 1000 then return alphabeticSuffix(index - NanoNum.STANDARD_SUFFIX_MAX_INDEX) end
 		return nil
 	end
 	if suffixType == "hybrid" then
-		if index <= 101 then return STANDARD_SUFFIXES[index] end
-		return alphabeticSuffix(index - 101)
+		if index <= NanoNum.STANDARD_SUFFIX_MAX_INDEX then return STANDARD_SUFFIXES[index] end
+		return alphabeticSuffix(index - NanoNum.STANDARD_SUFFIX_MAX_INDEX)
 	end
 	return nil
 end
-
 function NanoNum.isSuffixType(suffixType: string): boolean
 	return NanoNum.SUFFIX_TYPES[suffixType] == true or NanoNum.SUFFIX_TYPES[lower(suffixType)] == true
 end
-
 function NanoNum.setDefaultSuffixType(suffixType: string): boolean
 	local kind = normalizeSuffixType(suffixType)
 	if NanoNum.SUFFIX_TYPES[kind] ~= true then return false end
 	NanoNum.DEFAULT_SUFFIX_TYPE = kind
 	return true
 end
-
 function NanoNum.getSuffix(index: number, suffixType: string?): string?
 	return suffixForIndex(floor(index), normalizeSuffixType(suffixType))
 end
-
 function NanoNum.suffixIndex(suffix: string, suffixType: string?): number?
 	local kind = normalizeSuffixType(suffixType)
 	if kind == "standard" then return STANDARD_SUFFIX_TO_INDEX[suffix] end
@@ -688,25 +630,22 @@ function NanoNum.suffixIndex(suffix: string, suffixType: string?): number?
 		if standard ~= nil then return standard end
 		local alpha = alphabeticSuffixIndex(suffix)
 		if alpha == nil then return nil end
-		local index = alpha + 101
+		local index = alpha + NanoNum.STANDARD_SUFFIX_MAX_INDEX
 		if kind == "extended" and index >= 1000 then return nil end
 		return index
 	end
 	return nil
 end
-
 -- Parser internals use a dedicated function frame to stay below Luau's local-register ceiling.
 (function()
 	local function isSpaceByte(c: number): boolean
 		return c == 32 or c == 9 or c == 10 or c == 13
 	end
-
 	local function trimRange(text: string, first: number, last: number): (number, number)
 		while first <= last and isSpaceByte(byte(text, first)) do first += 1 end
 		while last >= first and isSpaceByte(byte(text, last)) do last -= 1 end
 		return first, last
 	end
-
 	local function rangeEqualsCI(text: string, first: number, last: number, literal: string): boolean
 		local n = last - first + 1
 		if n ~= #literal then return false end
@@ -719,7 +658,6 @@ end
 		end
 		return true
 	end
-
 	local function rangeEquals(text: string, first: number, last: number, literal: string): boolean
 		local n = last - first + 1
 		if n ~= #literal then return false end
@@ -728,7 +666,6 @@ end
 		end
 		return true
 	end
-
 	local function parsePlainRange(text: string, first: number, last: number): number?
 		if first > last then return nil end
 		local negative = false
@@ -765,7 +702,6 @@ end
 		if fractionScale > 1 then value += fraction / fractionScale end
 		return negative and -value or value
 	end
-
 	local function parsePositiveIntegerDescriptor(text: string, first: number, last: number): (number?, number?, boolean)
 		if first > last then return nil, nil, false end
 		local value = 0
@@ -802,16 +738,17 @@ end
 		if overflow then return nil, lg, true end
 		return value, lg, true
 	end
-
 	local function suffixRangeIndex(text: string, first: number, last: number, list, hashMap): number?
-		if last == first and (byte(text, first) == 75 or byte(text, first) == 107) then return 1 end
+		if list == STANDARD_SUFFIXES and last == first then
+			local c = byte(text, first)
+			if c == 75 or c == 107 then return 1 elseif c == 77 or c == 109 then return 2 elseif c == 66 or c == 98 then return 3 elseif c == 84 or c == 116 then return 4 end
+		elseif last == first and (byte(text, first) == 75 or byte(text, first) == 107) then return 1 end
 		local h = last - first + 1
 		for i = first, last do h = (h * 131 + byte(text, i)) % 4294967291 end
 		local index = hashMap[h]
 		if index ~= nil and rangeEquals(text, first, last, list[index]) then return index end
 		return nil
 	end
-
 	local function alphabeticRangeIndex(text: string, first: number, last: number): number?
 		local length = last - first + 1
 		if length < 2 or length > 11 then return nil end
@@ -828,12 +765,20 @@ end
 		local index = offset + n + 1
 		return index <= SAFE_INTEGER and index or nil
 	end
-
-	local function parseDisplayScalarRange(text: string, first: number, last: number, suffixType: string?): number?
+	local function parseCanonicalScalarRange(text: string, first: number, last: number): number?
 		first, last = trimRange(text, first, last)
 		if first > last then return nil end
 		local plain = parsePlainRange(text, first, last)
 		if plain ~= nil and plain == plain and plain ~= huge and plain ~= -huge then return plain end
+		local direct = toNumber(sub(text, first, last))
+		if direct ~= nil and direct == direct and direct ~= huge and direct ~= -huge then return direct end
+		return nil
+	end
+	local function parseDisplayScalarRange(text: string, first: number, last: number, suffixType: string?): number?
+		first, last = trimRange(text, first, last)
+		if first > last then return nil end
+		local plain = parseCanonicalScalarRange(text, first, last)
+		if plain ~= nil then return plain end
 		local suffixStart = 0
 		for i = first + 1, last do
 			local c = byte(text, i)
@@ -853,7 +798,7 @@ end
 			if index == nil and (kind == "extended" or kind == "hybrid") then
 				local alpha = alphabeticRangeIndex(text, suffixStart, last)
 				if alpha ~= nil then
-					index = alpha + 101
+					index = alpha + NanoNum.STANDARD_SUFFIX_MAX_INDEX
 					if kind == "extended" and index >= 1000 then index = nil end
 				end
 			end
@@ -865,7 +810,6 @@ end
 		if result ~= result or result == huge or result == -huge then return nil end
 		return result
 	end
-
 	-- Returns mode 0=direct layer count, 1=log10(layer), 2=log10(log10(layer)).
 	local function parseLayerCountRange(text: string, first: number, last: number): (number?, number?, boolean)
 		first, last = trimRange(text, first, last)
@@ -902,15 +846,12 @@ end
 		if exponentLog10 == nil or exponentLog10 ~= exponentLog10 then return nil, nil, false end
 		return 2, min(max(exponentLog10, 0), NanoNum.MAX_LAYER_LOG10_LOG10), true
 	end
-
 	local parseStringRange
-
 	local function finishParsed(result: buffer, negative: boolean, reciprocal: boolean): buffer
 		if reciprocal then result = NanoNum.reciprocal(result) end
 		if negative then result = NanoNum.neg(result) end
 		return result
 	end
-
 	parseStringRange = function(text: string, first: number, last: number, suffixType: SuffixName?): buffer
 		first, last = trimRange(text, first, last)
 		if first > last then return makeSpecial(SPECIAL_NAN) end
@@ -927,13 +868,44 @@ end
 		end
 		first, last = trimRange(text, first, last)
 		if first > last then return makeSpecial(SPECIAL_NAN) end
-
 		if rangeEqualsCI(text, first, last, "nan") then return makeSpecial(SPECIAL_NAN) end
 		if rangeEqualsCI(text, first, last, "inf") or rangeEqualsCI(text, first, last, "infinity") then
 			local result = makeSpecial(SPECIAL_POS_INF)
 			return finishParsed(result, negative, reciprocal)
 		end
-
+		-- NanoNum EN extensions preserve values whose EN layer cannot fit in a Lua number.
+		local extensionMode = 0
+		local extensionFirst = 0
+		if first + 4 <= last and (byte(text, first) == 69 or byte(text, first) == 101) and (byte(text, first + 1) == 78 or byte(text, first + 1) == 110) and (byte(text, first + 2) == 76 or byte(text, first + 2) == 108) then
+			if (byte(text, first + 3) == 76 or byte(text, first + 3) == 108) and byte(text, first + 4) == 59 then extensionMode = 2; extensionFirst = first + 5
+			elseif byte(text, first + 3) == 59 then extensionMode = 1; extensionFirst = first + 4 end
+		end
+		if extensionMode ~= 0 and extensionFirst <= last then
+			local semi = 0
+			for i = extensionFirst, last do if byte(text, i) == 59 then if semi ~= 0 then semi = -1; break end; semi = i end end
+			if semi > extensionFirst and semi < last then
+				local descriptor = parseCanonicalScalarRange(text, extensionFirst, semi - 1)
+				local top = parseCanonicalScalarRange(text, semi + 1, last)
+				if descriptor ~= nil and top ~= nil and descriptor >= 0 then
+					local result = extensionMode == 1 and NanoNum.fromLayerLog10(descriptor, abs(top), false, top < 0) or NanoNum.fromLayerLog10Log10(descriptor, abs(top), false, top < 0)
+					return finishParsed(result, negative, reciprocal)
+				end
+			end
+		end
+		-- EternityNum canonical serialization: layer;exponent (for example 2;20 or -0;5).
+		local semi = 0
+		for i = first, last do if byte(text, i) == 59 then if semi ~= 0 then semi = -1; break end; semi = i end end
+		if semi > first and semi < last then
+			local layer = parseCanonicalScalarRange(text, first, semi - 1)
+			local top = parseCanonicalScalarRange(text, semi + 1, last)
+			if layer ~= nil and top ~= nil and layer >= 0 and layer == floor(layer) then
+				local result
+				if layer == 0 then result = NanoNum.fromNumber(top)
+				elseif layer == 1 then result = NanoNum.fromLog10(top)
+				else result = NanoNum.fromLayer(layer, abs(top), false, top < 0) end
+				return finishParsed(result, negative, reciprocal)
+			end
+		end
 		-- 10^(...) recursive power syntax. No substring is allocated: only the index range changes.
 		if first + 2 <= last and byte(text, first) == 49 and byte(text, first + 1) == 48 then
 			local p = first + 2
@@ -961,7 +933,6 @@ end
 				end
 			end
 		end
-
 		c = byte(text, first)
 		if c == 108 or c == 76 then
 			local p = first + 1
@@ -990,7 +961,6 @@ end
 					end
 				end
 			end
-
 			local tokenFirst = p
 			while p <= last and not isSpaceByte(byte(text, p)) do p += 1 end
 			local tokenLast = p - 1
@@ -1018,7 +988,6 @@ end
 							end
 						end
 					end
-
 					-- Read legacy v2.1.0-v2.1.2 top-first L<top> E<descriptor> / EE<descriptor> strings.
 					local legacyTop = parseDisplayScalarRange(text, tokenFirst, tokenLast, suffixType)
 					if legacyTop ~= nil then
@@ -1039,7 +1008,18 @@ end
 				end
 			end
 		end
-
+		-- EternityNum clean layer notation: E(layer)top.
+		if (c == 101 or c == 69) and first + 3 <= last and byte(text, first + 1) == 40 then
+			local close = first + 2
+			while close <= last and byte(text, close) ~= 41 do close += 1 end
+			if close < last then
+				local layer = parsePlainRange(text, first + 2, close - 1)
+				local top = parsePlainRange(text, close + 1, last)
+				if layer ~= nil and top ~= nil and layer >= 1 and layer == floor(layer) then
+					return finishParsed(NanoNum.fromLayer(layer, abs(top), false, top < 0), negative, reciprocal)
+				end
+			end
+		end
 		-- E/EE/EEE parser. E3k -> 10^3000, EE3k -> 10^(10^3000).
 		if c == 101 or c == 69 then
 			local p = first
@@ -1067,7 +1047,6 @@ end
 				return finishParsed(result, negative, reciprocal)
 			end
 		end
-
 		-- Scientific decimal path. The exponent is scanned in-place and can promote into layer space.
 		local ePos = 0
 		for i = first + 1, last do
@@ -1098,10 +1077,8 @@ end
 				end
 			end
 		end
-
 		local plain = parsePlainRange(text, first, last)
 		if plain ~= nil and plain == plain and plain ~= huge and plain ~= -huge then return finishParsed(NanoNum.fromNumber(plain), negative, reciprocal) end
-
 		-- Suffix path, also range-based: no substring allocation.
 		local suffixStart = 0
 		for i = first + 1, last do
@@ -1120,7 +1097,7 @@ end
 						index = suffixRangeIndex(text, suffixStart, last, STANDARD_SUFFIXES, STANDARD_SUFFIX_HASH)
 						if index == nil and (kind == "extended" or kind == "hybrid") then
 							local alpha = alphabeticRangeIndex(text, suffixStart, last)
-							if alpha ~= nil then index = alpha + 101; if kind == "extended" and index >= 1000 then index = nil end end
+							if alpha ~= nil then index = alpha + NanoNum.STANDARD_SUFFIX_MAX_INDEX; if kind == "extended" and index >= 1000 then index = nil end end
 						end
 					end
 					if index ~= nil then
@@ -1132,7 +1109,6 @@ end
 		end
 		return makeSpecial(SPECIAL_NAN)
 	end
-
 	function NanoNum.fromString(value: string, suffixType: SuffixName?): buffer
 		-- Whole-string finite numbers are the common case and use Luau's optimized parser directly.
 		-- Scientific underflow must stay symbolic, so a zero result containing e/E falls through.
@@ -1149,7 +1125,6 @@ end
 		return parseStringRange(value, 1, #value, suffixType)
 	end
 end)()
-
 local function trimText(value: string): string
 	local first = 1
 	local last = #value
@@ -1167,8 +1142,6 @@ local function trimText(value: string): string
 	if first > last then return "" end
 	return sub(value, first, last)
 end
-
-
 local function scalarEndChecked(data: buffer, bitOffset: number, limit: number): number?
 	if bitOffset < 0 or bitOffset + 1 > limit then return nil end
 	local headerBits = min(7, limit - bitOffset)
@@ -1186,7 +1159,6 @@ local function scalarEndChecked(data: buffer, bitOffset: number, limit: number):
 	if expCode > SCALAR_EXP_MAX + SCALAR_EXP_BIAS then return nil end
 	return nextBit
 end
-
 local function recordEndChecked(data: buffer, bitOffset: number, limit: number?): number?
 	local physicalLimit = bufferLen(data) * 8
 	local endLimit = limit or physicalLimit
@@ -1239,7 +1211,6 @@ local function recordEndChecked(data: buffer, bitOffset: number, limit: number?)
 	local nextBit = bitOffset + (special == SPECIAL_RESERVED and EXACT_F64_BITS or 8)
 	return nextBit <= endLimit and nextBit or nil
 end
-
 local function decodeAt(data: buffer, bitOffset: number): (DecodedValue, number)
 	local totalBits = bufferLen(data) * 8
 	if bitOffset < 0 or bitOffset + 6 > totalBits then error("NanoNum: truncated record") end
@@ -1327,9 +1298,7 @@ local function decodeAt(data: buffer, bitOffset: number): (DecodedValue, number)
 	if special == SPECIAL_NAN then return {Kind = "NaN", Negative = false}, nextBit end
 	return {Kind = "Reserved", Negative = false}, nextBit
 end
-
 NanoNum.decodeAt = decodeAt
-
 function NanoNum.tryDecodeAt(data: buffer, bitOffset: number?): (boolean, DecodedValue?, number?)
 	if typeof(data) ~= "buffer" then return false, nil, nil end
 	local offset: any = bitOffset == nil and 0 or bitOffset
@@ -1338,7 +1307,6 @@ function NanoNum.tryDecodeAt(data: buffer, bitOffset: number?): (boolean, Decode
 	if not ok then return false, nil, nil end
 	return true, decoded, nextBit
 end
-
 function NanoNum.isValid(value: buffer): boolean
 	if typeof(value) ~= "buffer" then return false end
 	local bytes = bufferLen(value)
@@ -1360,21 +1328,17 @@ function NanoNum.isValid(value: buffer): boolean
 	end
 	return true
 end
-
 function NanoNum.components(value: buffer): DecodedValue
 	local decoded = decodeAt(value, 0)
 	return decoded
 end
-
 function NanoNum.bitLength(value: buffer): number
 	local limit = bufferLen(value) * 8
 	local nextBit = recordEndChecked(value, 0, limit)
 	if nextBit == nil then error("NanoNum: invalid record") end
 	return nextBit
 end
-
 NanoNum.byteLength = bufferLen
-
 local function decodeRegBuffer(value: buffer): (number, number, number)
 	local first = bufferReadU8(value, 0)
 	if first == 255 then
@@ -1442,7 +1406,6 @@ local function regFromNumber(value: number): (number, number, number)
 	if value == 0 then return 0, 0, 0 end
 	return value < 0 and -K_NUM or K_NUM, abs(value), 0
 end
-
 local function regFromSignedLog(logMagnitude: number, negative: boolean): (number, number, number)
 	if logMagnitude ~= logMagnitude then return K_NAN, 0, 0 end
 	if logMagnitude == huge then return negative and -K_INF or K_INF, 0, 0 end
@@ -1453,7 +1416,6 @@ local function regFromSignedLog(logMagnitude: number, negative: boolean): (numbe
 	end
 	return negative and -K_LOG or K_LOG, logMagnitude, 0
 end
-
 local function regFromSignedLogSum(left: number, right: number, negative: boolean): (number, number, number)
 	if left ~= left or right ~= right then return K_NAN, 0, 0 end
 	local value = left + right
@@ -1474,7 +1436,6 @@ local function regFromSignedLogSum(left: number, right: number, negative: boolea
 	local top = log10(hi) + log10(1 + lo / hi)
 	return negative and -K_LAYER or K_LAYER, leftNegative and -2 or 2, top
 end
-
 local function regFromSignedLogProduct(left: number, right: number, negative: boolean): (number, number, number)
 	if left ~= left or right ~= right then return K_NAN, 0, 0 end
 	if left == 0 or right == 0 then return regFromSignedLog(0, negative) end
@@ -1489,7 +1450,6 @@ local function regFromSignedLogProduct(left: number, right: number, negative: bo
 	local top = log10(abs(left)) + log10(abs(right))
 	return negative and -K_LAYER or K_LAYER, reciprocal and -2 or 2, top
 end
-
 local function decodeReg(value: any): (number, number, number)
 	local kind = typeof(value)
 	if kind == "number" then return regFromNumber(value) end
@@ -1497,7 +1457,6 @@ local function decodeReg(value: any): (number, number, number)
 	if kind == "string" then return decodeRegBuffer(NanoNum.fromString(value)) end
 	return K_NAN, 0, 0
 end
-
 local function encodeReg(kind: number, a: number, b: number): buffer
 	if kind ~= kind or a ~= a or b ~= b then return makeSpecial(SPECIAL_NAN) end
 	if kind == 0 then return NanoNum.fromNumber(0) end
@@ -1515,21 +1474,18 @@ local function encodeReg(kind: number, a: number, b: number): buffer
 	if absoluteKind == K_INF then return makeSpecial(negative and SPECIAL_NEG_INF or SPECIAL_POS_INF) end
 	return makeSpecial(SPECIAL_NAN)
 end
-
 local function regSign(kind: number): number
 	if abs(kind) == K_NAN then return NAN end
 	if kind < 0 then return -1 end
 	if kind > 0 then return 1 end
 	return 0
 end
-
 local function regLogAbs(kind: number, a: number): number?
 	local absoluteKind = abs(kind)
 	if absoluteKind == K_NUM then return log10(a) end
 	if absoluteKind == K_LOG then return a end
 	return nil
 end
-
 local function regToNumber(kind: number, a: number, b: number): number
 	if kind == 0 then return 0 end
 	local absoluteKind = abs(kind)
@@ -1548,16 +1504,13 @@ local function regToNumber(kind: number, a: number, b: number): number
 	if absoluteKind == K_INF then return negative and -huge or huge end
 	return NAN
 end
-
 local function regNeg(kind: number, a: number, b: number): (number, number, number)
 	if kind == 0 or abs(kind) == K_NAN then return kind, a, b end
 	return -kind, a, b
 end
-
 local function regAbs(kind: number, a: number, b: number): (number, number, number)
 	return abs(kind), a, b
 end
-
 local function regReciprocal(kind: number, a: number, b: number): (number, number, number)
 	local absoluteKind = abs(kind)
 	if absoluteKind == K_NAN then return K_NAN, 0, 0 end
@@ -1568,7 +1521,6 @@ local function regReciprocal(kind: number, a: number, b: number): (number, numbe
 	if absoluteKind == K_LAYER or absoluteKind == K_LAYER_LOG or absoluteKind == K_HYPER_LAYER then return kind, -a, b end
 	return K_NAN, 0, 0
 end
-
 local function regLayerCompare(ak: number, aa: number, ab: number, bk: number, ba: number, bb: number): number
 	local aKind = abs(ak)
 	local bKind = abs(bk)
@@ -1585,7 +1537,6 @@ local function regLayerCompare(ak: number, aa: number, ab: number, bk: number, b
 	end
 	return aReciprocal and -cmp or cmp
 end
-
 local function regAbsCompare(ak: number, aa: number, ab: number, bk: number, ba: number, bb: number): number
 	if ak == 0 then return bk == 0 and 0 or -1 end
 	if bk == 0 then return 1 end
@@ -1605,7 +1556,6 @@ local function regAbsCompare(ak: number, aa: number, ab: number, bk: number, ba:
 	if bLayer and not aLayer then return ba < 0 and 1 or -1 end
 	return regLayerCompare(ak, aa, ab, bk, ba, bb)
 end
-
 local function regCompare(ak: number, aa: number, ab: number, bk: number, ba: number, bb: number): number
 	local aKind = abs(ak)
 	local bKind = abs(bk)
@@ -1625,7 +1575,6 @@ local function regCompare(ak: number, aa: number, ab: number, bk: number, ba: nu
 	local cmp = regAbsCompare(ak, aa, ab, bk, ba, bb)
 	return sa < 0 and -cmp or cmp
 end
-
 local function regAdd(ak: number, aa: number, ab: number, bk: number, ba: number, bb: number): (number, number, number)
 	local aKind = abs(ak)
 	local bKind = abs(bk)
@@ -1670,11 +1619,10 @@ local function regAdd(ak: number, aa: number, ab: number, bk: number, ba: number
 	local negative = cmp > 0 and negativeA or negativeB
 	local delta = hi - lo
 	if delta > 18 then return regFromSignedLog(hi, negative) end
-	local term = 1 - 10 ^ (-delta)
+	local term = oneMinusPow10Neg(delta)
 	if term <= 0 then return 0, 0, 0 end
 	return regFromSignedLog(hi + log10(term), negative)
 end
-
 local function regSub(ak: number, aa: number, ab: number, bk: number, ba: number, bb: number): (number, number, number)
 	if bk ~= 0 and abs(bk) ~= K_NAN then bk = -bk end
 	return regAdd(ak, aa, ab, bk, ba, bb)
@@ -1732,7 +1680,7 @@ local function regMul(ak: number, aa: number, ab: number, bk: number, ba: number
 		local hi = ab > bb and ab or bb
 		local lo = ab > bb and bb or ab
 		local reciprocal = ab > bb and sa < 0 or sb < 0
-		local term = 1 - 10 ^ (lo - hi)
+		local term = oneMinusPow10Neg(hi - lo)
 		if term <= 0 then return negative and -K_NUM or K_NUM, 1, 0 end
 		return negative and -K_LAYER or K_LAYER, reciprocal and -2 or 2, hi + log10(term)
 	end
@@ -1813,25 +1761,20 @@ end
 local function regPow(bk: number, ba: number, bb: number, ek: number, ea: number, eb: number): (number, number, number)
 	local baseKind = abs(bk)
 	local exponentKind = abs(ek)
-	if baseKind == K_NAN or exponentKind == K_NAN then return K_NAN, 0, 0 end
 	if ek == 0 then return K_NUM, 1, 0 end
 	if bk == K_NUM and ba == 1 then return K_NUM, 1, 0 end
+	if baseKind == K_NAN or exponentKind == K_NAN then return K_NAN, 0, 0 end
 	if bk == 0 then return ek > 0 and 0 or K_INF, 0, 0 end
 	if exponentKind == K_INF then
-		if bk < 0 then return K_NAN, 0, 0 end
 		if baseKind == K_INF then return ek < 0 and 0 or K_INF, 0, 0 end
-		local baseCmpOne = regCompare(bk, ba, bb, K_NUM, 1, 0)
+		local baseCmpOne = regCompare(abs(bk), ba, bb, K_NUM, 1, 0)
 		if baseCmpOne == 0 then return K_NUM, 1, 0 end
 		if ek > 0 then return baseCmpOne > 0 and K_INF or 0, 0, 0 end
 		return baseCmpOne > 0 and 0 or K_INF, 0, 0
 	end
 	if baseKind == K_INF then
-		local negativeResult = false
-		if bk < 0 then
-			if not regIsInteger(ek, ea, eb) then return K_NAN, 0, 0 end
-			negativeResult = regIsOdd(ek, ea, eb)
-		end
 		if ek < 0 then return 0, 0, 0 end
+		local negativeResult = bk < 0 and regIsInteger(ek, ea, eb) and regIsOdd(ek, ea, eb)
 		return negativeResult and -K_INF or K_INF, 0, 0
 	end
 	local negativeResult = false
@@ -1857,9 +1800,7 @@ local function regPow(bk: number, ba: number, bb: number, ek: number, ea: number
 	local baseLog = regLogAbs(bk, ba)
 	if baseLog ~= nil then
 		local exponent = regToNumber(ek, ea, eb)
-		if exponent == exponent and exponent ~= huge and exponent ~= -huge then
-			return regFromSignedLogProduct(baseLog, exponent, negativeResult)
-		end
+		if exponent == exponent and exponent ~= huge and exponent ~= -huge then return regFromSignedLogProduct(baseLog, exponent, negativeResult) end
 	end
 	local lk, la, lb = regLog10(bk, ba, bb)
 	local mk, ma, mb = regMul(ek, ea, eb, lk, la, lb)
@@ -1867,7 +1808,6 @@ local function regPow(bk: number, ba: number, bb: number, ek: number, ea: number
 	if negativeResult and rk ~= 0 and abs(rk) ~= K_NAN then rk = -rk end
 	return rk, ra, rb
 end
-
 local function directDecode(value: any): (number, number, number)
 	local kind = typeof(value)
 	if kind == "number" then
@@ -1913,6 +1853,20 @@ local function directFiniteNumber(value: MathValue): number?
 	return negative and -magnitude or magnitude
 end
 
+local function nativeInverseLerp(a: number, b: number, value: number): number?
+	local span = b - a
+	if span == 0 then return nil end
+	if span ~= huge and span ~= -huge then return (value - a) / span end
+	local scale = max(max(abs(a), abs(b)), abs(value))
+	if scale == 0 then return nil end
+	return (value / scale - a / scale) / (b / scale - a / scale)
+end
+local function nativeLerp(a: number, b: number, t: number): number
+	if t == 1 then return b end
+	if t == 0 or a == b then return a end
+	if t > 0 and t < 1 then return a * (1 - t) + b * t end
+	return a + (b - a) * t
+end
 local function coldAdd(a: MathValue, b: MathValue): buffer
 	if a == b then
 		local k, x, y = directDecode(a)
@@ -2037,6 +1991,7 @@ end
 
 local function coldSqrt(value: MathValue): buffer
 	local k, a, b = directDecode(value)
+	if k < 0 then return makeSpecial(SPECIAL_NAN) end
 	k, a, b = regPow(k, a, b, K_NUM, 0.5, 0)
 	return encodeReg(k, a, b)
 end
@@ -3920,7 +3875,8 @@ end
 function NanoNum.fmod(a: MathValue, b: MathValue): buffer
 	local ak, aa, ab = decodeReg(a)
 	local bk, ba, bb = decodeReg(b)
-	if abs(ak) == K_NAN or abs(bk) == K_NAN or bk == 0 or abs(ak) == K_INF or abs(bk) == K_INF then return makeSpecial(SPECIAL_NAN) end
+	if abs(ak) == K_NAN or abs(bk) == K_NAN or bk == 0 or abs(ak) == K_INF then return makeSpecial(SPECIAL_NAN) end
+	if abs(bk) == K_INF then return encodeReg(ak, aa, ab) end
 	local x = regToNumber(ak, aa, ab)
 	local y = regToNumber(bk, ba, bb)
 	if x == x and y == y and x ~= huge and x ~= -huge and y ~= huge and y ~= -huge and y ~= 0 then
@@ -4205,7 +4161,7 @@ function NanoNum.log2(value: MathValue): buffer
 		end
 	end
 	if direct and (x > 0) then
-		local result = log(x) / LN2
+		local result = log(x, 2)
 		if result == result and result ~= huge and result ~= -huge and (result ~= 0 or x == 1) then
 			local integral = floor(result)
 			if result == integral then
@@ -4485,13 +4441,17 @@ function NanoNum.expm1(value: MathValue): buffer
 	local k, a, b = directDecode(value)
 	local n = regToNumber(k, a, b)
 	if n == 0 and k ~= 0 and (abs(k) == K_LOG or abs(k) == K_LAYER or abs(k) == K_LAYER_LOG or abs(k) == K_HYPER_LAYER) and a < 0 then return encodeReg(k, a, b) end
-	if n == n and n ~= huge and n ~= -huge and abs(n) < 1e-5 then
-		local n2 = n * n
-		local n3 = n2 * n
-		local n4 = n3 * n
-		local n5 = n4 * n
-		local n6 = n5 * n
-		return NanoNum.fromNumber(n + n2 / 2 + n3 / 6 + n4 / 24 + n5 / 120 + n6 / 720)
+	if n == n and n ~= huge and n ~= -huge then
+		if abs(n) < 1e-5 then
+			local n2 = n * n
+			local n3 = n2 * n
+			local n4 = n3 * n
+			local n5 = n4 * n
+			local n6 = n5 * n
+			return NanoNum.fromNumber(n + n2 / 2 + n3 / 6 + n4 / 24 + n5 / 120 + n6 / 720)
+		end
+		local native = exp(n) - 1
+		if native == native and native ~= huge and native ~= -huge then return NanoNum.fromNumber(native) end
 	end
 	local ck, ca, cb = regFromNumber(LOG10_E)
 	k, a, b = regMul(k, a, b, ck, ca, cb)
@@ -4775,6 +4735,8 @@ function NanoNum.hypot(a: MathValue, b: MathValue): buffer
 	end
 	local ak, aa, ab = decodeReg(a)
 	local bk, ba, bb = decodeReg(b)
+	if abs(ak) == K_INF or abs(bk) == K_INF then return makeSpecial(SPECIAL_POS_INF) end
+	if abs(ak) == K_NAN or abs(bk) == K_NAN then return makeSpecial(SPECIAL_NAN) end
 	local a2k, a2a, a2b = regMul(ak, aa, ab, ak, aa, ab)
 	local b2k, b2a, b2b = regMul(bk, ba, bb, bk, ba, bb)
 	local sk, sa, sb = regAdd(a2k, a2a, a2b, b2k, b2a, b2b)
@@ -4787,9 +4749,7 @@ function NanoNum.lerp(a: MathValue, b: MathValue, t: MathValue): buffer
 	local y = directFiniteNumber(b)
 	local f = directFiniteNumber(t)
 	if x ~= nil and y ~= nil and f ~= nil then
-		if f == 0 then return NanoNum.fromNumber(x) end
-		if f == 1 or x == y then return NanoNum.fromNumber(y) end
-		local result = x + (y - x) * f
+		local result = nativeLerp(x, y, f)
 		if result == result and result ~= huge and result ~= -huge then return NanoNum.fromNumber(result) end
 	end
 	local ak, aa, ab = decodeReg(a)
@@ -4810,9 +4770,8 @@ function NanoNum.inverseLerp(a: MathValue, b: MathValue, value: MathValue): buff
 	local y = directFiniteNumber(b)
 	local v = directFiniteNumber(value)
 	if x ~= nil and y ~= nil and v ~= nil then
-		local d = y - x
-		if d == 0 then return makeSpecial(SPECIAL_NAN) end
-		local result = (v - x) / d
+		local result = nativeInverseLerp(x, y, v)
+		if result == nil then return makeSpecial(SPECIAL_NAN) end
 		if result == result and result ~= huge and result ~= -huge then return NanoNum.fromNumber(result) end
 	end
 	local ak, aa, ab = decodeReg(a)
@@ -4832,9 +4791,9 @@ function NanoNum.remap(value: MathValue, inMin: MathValue, inMax: MathValue, out
 	local c = directFiniteNumber(outMin)
 	local d = directFiniteNumber(outMax)
 	if v ~= nil and a ~= nil and b ~= nil and c ~= nil and d ~= nil then
-		local span = b - a
-		if span == 0 then return makeSpecial(SPECIAL_NAN) end
-		local result = c + (d - c) * ((v - a) / span)
+		local t = nativeInverseLerp(a, b, v)
+		if t == nil then return makeSpecial(SPECIAL_NAN) end
+		local result = nativeLerp(c, d, t)
 		if result == result and result ~= huge and result ~= -huge then return NanoNum.fromNumber(result) end
 	end
 	local t = NanoNum.inverseLerp(inMin, inMax, value)
@@ -4904,8 +4863,8 @@ function NanoNum.smoothstep(edge0: MathValue, edge1: MathValue, value: MathValue
 	local b = directFiniteNumber(edge1)
 	local v = directFiniteNumber(value)
 	if a ~= nil and b ~= nil and v ~= nil and a ~= b then
-		local t = clamp((v - a) / (b - a), 0, 1)
-		return NanoNum.fromNumber(t * t * (3 - 2 * t))
+		local raw = nativeInverseLerp(a, b, v)
+		if raw ~= nil then local t = clamp(raw, 0, 1); return NanoNum.fromNumber(t * t * (3 - 2 * t)) end
 	end
 	local t = NanoNum.clamp01(NanoNum.inverseLerp(edge0, edge1, value))
 	return NanoNum.mul(NanoNum.mul(t, t), NanoNum.sub(3, NanoNum.mul(2, t)))
@@ -4916,10 +4875,13 @@ function NanoNum.smootherstep(edge0: MathValue, edge1: MathValue, value: MathVal
 	local b = directFiniteNumber(edge1)
 	local v = directFiniteNumber(value)
 	if a ~= nil and b ~= nil and v ~= nil and a ~= b then
-		local t = clamp((v - a) / (b - a), 0, 1)
-		local t2 = t * t
-		local t3 = t2 * t
-		return NanoNum.fromNumber(t3 * (t * (t * 6 - 15) + 10))
+		local raw = nativeInverseLerp(a, b, v)
+		if raw ~= nil then
+			local t = clamp(raw, 0, 1)
+			local t2 = t * t
+			local t3 = t2 * t
+			return NanoNum.fromNumber(t3 * (t * (t * 6 - 15) + 10))
+		end
 	end
 	local t = NanoNum.clamp01(NanoNum.inverseLerp(edge0, edge1, value))
 	local t2 = NanoNum.mul(t, t)
@@ -4928,15 +4890,17 @@ function NanoNum.smootherstep(edge0: MathValue, edge1: MathValue, value: MathVal
 end
 
 function NanoNum.sum(values: MathValueArray): buffer
-	local total = 0
+	local total, correction = 0, 0
 	local direct = true
 	for i = 1, #values do
 		local x = directFiniteNumber(values[i])
 		if x == nil then direct = false; break end
-		total += x
-		if total == huge or total == -huge then direct = false; break end
+		local nextTotal = total + x
+		if nextTotal == huge or nextTotal == -huge then direct = false; break end
+		if abs(total) >= abs(x) then correction += (total - nextTotal) + x else correction += (x - nextTotal) + total end
+		total = nextTotal
 	end
-	if direct then return NanoNum.fromNumber(total) end
+	if direct then return NanoNum.fromNumber(total + correction) end
 	local rk, ra, rb = 0, 0, 0
 	for i = 1, #values do
 		local vk, va, vb = decodeReg(values[i])
@@ -4967,15 +4931,17 @@ end
 function NanoNum.mean(values: MathValueArray): buffer
 	local count = #values
 	if count == 0 then return makeSpecial(SPECIAL_NAN) end
-	local total = 0
+	local total, correction = 0, 0
 	local direct = true
 	for i = 1, count do
 		local x = directFiniteNumber(values[i])
 		if x == nil then direct = false; break end
-		total += x
-		if total == huge or total == -huge then direct = false; break end
+		local nextTotal = total + x
+		if nextTotal == huge or nextTotal == -huge then direct = false; break end
+		if abs(total) >= abs(x) then correction += (total - nextTotal) + x else correction += (x - nextTotal) + total end
+		total = nextTotal
 	end
-	if direct then return NanoNum.fromNumber(total / count) end
+	if direct then return NanoNum.fromNumber((total + correction) / count) end
 	return NanoNum.div(NanoNum.sum(values), count)
 end
 
@@ -5093,16 +5059,12 @@ function NanoNum.gammaSign(value: MathValue): number
 	local n = regToNumber(k, a, b)
 	if n == n and n ~= -huge and n ~= 0 then
 		if n == floor(n) then return 0 end
-		local s = sin(pi * n)
-		if s > 0 then return 1 end
-		if s < 0 then return -1 end
-		return 0
+		return floor(-n) % 2 == 0 and -1 or 1
 	end
 	if (absoluteKind == K_LOG or absoluteKind == K_LAYER or absoluteKind == K_LAYER_LOG or absoluteKind == K_HYPER_LAYER) and a < 0 then return -1 end
 	if regIsInteger(k, a, b) then return 0 end
 	return NAN
 end
-
 function NanoNum.logGamma(value: MathValue): buffer
 	local k, a, b = decodeReg(value)
 	local absoluteKind = abs(k)
@@ -5113,15 +5075,20 @@ function NanoNum.logGamma(value: MathValue): buffer
 	end
 	local n = regToNumber(k, a, b)
 	if n == n and n ~= huge and n ~= -huge then
-		if n == 0 or n == floor(n) and n < 0 then return makeSpecial(SPECIAL_POS_INF) end
-		if n > 0 and n < 1e-8 then return NanoNum.fromNumber(-log(n)) end
-		if n > 0 and n < 1e6 then return NanoNum.fromNumber(logGammaDirect(n)) end
-		if n < 0 and abs(n) < 1e6 then
-			local s = sin(pi * n)
-			if s == 0 then return makeSpecial(SPECIAL_POS_INF) end
-			return NanoNum.fromNumber(log(pi) - log(abs(s)) - logGammaDirect(1 - n))
+		if n == 0 or (n < 0 and n == floor(n)) then return makeSpecial(SPECIAL_POS_INF) end
+		if n > 0 then
+			if n < 1e-8 then return NanoNum.fromNumber(-log(n)) end
+			local native = logGammaDirect(n)
+			if native == native and native ~= huge and native ~= -huge then return NanoNum.fromNumber(native) end
+		else
+			local fraction = n - floor(n)
+			local reduced = min(fraction, 1 - fraction)
+			local sine = sin(pi * reduced)
+			if sine == 0 then return makeSpecial(SPECIAL_POS_INF) end
+			local reflected = logGammaDirect(1 - n)
+			if reflected == reflected and reflected ~= huge then return NanoNum.fromNumber(log(pi) - log(sine) - reflected) end
+			return makeSpecial(SPECIAL_NAN)
 		end
-		if n < 0 then return makeSpecial(SPECIAL_NAN) end
 	end
 	if k <= 0 then return makeSpecial(SPECIAL_NAN) end
 	local x = encodeReg(k, a, b)
@@ -5137,7 +5104,6 @@ function NanoNum.logGamma(value: MathValue): buffer
 	end
 	return result
 end
-
 function NanoNum.gamma(value: MathValue): buffer
 	local sign = NanoNum.gammaSign(value)
 	if sign ~= sign or sign == 0 then return makeSpecial(SPECIAL_NAN) end
@@ -5238,7 +5204,8 @@ function NanoNum.geometricSeries(first: MathValue, ratioValue: MathValue, countV
 	if NanoNum.eq(ratioValue, 1) then return NanoNum.mul(first, count) end
 	if NanoNum.isInfinite(ratioValue) then
 		if NanoNum.isZero(first) then return makeSpecial(SPECIAL_NAN) end
-		return NanoNum.mul(first, ratioValue)
+		if NanoNum.isPositive(ratioValue) or count % 2 == 0 then return NanoNum.mul(first, ratioValue) end
+		return NanoNum.mul(first, NanoNum.abs(ratioValue))
 	end
 	if NanoNum.gt(ratioValue, 0) then
 		local delta = NanoNum.sub(ratioValue, 1)
@@ -5343,13 +5310,13 @@ function NanoNum.maxAffordableGeometric(currency: MathValue, baseCost: MathValue
 	local estimate = NanoNum.floor(NanoNum.div(NanoNum.log1p(term), NanoNum.log1p(delta)))
 	if NanoNum.isNaN(estimate) or NanoNum.lt(estimate, 0) then return NanoNum.fromNumber(0) end
 	local amount = estimate
-	for _ = 1, 3 do
+	for _ = 1, 8 do
 		local cost = NanoNum.geometricCost(baseCost, growth, levelsOwned, amount)
 		if NanoNum.lte(cost, currency) then break end
 		if NanoNum.lte(amount, 0) then return NanoNum.fromNumber(0) end
 		amount = NanoNum.sub(amount, 1)
 	end
-	for _ = 1, 3 do
+	for _ = 1, 8 do
 		local nextAmount = NanoNum.add(amount, 1)
 		local nextCost = NanoNum.geometricCost(baseCost, growth, levelsOwned, nextAmount)
 		if NanoNum.gt(nextCost, currency) then break end
@@ -5568,6 +5535,86 @@ function NanoNum.compile(value: MathValue): buffer
 	if kind == "string" then return NanoNum.fromString(value) end
 	return makeSpecial(SPECIAL_NAN)
 end
+
+-- EN slots are {sign, layer, exponent}; slot 4 extends EN losslessly past its numeric-layer ceiling.
+function NanoNum.toEN(value: MathValue): EN
+	local k, a, b = decodeReg(value)
+	local kind = abs(k)
+	if kind == K_NAN then return {1, -1, 1} end
+	if k == 0 then return {0, 0, 0} end
+	local sign = k < 0 and -1 or 1
+	if kind == K_INF then return {sign, huge, 1} end
+	if kind == K_NUM then return {sign, 0, a} end
+	if kind == K_LOG then return {sign, 1, a} end
+	local top = a < 0 and -b or b
+	if kind == K_LAYER then return {sign, abs(a), top} end
+	if kind == K_LAYER_LOG then return {sign, abs(a), top, 1} end
+	return {sign, abs(a), top, 2}
+end
+
+function NanoNum.fromEN(value: EN): buffer
+	if typeof(value) ~= "table" then return makeSpecial(SPECIAL_NAN) end
+	local s, l, e, mode = value[1], value[2], value[3], value[4]
+	if typeof(s) ~= "number" or typeof(l) ~= "number" or typeof(e) ~= "number" then return makeSpecial(SPECIAL_NAN) end
+	if s ~= s or l ~= l or e ~= e then return makeSpecial(SPECIAL_NAN) end
+	if mode == 1 then return NanoNum.fromLayerLog10(abs(l), abs(e), s < 0, e < 0) end
+	if mode == 2 then return NanoNum.fromLayerLog10Log10(abs(l), abs(e), s < 0, e < 0) end
+	if l < 0 then return makeSpecial(SPECIAL_NAN) end
+	if s == 0 then return NanoNum.fromNumber(0) end
+	if l == huge then return makeSpecial(s < 0 and SPECIAL_NEG_INF or SPECIAL_POS_INF) end
+	if l == 0 then return NanoNum.fromNumber((s < 0 and -1 or 1) * e) end
+	if l == 1 then return NanoNum.fromLog10(e, s < 0) end
+	return NanoNum.fromLayer(l, abs(e), s < 0, e < 0)
+end
+
+(function()
+	local function scalarText(value: number): string
+		if value ~= value then return "NaN" end
+		if value == huge then return "Inf" end
+		if value == -huge then return "-Inf" end
+		if value == 0 then return "0" end
+		return format("%.17g", value)
+	end
+
+	function NanoNum.toString(value: MathValue): string
+		local k, a, b = decodeReg(value)
+		local kind = abs(k)
+		if kind == K_NAN then return "NaN" end
+		if k == 0 then return "0" end
+		local prefix = k < 0 and "-" or ""
+		if kind == K_INF then return prefix .. "Inf" end
+		if kind == K_NUM then return scalarText(k < 0 and -a or a) end
+		if kind == K_LOG then
+			if abs(a) <= SAFE_INTEGER then
+				local exponent = floor(a)
+				local mantissa = 10 ^ (a - exponent)
+				if mantissa >= 10 then mantissa = 1; exponent += 1 end
+				return prefix .. scalarText(mantissa) .. "e" .. format("%.0f", exponent)
+			end
+			return prefix .. "10^(" .. scalarText(a) .. ")"
+		end
+		local body
+		if kind == K_LAYER then body = "L" .. scalarText(abs(a)) .. " " .. scalarText(b)
+		elseif kind == K_LAYER_LOG then body = "LE" .. scalarText(abs(a)) .. " " .. scalarText(b)
+		else body = "LEE" .. scalarText(abs(a)) .. " " .. scalarText(b) end
+		return prefix .. (a < 0 and "1/" or "") .. body
+	end
+
+	function NanoNum.toStringEN(value: MathValue): string
+		local k, a, b = decodeReg(value)
+		local kind = abs(k)
+		if kind == K_NAN then return "NaN" end
+		if k == 0 then return "0;0" end
+		local prefix = k < 0 and "-" or ""
+		if kind == K_INF then return prefix .. "Inf" end
+		if kind == K_NUM then return prefix .. "0;" .. scalarText(a) end
+		if kind == K_LOG then return prefix .. "1;" .. scalarText(a) end
+		local top = a < 0 and -b or b
+		if kind == K_LAYER then return prefix .. scalarText(floor(abs(a) + 0.001)) .. ";" .. scalarText(top) end
+		if kind == K_LAYER_LOG then return prefix .. "ENL;" .. scalarText(abs(a)) .. ";" .. scalarText(top) end
+		return prefix .. "ENLL;" .. scalarText(abs(a)) .. ";" .. scalarText(top)
+	end
+end)()
 
 function NanoNum.canonicalize(value: MathValue): buffer
 	local k, a, b = decodeReg(value)
@@ -8526,7 +8573,7 @@ function NanoNum.mathPerfInfo(): MathPerfInfo
 		Version = NanoNum.MATH_PERF_VERSION,
 		PathVersion = NanoNum.MATH_PATH_VERSION,
 		DefaultPath = 0,
-		Path0 = "NanoNum 2.2 FastME-derived finite kernel; countlz integer encoding; direct finite high-level math; byte parser",
+		Path0 = "NanoNum 2.3 finite kernel; countlz integer encoding; canonical NanoNum/EN string round-trip; byte parser",
 		Path1 = "canonical log/layer/hyper-layer fallback kernel; cached combinatorics; compact source under 10k lines",
 		TemporaryDecodeTablesOnPath0 = 0,
 	}
@@ -8575,6 +8622,18 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 		local decimals = clamp(floor(decimalPlaces), 0, 12)
 		local scale = POW10_DECIMAL[decimals + 1]
 		return floor(value * scale + 0.5) / scale
+	end
+
+	local function commaFiniteText(value: number, decimalPlaces: number): string?
+		local rounded = roundedPositive(value, decimalPlaces)
+		if rounded >= 1000000 then return nil end
+		local text = shortNumber(rounded, decimalPlaces)
+		local dot = 0
+		for i = 1, #text do if byte(text, i) == 46 then dot = i; break end end
+		local integerEnd = dot == 0 and #text or dot - 1
+		local cut = integerEnd - 3
+		if cut <= 0 then return text end
+		return sub(text, 1, cut) .. "," .. sub(text, cut + 1)
 	end
 
 	local function plainFiniteText(value: number, decimalPlaces: number): string
@@ -8720,7 +8779,7 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 		local absoluteKind = abs(k)
 		local negative = k < 0
 		if absoluteKind == K_NAN then return "NaN" end
-		if absoluteKind == K_INF then return negative and "-inf" or "inf" end
+		if absoluteKind == K_INF then return negative and "-Inf" or "Inf" end
 		if absoluteKind == K_NUM then
 			local n = negative and -a or a
 			if kind == "roman" or kind == "romanextended" then
@@ -8736,6 +8795,13 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 			if kind == "scientific" then text = scientificText(mantissa, exponent, precision)
 			elseif kind == "engineering" then text = engineeringText(mantissa, exponent, precision)
 			elseif kind == "exponent" then text = exponentText(mantissa, exponent, precision)
+			elseif kind == "standard" then
+				if magnitude < 0.001 then text = formatNormalParts(mantissa, exponent, precision, kind)
+				elseif magnitude < 1000 then text = shortNumber(roundedPositive(magnitude, precision), precision)
+				elseif magnitude < 1000000 then
+					local grouped = commaFiniteText(magnitude, precision)
+					text = grouped or formatNormalParts(1, 6, precision, kind)
+				else text = formatNormalParts(mantissa, exponent, precision, kind) end
 			elseif magnitude < 1 then text = plainFiniteText(magnitude, precision)
 			else text = formatNormalParts(mantissa, exponent, precision, kind) end
 			return negative and "-" .. text or text
