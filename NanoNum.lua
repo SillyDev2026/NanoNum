@@ -1,9 +1,7 @@
 --!native
 --!optimize 2
--- NanoNum v2.3.9 public function type surface
--- Paste this after the existing export type declarations.
--- Move/replace `local NanoNum = {}` with the typed declaration at the bottom.
--- No function bodies need to be rewritten.
+-- NanoNum v2.4.1: audited arithmetic, exact decimals, and versioned LB3.
+-- One standalone ModuleScript. Binary buffer format 6 remains compatible.
 
 export type EngineInfo = {
 	Version: string,
@@ -29,7 +27,22 @@ export type EngineInfo = {
 	HugeFactorialApproximation: boolean,
 }
 
+export type ExactDecimal = {Sign: number, Digits: string, Exponent: string, Approximate: boolean?}
 export type NanoNumAPI = {
+	fromStringExact: (string) -> ExactDecimal,
+	formatExact: (ExactDecimal, number?) -> string,
+	addExact: (ExactDecimal, ExactDecimal) -> ExactDecimal,
+	subExact: (ExactDecimal, ExactDecimal) -> ExactDecimal,
+	mulExact: (ExactDecimal, ExactDecimal) -> ExactDecimal,
+	divExact: (ExactDecimal, ExactDecimal, number?) -> ExactDecimal,
+	powIntExact: (ExactDecimal, number) -> ExactDecimal,
+	compareExact: (ExactDecimal, ExactDecimal) -> number,
+	exponentAddExact: (string, string) -> string,
+	exponentCompareExact: (string, string) -> number,
+	lbencodeChecked: (MathValue) -> (number, boolean),
+	lbdecodeChecked: (number) -> (boolean, buffer?),
+	lbencodeV2: (MathValue) -> number,
+	lbdecodeV2: (number) -> buffer,
 	[string]: any,
 	fromNumber: (value: number) -> buffer,
 	fromLog10: (exponent: number, negative: boolean?) -> buffer,
@@ -208,7 +221,7 @@ export type NanoNumAPI = {
 	lbCompare: (a: MathValue, b: MathValue) -> number,
 }
 
-local NanoNum: NanoNumAPI = {}
+local NanoNum: {[string]: any} = {}
 
 export type MathValue = number | string | buffer
 export type EN = {number}
@@ -250,7 +263,7 @@ export type BoundBinaryResult = buffer | number
 export type BoundBinaryFunction = (MathValue, MathValue) -> BoundBinaryResult
 export type BoundUnaryFunction = (MathValue) -> BoundBinaryResult
 NanoNum.TYPECHECK_VERSION = 3
-NanoNum.VERSION = "2.3.9"
+NanoNum.VERSION = "2.4.8-recursive-standard-scale"
 NanoNum.REGISTER_SCOPE_VERSION = 6
 NanoNum.MAX_LAYER = 1e308
 NanoNum.MAX_LAYER_LOG10 = 1e308
@@ -259,8 +272,8 @@ NanoNum.MAX_HYPER_LAYER_LOG10 = NanoNum.MAX_LAYER_LOG10_LOG10
 NanoNum.NORMAL_SIGNIFICAND_BITS = 16
 NanoNum.SCALAR_SIGNIFICAND_BITS = 14
 NanoNum.PARSER_VERSION = 14
-NanoNum.NOTATION_VERSION = 21
-NanoNum.PERF_VERSION = 20
+NanoNum.NOTATION_VERSION = 24
+NanoNum.PERF_VERSION = 22
 NanoNum.PATH_VERSION = 6
 NanoNum.DEFAULT_PATH = 0
 NanoNum.MATH_SCOPE_VERSION = 10
@@ -273,7 +286,7 @@ NanoNum.COMPILE_VERSION = 7
 NanoNum.MATH_PERF_VERSION = 18
 NanoNum.MATH_PATH_VERSION = 10
 NanoNum.MATH_DEFAULT_PATH = 0
-NanoNum.MATH_CORRECTNESS_VERSION = 39
+NanoNum.MATH_CORRECTNESS_VERSION = 40
 NanoNum.TETRATION_VERSION = 10
 NanoNum.SLOG_VERSION = 6
 NanoNum.GAMMA_VERSION = 7
@@ -293,23 +306,23 @@ NanoNum.INLINE_MATH_VERSION = 3
 NanoNum.COLD_FALLBACK_VERSION = 1
 NanoNum.REGISTER_FRAME_VERSION = 2
 NanoNum.SOURCE_STYLE_VERSION = 2
-local floor = math.floor
-local ceil = math.ceil
-local abs = math.abs
-local min = math.min
-local max = math.max
-local clamp = math.clamp
-local log = math.log
-local log10 = math.log10
-local sqrt = math.sqrt
-local exp = math.exp
-local sin = math.sin
+local floor: (number) -> number = math.floor
+local ceil: (number) -> number = math.ceil
+local abs: (number) -> number = math.abs
+local min: (...number) -> number = math.min
+local max: (...number) -> number = math.max
+local clamp: (number, number, number) -> number = math.clamp
+local log: (number, number?) -> number = math.log
+local log10: (number) -> number = math.log10
+local sqrt: (number) -> number = math.sqrt
+local exp: (number) -> number = math.exp
+local sin: (number) -> number = math.sin
 local huge = math.huge
 local pi = math.pi
-local format = string.format
-local byte = string.byte
-local sub = string.sub
-local lower = string.lower
+local format: (string, ...any) -> string = string.format
+local byte: (string, number?, number?) -> ...number = string.byte
+local sub: (string, number, number?) -> string = string.sub
+local lower: (string) -> string = string.lower
 local find = string.find
 local gsub = string.gsub
 local match = string.match
@@ -318,28 +331,27 @@ local rep = string.rep
 local char = string.char
 local concat = table.concat
 local tableCreate = table.create
-local bufferCreate = buffer.create
-local bufferReadBits = buffer.readbits
-local bufferWriteBits = buffer.writebits
-local bufferWriteU8 = buffer.writeu8
-local bufferReadU8 = buffer.readu8
-local bufferReadF64 = buffer.readf64
-local bufferWriteF64 = buffer.writef64
-local bufferLen = buffer.len
-local bufferCopy = buffer.copy
-local band = bit32.band
-local countlz = bit32.countlz
+local bufferCreate: (number) -> buffer = buffer.create
+local bufferReadBits: (buffer, number, number) -> number = buffer.readbits
+local bufferWriteBits: (buffer, number, number, number) -> () = buffer.writebits
+local bufferWriteU8: (buffer, number, number) -> () = buffer.writeu8
+local bufferReadU8: (buffer, number) -> number = buffer.readu8
+local bufferReadF64: (buffer, number) -> number = buffer.readf64
+local bufferWriteF64: (buffer, number, number) -> () = buffer.writef64
+local bufferLen: (buffer) -> number = buffer.len
+local bufferCopy: (buffer, number, buffer, number?, number?) -> () = buffer.copy
+local band: (...number) -> number = bit32.band
+local countlz: (number) -> number = bit32.countlz
 local toNumber = tonumber
 local toString = tostring
 local fastPcall = pcall
-local LN2 = 0.6931471805599453
-local LN10 = 2.302585092994046
-local LOG10_2 = 0.3010299956639812
-local LOG10_E = 0.4342944819032518
-local TWO_PI = 6.283185307179586
-local SAFE_INTEGER = 9007199254740991
-local DIRECT_LOG_MAX = 308.25471555991675
-local DIRECT_LOG_MIN = -323.3062153431158
+local LN10: number = 2.302585092994046
+local LOG10_2: number = 0.3010299956639812
+local LOG10_E: number = 0.4342944819032518
+local TWO_PI: number = 6.283185307179586
+local SAFE_INTEGER: number = 9007199254740991
+local DIRECT_LOG_MAX: number = 308.25471555991675
+local DIRECT_LOG_MIN: number = -323.3062153431158
 local NAN = 0 / 0
 local POW10_DECIMAL = {1, 10, 100, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12}
 local function oneMinusPow10Neg(distance: number): number
@@ -348,37 +360,36 @@ local function oneMinusPow10Neg(distance: number): number
 	local x2 = x * x
 	return -(x + x2 * 0.5 + x2 * x / 6 + x2 * x2 / 24 + x2 * x2 * x / 120 + x2 * x2 * x2 / 720)
 end
-local SPECIAL_POS_INF = 0
-local SPECIAL_NEG_INF = 1
-local SPECIAL_NAN = 2
-local SPECIAL_RESERVED = 3
-local HYPER_LAYER_PREFIX = 23
-local SCALAR_EXP_BITS = 10
-local SCALAR_EXP_BIAS = 324
-local SCALAR_EXP_MIN = -324
-local SCALAR_EXP_MAX = 308
-local SCALAR_MANT_BITS = 14
-local SCALAR_MANT_MAX = 16383
-local SCALAR_APPROX_BITS = 25
-local SCALAR_SAFE_EXACT_BITS = 60
-local EXACT_LEN_BITS = 6
-local INTEGER_LEN_BITS = 5
-local MAX_INTEGER_MODE_BITS = 53
-local MAX_STANDALONE_BYTES = 19
-local EXACT_F64_BITS = 72
-local EXACT_F64_BYTES = 9
+local SPECIAL_POS_INF: number = 0
+local SPECIAL_NEG_INF: number = 1
+local SPECIAL_NAN: number = 2
+local SPECIAL_RESERVED: number = 3
+local HYPER_LAYER_PREFIX: number = 23
+local SCALAR_EXP_BITS: number = 10
+local SCALAR_EXP_BIAS: number = 324
+local SCALAR_EXP_MIN: number = -324
+local SCALAR_EXP_MAX: number = 308
+local SCALAR_MANT_BITS: number = 14
+local SCALAR_MANT_MAX: number = 16383
+local SCALAR_APPROX_BITS: number = 25
+local SCALAR_SAFE_EXACT_BITS: number = 60
+local EXACT_LEN_BITS: number = 6
+local INTEGER_LEN_BITS: number = 5
+local MAX_INTEGER_MODE_BITS: number = 53
+local MAX_STANDALONE_BYTES: number = 19
+local EXACT_F64_BITS: number = 72
+local EXACT_F64_BYTES: number = 9
 local SCALAR_F64_SENTINEL = 124 -- bit0=0, n=62: lossless structural scalar f64
 local EXACT_LOG_SENTINEL = 126 -- legacy v2.3.4-v2.3.6 exact-log sentinel; decode-only compatibility
 local EXACT_LOG_BITS = 80 -- 7-bit log header + 7-bit sentinel + 2 pad bits + exact f64 magnitude
-local EXACT_LOG_BYTES = 10
-local DIRECT_LAYER_LOG10_MAX = 308
-local K_NUM = 1
-local K_LOG = 2
-local K_LAYER = 3
-local K_LAYER_LOG = 4
-local K_HYPER_LAYER = 5
-local K_INF = 6
-local K_NAN = 7
+local DIRECT_LAYER_LOG10_MAX: number = 308
+local K_NUM: number = 1
+local K_LOG: number = 2
+local K_LAYER: number = 3
+local K_LAYER_LOG: number = 4
+local K_HYPER_LAYER: number = 5
+local K_INF: number = 6
+local K_NAN: number = 7
 NanoNum.SUFFIX_VERSION = 7
 NanoNum.ROMAN_VERSION = 2
 NanoNum.TIME_VERSION = 4
@@ -419,9 +430,9 @@ for index = 1, NanoNum.STANDARD_SUFFIX_MAX_INDEX do
 	if index <= 3 then STANDARD_SUFFIXES[index] = STANDARD_BEGINNING[index]
 	else
 		local n = index - 1
-		local hundred = floor(n / 100)
+		local hundred: number = floor(n / 100)
 		local rem = n - hundred * 100
-		local ten = floor(rem / 10)
+		local ten: number = floor(rem / 10)
 		local one = rem - ten * 10
 		STANDARD_SUFFIXES[index] = (STANDARD_FIRST[one + 1] or "") .. (STANDARD_SECOND[ten + 1] or "") .. (STANDARD_THIRD[hundred + 1] or "")
 	end
@@ -469,12 +480,12 @@ local function decodeMantissa(code: number, maxCode: number): number
 end
 local function scalarExactBits(value: number): number
 	if not isSafeInteger(value) then return huge end
-	local n = bitsRequired(value)
+	local n: number = bitsRequired(value)
 	if n > 53 then return huge end
 	return 1 + EXACT_LEN_BITS + n
 end
 local function scalarBits(value: number, exactSafe: boolean?, exactFloat: boolean?): number
-	local exact = scalarExactBits(value)
+	local exact: number = scalarExactBits(value)
 	local limit = exactSafe and SCALAR_SAFE_EXACT_BITS or SCALAR_APPROX_BITS
 	if exact <= limit then return exact end
 	if exactFloat then return 71 end
@@ -485,9 +496,9 @@ local function integerLengthFieldBits(bitLength: number): number
 	return INTEGER_LEN_BITS + 5
 end
 local function exactIntegerRecordBits(value: number): number
-	local magnitude = abs(value)
+	local magnitude: number = abs(value)
 	if not isSafeInteger(magnitude) then return huge end
-	local n = bitsRequired(magnitude)
+	local n: number = bitsRequired(magnitude)
 	if n == 0 or n > MAX_INTEGER_MODE_BITS then return huge end
 	return 3 + 1 + integerLengthFieldBits(n) + n
 end
@@ -497,33 +508,22 @@ local function logRecordBits(exponentMagnitude: number): number
 	-- integers compact, but store every lossy/fractional coordinate as f64.
 	return 7 + scalarBits(exponentMagnitude, false, true)
 end
+-- Luau buffer.readbits/writebits support all 32 bits. Two chunks cover a 53-bit integer.
 local function writeUIntExactAtFast(data: buffer, bitOffset: number, value: number, count: number)
-	local remaining = count
-	local shift = 0
-	while remaining > 0 do
-		local chunk = min(26, remaining)
-		local part = floor(value / (2 ^ shift)) % (2 ^ chunk)
-		bufferWriteBits(data, bitOffset, chunk, part)
-		bitOffset += chunk
-		shift += chunk
-		remaining -= chunk
-	end
+	if count <= 32 then bufferWriteBits(data, bitOffset, count, value); return end
+	bufferWriteBits(data, bitOffset, 32, value % 4294967296)
+	bufferWriteBits(data, bitOffset + 32, count - 32, floor(value / 4294967296))
 end
 local function readUIntExactAtFast(data: buffer, bitOffset: number, count: number): number
-	if count <= 0 then return 0 end
-	if count <= 26 then return bufferReadBits(data, bitOffset, count) end
-	local value = bufferReadBits(data, bitOffset, 26)
-	local remaining = count - 26
-	if remaining <= 26 then return value + bufferReadBits(data, bitOffset + 26, remaining) * 67108864 end
-	value += bufferReadBits(data, bitOffset + 26, 26) * 67108864
-	return value + bufferReadBits(data, bitOffset + 52, remaining - 26) * 4503599627370496
+	if count <= 32 then return bufferReadBits(data, bitOffset, count) end
+	return bufferReadBits(data, bitOffset, 32) + bufferReadBits(data, bitOffset + 32, count - 32) * 4294967296
 end
 local function writeScalarAtFast(data: buffer, bitOffset: number, value: number, exactSafe: boolean?, exactFloat: boolean?)
 	value = abs(value)
-	local exactBits = scalarExactBits(value)
+	local exactBits: number = scalarExactBits(value)
 	local exactLimit = exactSafe and SCALAR_SAFE_EXACT_BITS or SCALAR_APPROX_BITS
 	if exactBits <= exactLimit then
-		local n = bitsRequired(value)
+		local n: number = bitsRequired(value)
 		bufferWriteBits(data, bitOffset, 7, n * 2)
 		writeUIntExactAtFast(data, bitOffset + 7, value, n)
 		return
@@ -533,15 +533,15 @@ local function writeScalarAtFast(data: buffer, bitOffset: number, value: number,
 		local payloadOffset = bitOffset + 7
 		if band(payloadOffset, 7) == 0 then bufferWriteF64(data, payloadOffset / 8, value)
 		else
-			local temp = bufferCreate(8)
+			local temp: buffer = bufferCreate(8)
 			bufferWriteF64(temp, 0, value)
 			bufferWriteBits(data, payloadOffset, 32, bufferReadBits(temp, 0, 32))
 			bufferWriteBits(data, payloadOffset + 32, 32, bufferReadBits(temp, 32, 32))
 		end
 		return
 	end
-	local lg = log10(value)
-	local exponent = clamp(floor(lg), SCALAR_EXP_MIN, SCALAR_EXP_MAX)
+	local lg: number = log10(value)
+	local exponent: number = clamp(floor(lg), SCALAR_EXP_MIN, SCALAR_EXP_MAX)
 	local mantissa = 10 ^ (lg - exponent)
 	local mantCode = quantizeMantissa(mantissa, SCALAR_MANT_MAX)
 	local expCode = exponent + SCALAR_EXP_BIAS
@@ -549,14 +549,14 @@ local function writeScalarAtFast(data: buffer, bitOffset: number, value: number,
 	bufferWriteBits(data, bitOffset, SCALAR_APPROX_BITS, packed)
 end
 local function readScalarAtFast(data: buffer, bitOffset: number): (number, number)
-	local header = bufferReadBits(data, bitOffset, 7)
+	local header: number = bufferReadBits(data, bitOffset, 7)
 	if band(header, 1) == 0 then
 		if header == SCALAR_F64_SENTINEL then
 			local payloadOffset = bitOffset + 7
 			local value
 			if band(payloadOffset, 7) == 0 then value = bufferReadF64(data, payloadOffset / 8)
 			else
-				local temp = bufferCreate(8)
+				local temp: buffer = bufferCreate(8)
 				bufferWriteBits(temp, 0, 32, bufferReadBits(data, payloadOffset, 32))
 				bufferWriteBits(temp, 32, 32, bufferReadBits(data, payloadOffset + 32, 32))
 				value = bufferReadF64(temp, 0)
@@ -564,13 +564,13 @@ local function readScalarAtFast(data: buffer, bitOffset: number): (number, numbe
 			if value ~= value or value < 0 or value == huge then error("NanoNum: invalid exact structural scalar") end
 			return value, bitOffset + 71
 		end
-		local n = floor(header / 2)
+		local n: number = floor(header / 2)
 		if n > 53 then error("NanoNum: invalid exact scalar bit length") end
 		return readUIntExactAtFast(data, bitOffset + 7, n), bitOffset + 7 + n
 	end
-	local expCode = bufferReadBits(data, bitOffset + 1, SCALAR_EXP_BITS)
+	local expCode: number = bufferReadBits(data, bitOffset + 1, SCALAR_EXP_BITS)
 	if expCode > SCALAR_EXP_MAX + SCALAR_EXP_BIAS then error("NanoNum: invalid scalar exponent code") end
-	local mantCode = bufferReadBits(data, bitOffset + 1 + SCALAR_EXP_BITS, SCALAR_MANT_BITS)
+	local mantCode: number = bufferReadBits(data, bitOffset + 1 + SCALAR_EXP_BITS, SCALAR_MANT_BITS)
 	local exponent = expCode - SCALAR_EXP_BIAS
 	return decodeMantissa(mantCode, SCALAR_MANT_MAX) * (10 ^ exponent), bitOffset + SCALAR_APPROX_BITS
 end
@@ -578,41 +578,14 @@ local function readExactF64At(data: buffer, bitOffset: number): number
 	if band(bitOffset, 7) == 0 then
 		return bufferReadF64(data, bitOffset / 8 + 1)
 	end
-	local temp = bufferCreate(8)
+	local temp: buffer = bufferCreate(8)
 	bufferWriteBits(temp, 0, 32, bufferReadBits(data, bitOffset + 8, 32))
 	bufferWriteBits(temp, 32, 32, bufferReadBits(data, bitOffset + 40, 32))
 	return bufferReadF64(temp, 0)
 end
-local function makeExactNumber(value: number): buffer
-	local data = bufferCreate(EXACT_F64_BYTES)
-	bufferWriteU8(data, 0, 255)
-	bufferWriteF64(data, 1, value)
-	return data
-end
 local function makeSpecial(code: number): buffer
-	local data = bufferCreate(1)
+	local data: buffer = bufferCreate(1)
 	bufferWriteU8(data, 0, 63 + code * 64)
-	return data
-end
-local function makeInteger(value: number): buffer
-	local negative = value < 0
-	local magnitude = abs(value)
-	local n = bitsRequired(magnitude)
-	local bits = 3 + 1 + integerLengthFieldBits(n) + n
-	local data = bufferCreate(ceilBytes(bits))
-	if n <= 31 then
-		local header = 3 + (negative and 8 or 0) + n * 16
-		if bits <= 32 then
-			bufferWriteBits(data, 0, bits, header + magnitude * 512)
-		else
-			bufferWriteBits(data, 0, 9, header)
-			writeUIntExactAtFast(data, 9, magnitude, n)
-		end
-	else
-		local header = 3 + (negative and 8 or 0) + (n - 32) * 512
-		bufferWriteBits(data, 0, 14, header)
-		writeUIntExactAtFast(data, 14, magnitude, n)
-	end
 	return data
 end
 local function isExactLogAt(data: buffer, bitOffset: number, limit: number?): boolean
@@ -624,21 +597,21 @@ end
 local function readExactLogMagnitudeAt(data: buffer, bitOffset: number): number
 	local payloadOffset = bitOffset + 16
 	if band(payloadOffset, 7) == 0 then return bufferReadF64(data, payloadOffset / 8) end
-	local temp = bufferCreate(8)
+	local temp: buffer = bufferCreate(8)
 	bufferWriteBits(temp, 0, 32, bufferReadBits(data, payloadOffset, 32))
 	bufferWriteBits(temp, 32, 32, bufferReadBits(data, payloadOffset + 32, 32))
 	return bufferReadF64(temp, 0)
 end
 local function makeLog(exponent: number, negative: boolean): buffer
 	local reciprocal = exponent < 0
-	local magnitude = abs(exponent)
+	local magnitude: number = abs(exponent)
 	local header = 15 + (negative and 32 or 0) + (reciprocal and 64 or 0)
 	-- v2.3.7: always use the scalar codec's lossless mode for K_LOG coordinates.
 	-- writeScalarAtFast still keeps exact small integers compact, but fractional
 	-- coordinates such as 1053 + log10(2) are encoded with SCALAR_F64_SENTINEL.
 	-- This prevents the former 14-bit scalar path from turning 2e1053 into ~1.94e1053.
-	local bits = logRecordBits(magnitude)
-	local data = bufferCreate(ceilBytes(bits))
+	local bits: number = logRecordBits(magnitude)
+	local data: buffer = bufferCreate(ceilBytes(bits))
 	bufferWriteBits(data, 0, 7, header)
 	writeScalarAtFast(data, 7, magnitude, false, true)
 	return data
@@ -656,9 +629,9 @@ local function makeLayer(layer: number, top: number, negative: boolean, reciproc
 	end
 	top = clamp(top, 0, 1e308)
 	local bits = 8 + layerFieldBits(layer, layerIsLog) + scalarBits(top, false, true)
-	local data = bufferCreate(ceilBytes(bits))
+	local data: buffer = bufferCreate(ceilBytes(bits))
 	bufferWriteU8(data, 0, 31 + (negative and 64 or 0) + (reciprocal and 128 or 0))
-	local bitOffset = 8
+	local bitOffset: number = 8
 	if not layerIsLog and layer == floor(layer) and layer >= 2 and layer <= 33 then
 		bufferWriteBits(data, bitOffset, 6, (layer - 2) * 2)
 		bitOffset += 6
@@ -675,9 +648,9 @@ local function makeHyperLayer(layerLog10Log10: number, top: number, negative: bo
 	if top < 0 then top = 0 end
 	layerLog10Log10 = clamp(layerLog10Log10, 0, NanoNum.MAX_LAYER_LOG10_LOG10)
 	top = clamp(top, 0, 1e308)
-	local hyperBits = scalarBits(layerLog10Log10, true, true)
+	local hyperBits: number = scalarBits(layerLog10Log10, true, true)
 	local bits = 8 + hyperBits + scalarBits(top, false, true)
-	local data = bufferCreate(ceilBytes(bits))
+	local data: buffer = bufferCreate(ceilBytes(bits))
 	bufferWriteU8(data, 0, HYPER_LAYER_PREFIX + (negative and 32 or 0) + (reciprocal and 64 or 0))
 	writeScalarAtFast(data, 8, layerLog10Log10, true, true)
 	writeScalarAtFast(data, 8 + hyperBits, top, false, true)
@@ -701,7 +674,7 @@ local function normalizeLayerInput(layer: number, top: number, layerIsLog: boole
 	if not layerIsLog then
 		if layer < 0 then layer = 0 end
 		layer = floor(layer + 0.001)
-		while layer >= 2 and top <= 308 and layer <= SAFE_INTEGER do
+		while layer >= 2 and top <= DIRECT_LOG_MAX and layer <= SAFE_INTEGER do
 			top = top < -324 and 0 or 10 ^ top
 			layer -= 1
 		end
@@ -709,60 +682,52 @@ local function normalizeLayerInput(layer: number, top: number, layerIsLog: boole
 	return layer, top, layerIsLog
 end
 function NanoNum.fromNumber(value: number): buffer
-	if value ~= value then local data = bufferCreate(1); bufferWriteU8(data, 0, 191); return data end
-	if value == huge then local data = bufferCreate(1); bufferWriteU8(data, 0, 63); return data end
-	if value == -huge then local data = bufferCreate(1); bufferWriteU8(data, 0, 127); return data end
-	local integral = floor(value)
+	if value ~= value then local data: buffer = bufferCreate(1); bufferWriteU8(data, 0, 191); return data end
+	if value == huge then local data: buffer = bufferCreate(1); bufferWriteU8(data, 0, 63); return data end
+	if value == -huge then local data: buffer = bufferCreate(1); bufferWriteU8(data, 0, 127); return data end
+	local integral: number = floor(value)
 	if value == integral then
 		if value >= 0 and value <= 127 then
-			local data = bufferCreate(1); bufferWriteU8(data, 0, value * 2); return data
+			local data: buffer = bufferCreate(1); bufferWriteU8(data, 0, value * 2); return data
 		end
 		if value < 0 and value >= -64 then
-			local data = bufferCreate(1); bufferWriteU8(data, 0, 1 + (-value - 1) * 4); return data
+			local data: buffer = bufferCreate(1); bufferWriteU8(data, 0, 1 + (-value - 1) * 4); return data
 		end
 		local negative = value < 0
 		local magnitude = negative and -value or value
 		if magnitude <= SAFE_INTEGER then
-			local n = bitsRequired(magnitude)
+			local n: number = magnitude < 4294967296 and (32 - countlz(magnitude)) or (64 - countlz(floor(magnitude / 4294967296)))
 			if n <= 31 then
 				local bits = 9 + n
-				local data = bufferCreate(floor((bits + 7) / 8))
+				local data: buffer = bufferCreate(floor((bits + 7) / 8))
 				local header = 3 + (negative and 8 or 0) + n * 16
 				if bits <= 32 then
 					bufferWriteBits(data, 0, bits, header + magnitude * 512)
 				else
 					bufferWriteBits(data, 0, 9, header)
-					if n <= 26 then bufferWriteBits(data, 9, n, magnitude)
-					else
-						bufferWriteBits(data, 9, 26, magnitude % 67108864)
-						bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-					end
+					bufferWriteBits(data, 9, n, magnitude)
 				end
 				return data
 			end
 			local bits = 14 + n
-			local data = bufferCreate(floor((bits + 7) / 8))
+			local data: buffer = bufferCreate(floor((bits + 7) / 8))
 			bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-			bufferWriteBits(data, 14, 26, magnitude % 67108864)
-			local remaining = n - 26
-			if remaining <= 26 then bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-			else
-				bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-				bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-			end
+			bufferWriteBits(data, 14, 32, magnitude % 4294967296)
+			bufferWriteBits(data, 46, n - 32, floor(magnitude / 4294967296))
 			return data
 		end
 	end
-	local data = bufferCreate(EXACT_F64_BYTES)
+	local data: buffer = bufferCreate(EXACT_F64_BYTES)
 	bufferWriteU8(data, 0, 255)
 	bufferWriteF64(data, 1, value)
 	return data
 end
+local encodeNumber: (number) -> buffer = NanoNum.fromNumber
 function NanoNum.fromLog10(exponent: number, negative: boolean?): buffer
-	if exponent ~= exponent then return makeSpecial(SPECIAL_NAN) end
-	if exponent == huge then return makeSpecial(negative and SPECIAL_NEG_INF or SPECIAL_POS_INF) end
-	if exponent == -huge then return NanoNum.fromNumber(0) end
-	if exponent == 0 then return NanoNum.fromNumber(negative and -1 or 1) end
+	if exponent ~= exponent then local data = bufferCreate(1); bufferWriteU8(data, 0, 191); return data end
+	if exponent == huge then local data = bufferCreate(1); bufferWriteU8(data, 0, negative and 127 or 63); return data end
+	if exponent == -huge then local data = bufferCreate(1); bufferWriteU8(data, 0, 0); return data end
+	if exponent == 0 then local data = bufferCreate(1); bufferWriteU8(data, 0, negative and 1 or 2); return data end
 	if exponent >= DIRECT_LOG_MIN and exponent <= DIRECT_LOG_MAX then
 		local magnitude = 10 ^ exponent
 		if magnitude ~= 0 and magnitude ~= huge then return NanoNum.fromNumber(negative and -magnitude or magnitude) end
@@ -779,13 +744,15 @@ function NanoNum.fromLayer(layer: number, top: number, negative: boolean?, recip
 		local value = normalizedTop
 		if reciprocal then
 			if value == 0 then return makeSpecial(negative and SPECIAL_NEG_INF or SPECIAL_POS_INF) end
-			value = 1 / value
+			local inverse = 1 / value
+			if inverse == huge or inverse == -huge then return NanoNum.fromLog10(-log10(abs(value)), (value < 0) ~= (negative == true)) end
+			value = inverse
 		end
 		if negative then value = -value end
 		return NanoNum.fromNumber(value)
 	end
 	if normalizedLayer < 2 then
-		return NanoNum.fromLog10(reciprocal and -abs(normalizedTop) or normalizedTop, negative)
+		return NanoNum.fromLog10(reciprocal and -normalizedTop or normalizedTop, negative)
 	end
 	return makeLayer(normalizedLayer, normalizedTop, negative == true, reciprocal == true, false)
 end
@@ -822,7 +789,7 @@ local function alphabeticSuffix(index: number): string?
 	local cached = ALPHABETIC_SUFFIX_CACHE[index]
 	if cached ~= nil then return cached end
 	local n = index - 1
-	local length = 2
+	local length: number = 2
 	local block = 26 ^ length
 	while n >= block do
 		n -= block
@@ -844,13 +811,13 @@ local function alphabeticSuffixIndex(suffix: string): number?
 	local text = lower(suffix)
 	local length = #text
 	if length < 2 or length > 11 then return nil end
-	local n = 0
+	local n: number = 0
 	for i = 1, length do
 		local c = byte(text, i)
 		if c < 97 or c > 122 then return nil end
 		n = n * 26 + c - 97
 	end
-	local offset = 0
+	local offset: number = 0
 	for l = 2, length - 1 do
 		offset += 26 ^ l
 	end
@@ -941,18 +908,18 @@ end
 	end
 	local function parsePlainRange(text: string, first: number, last: number): number?
 		if first > last then return nil end
-		local negative = false
+		local negative: boolean = false
 		local c = byte(text, first)
 		if c == 45 then negative = true; first += 1
 		elseif c == 43 then first += 1 end
 		if first > last then return nil end
-		local value = 0
-		local fraction = 0
-		local fractionScale = 1
-		local sawDigit = false
-		local sawDot = false
-		local grouped = false
-		local groupDigits = 0
+		local value: number = 0
+		local fraction: number = 0
+		local fractionScale: number = 1
+		local sawDigit: boolean = false
+		local sawDot: boolean = false
+		local grouped: boolean = false
+		local groupDigits: number = 0
 		for i = first, last do
 			c = byte(text, i)
 			if c >= 48 and c <= 57 then
@@ -966,7 +933,7 @@ end
 				else
 					groupDigits += 1
 					value = value * 10 + digit
-					if value == huge then return negative and -huge or huge end
+					-- Continue validating after overflow; trailing garbage must be rejected.
 				end
 			elseif c == 44 then
 				-- Commas are grouping separators, not ignorable characters. Reject 1,2 / 12,34 / 1,234.5,6.
@@ -987,20 +954,23 @@ end
 		end
 		if not sawDigit then return nil end
 		if grouped and not sawDot and groupDigits ~= 3 then return nil end
-		if fractionScale > 1 then value += fraction / fractionScale end
-		return negative and -value or value
+		local textValue = sub(text, first, last)
+		if grouped then textValue = gsub(textValue, ",", "") end
+		local parsed = toNumber(textValue)
+		if parsed == nil then return nil end
+		return negative and -parsed or parsed
 	end
 	local function parsePositiveIntegerDescriptor(text: string, first: number, last: number): (number?, number?, boolean)
 		if first > last then return nil, nil, false end
-		local value = 0
-		local overflow = false
-		local significantDigits = 0
-		local leading = 0
-		local leadingDigits = 0
-		local seenNonZero = false
-		local sawDigit = false
-		local grouped = false
-		local groupDigits = 0
+		local value: number = 0
+		local overflow: boolean = false
+		local significantDigits: number = 0
+		local leading: number = 0
+		local leadingDigits: number = 0
+		local seenNonZero: boolean = false
+		local sawDigit: boolean = false
+		local grouped: boolean = false
+		local groupDigits: number = 0
 		for i = first, last do
 			local c = byte(text, i)
 			if c >= 48 and c <= 57 then
@@ -1052,15 +1022,15 @@ end
 	local function alphabeticRangeIndex(text: string, first: number, last: number): number?
 		local length = last - first + 1
 		if length < 2 or length > 11 then return nil end
-		local n = 0
+		local n: number = 0
 		for i = first, last do
 			local c = byte(text, i)
 			if c >= 65 and c <= 90 then c += 32 end
 			if c < 97 or c > 122 then return nil end
 			n = n * 26 + c - 97
 		end
-		local offset = 0
-		local power = 676
+		local offset: number = 0
+		local power: number = 676
 		for _ = 2, length - 1 do offset += power; power *= 26 end
 		local index = offset + n + 1
 		return index <= SAFE_INTEGER and index or nil
@@ -1079,7 +1049,7 @@ end
 		if first > last then return nil end
 		local plain = parseCanonicalScalarRange(text, first, last)
 		if plain ~= nil then return plain end
-		local suffixStart = 0
+		local suffixStart: number = 0
 		for i = first + 1, last do
 			local c = byte(text, i)
 			if (c >= 65 and c <= 90) or (c >= 97 and c <= 122) then suffixStart = i; break end
@@ -1117,7 +1087,7 @@ end
 		if first > last then return nil, nil, false end
 		local direct = parsePlainRange(text, first, last)
 		if direct ~= nil and direct == direct and direct ~= huge and direct ~= -huge and direct >= 0 then return 0, direct, true end
-		local ePos = 0
+		local ePos: number = 0
 		for i = first + 1, last do
 			local c = byte(text, i)
 			if c == 101 or c == 69 then ePos = i; break end
@@ -1132,7 +1102,7 @@ end
 			local nested, _, valid = parsePositiveIntegerDescriptor(text, expFirst + 2, last)
 			if valid and nested ~= nil then return 2, clamp(nested, 0, NanoNum.MAX_LAYER_LOG10_LOG10), true end
 		end
-		local exponentNegative = false
+		local exponentNegative: boolean = false
 		local c = byte(text, expFirst)
 		if c == 45 then exponentNegative = true; expFirst += 1
 		elseif c == 43 then expFirst += 1 end
@@ -1147,7 +1117,7 @@ end
 		if exponentLog10 == nil or exponentLog10 ~= exponentLog10 then return nil, nil, false end
 		return 2, min(max(exponentLog10, 0), NanoNum.MAX_LAYER_LOG10_LOG10), true
 	end
-	local parseStringRange
+	local parseStringRange: (string, number, number, SuffixName?) -> buffer
 	local function finishParsed(result: buffer, negative: boolean, reciprocal: boolean): buffer
 		if reciprocal then result = NanoNum.reciprocal(result) end
 		if negative then result = NanoNum.neg(result) end
@@ -1156,8 +1126,8 @@ end
 	parseStringRange = function(text: string, first: number, last: number, suffixType: SuffixName?): buffer
 		first, last = trimRange(text, first, last)
 		if first > last then return makeSpecial(SPECIAL_NAN) end
-		local negative = false
-		local reciprocal = false
+		local negative: boolean = false
+		local reciprocal: boolean = false
 		local c = byte(text, first)
 		if c == 45 then negative = true; first += 1
 		elseif c == 43 then first += 1 end
@@ -1178,14 +1148,14 @@ end
 			return finishParsed(result, negative, reciprocal)
 		end
 		-- NanoNum EN extensions preserve values whose EN layer cannot fit in a Lua number.
-		local extensionMode = 0
-		local extensionFirst = 0
+		local extensionMode: number = 0
+		local extensionFirst: number = 0
 		if first + 4 <= last and (byte(text, first) == 69 or byte(text, first) == 101) and (byte(text, first + 1) == 78 or byte(text, first + 1) == 110) and (byte(text, first + 2) == 76 or byte(text, first + 2) == 108) then
 			if (byte(text, first + 3) == 76 or byte(text, first + 3) == 108) and byte(text, first + 4) == 59 then extensionMode = 2; extensionFirst = first + 5
 			elseif byte(text, first + 3) == 59 then extensionMode = 1; extensionFirst = first + 4 end
 		end
 		if extensionMode ~= 0 and extensionFirst <= last then
-			local semi = 0
+			local semi: number = 0
 			for i = extensionFirst, last do if byte(text, i) == 59 then if semi ~= 0 then semi = -1; break end; semi = i end end
 			if semi > extensionFirst and semi < last then
 				local descriptor = parseCanonicalScalarRange(text, extensionFirst, semi - 1)
@@ -1197,7 +1167,7 @@ end
 			end
 		end
 		-- EternityNum canonical serialization: layer;exponent (for example 2;20 or -0;5).
-		local semi = 0
+		local semi: number = 0
 		for i = first, last do if byte(text, i) == 59 then if semi ~= 0 then semi = -1; break end; semi = i end end
 		if semi > first and semi < last then
 			local layer = parseCanonicalScalarRange(text, first, semi - 1)
@@ -1219,8 +1189,8 @@ end
 				while p <= last and isSpaceByte(byte(text, p)) do p += 1 end
 				local exponentFirst, exponentLast = p, last
 				if p <= last and byte(text, p) == 40 and byte(text, last) == 41 then
-					local depth = 0
-					local wraps = true
+					local depth: number = 0
+					local wraps: boolean = true
 					for i = p, last do
 						local ch = byte(text, i)
 						if ch == 40 then depth += 1
@@ -1244,7 +1214,7 @@ end
 			-- Legacy explicit L(10^x) top remains readable.
 			if p <= last and byte(text, p) == 40 then
 				local close = p + 1
-				local depth = 1
+				local depth: number = 1
 				while close <= last and depth > 0 do
 					local ch = byte(text, close)
 					if ch == 40 then depth += 1 elseif ch == 41 then depth -= 1 end
@@ -1327,7 +1297,7 @@ end
 		-- E/EE/EEE parser. E3k -> 10^3000, EE3k -> 10^(10^3000).
 		if c == 101 or c == 69 then
 			local p = first
-			local repeated = 0
+			local repeated: number = 0
 			while p <= last and (byte(text, p) == 101 or byte(text, p) == 69) do repeated += 1; p += 1 end
 			if repeated == 1 and p <= last and byte(text, p) == 94 then
 				p += 1
@@ -1352,7 +1322,7 @@ end
 			end
 		end
 		-- Scientific decimal path. The exponent is scanned in-place and can promote into layer space.
-		local ePos = 0
+		local ePos: number = 0
 		for i = first + 1, last do
 			local ch = byte(text, i)
 			if ch == 101 or ch == 69 then ePos = i; break end
@@ -1361,9 +1331,8 @@ end
 		if ePos > first and ePos < last then
 			local mantissa = parsePlainRange(text, first, ePos - 1)
 			if mantissa ~= nil and mantissa == mantissa and mantissa ~= huge and mantissa ~= -huge then
-				if mantissa == 0 then return finishParsed(NanoNum.fromNumber(0), negative, reciprocal) end
 				local expFirst = ePos + 1
-				local exponentNegative = false
+				local exponentNegative: boolean = false
 				local ch = byte(text, expFirst)
 				if ch == 45 then exponentNegative = true; expFirst += 1 elseif ch == 43 then expFirst += 1 end
 				-- Never accept a second exponent sign: 1e--3 / 1e+-3 must be NaN, not a different value.
@@ -1373,6 +1342,7 @@ end
 					-- 1.23E3,000.03 round-trips through fromString.
 					local directExponent = parsePlainRange(text, expFirst, last)
 					if directExponent ~= nil and directExponent == directExponent and directExponent ~= huge and directExponent ~= -huge then
+						if mantissa == 0 then return finishParsed(NanoNum.fromNumber(0), negative, reciprocal) end
 						if exponentNegative then directExponent = -directExponent end
 						local totalLog = directExponent + log10(abs(mantissa))
 						local result = NanoNum.fromLog10(totalLog, mantissa < 0)
@@ -1380,6 +1350,7 @@ end
 					end
 					local exponent, exponentLog10, valid = parsePositiveIntegerDescriptor(text, expFirst, last)
 					if valid then
+						if mantissa == 0 then return finishParsed(NanoNum.fromNumber(0), negative, reciprocal) end
 						if exponent ~= nil then
 							if exponentNegative then exponent = -exponent end
 							local totalLog = exponent + log10(abs(mantissa))
@@ -1397,7 +1368,7 @@ end
 		local plain = parsePlainRange(text, first, last)
 		if plain ~= nil and plain == plain and plain ~= huge and plain ~= -huge then return finishParsed(NanoNum.fromNumber(plain), negative, reciprocal) end
 		-- Suffix path, also range-based: no substring allocation.
-		local suffixStart = 0
+		local suffixStart: number = 0
 		for i = first + 1, last do
 			local ch = byte(text, i)
 			if (ch >= 65 and ch <= 90) or (ch >= 97 and ch <= 122) then suffixStart = i; break end
@@ -1430,24 +1401,164 @@ end
 		end
 		return makeSpecial(SPECIAL_NAN)
 	end
+
+	-- NanoNum v2.4.1: replace function NanoNum.fromString in the ORIGINAL parser closure.
+	-- Fast path: ordinary ASCII scientific inputs with large exponents.
+	-- No helper functions, NanoNum.* method dispatch, string.sub or temporary string allocations
+	-- on the huge-number path. Complex cases preserve the original parser.
+	-- Uses existing lexical locals: toNumber, byte, log10, abs, huge, floor,
+	-- bufferCreate, bufferWriteBits, bufferWriteU8, bufferWriteF64,
+	-- parseStringRange, and (for rare fast-path edge cases) the original fallback.
 	function NanoNum.fromString(value: string, suffixType: SuffixName?): buffer
-		-- Whole-string finite numbers are the common case and use Luau's optimized parser directly.
-		-- Scientific underflow must stay symbolic, so a zero result containing e/E falls through.
+		local n = #value
+		-- Only scan scientific candidates. Native numeric parsing remains available below.
+		-- Inline scan of the mantissa, decimal position, and exponent avoids substring allocation.
+		local pos = 1
+		local negative = false
+		local firstByte = n > 0 and byte(value, 1) or 0
+		if firstByte == 45 or firstByte == 43 then
+			negative = firstByte == 45
+			pos = 2
+		end
+		local mantissa = 0
+		local digitCount = 0
+		local fractionalDigits = 0
+		local decimalSeen = false
+		local valid = pos <= n
+		local ePos = 0
+		while valid and pos <= n do
+			local c = byte(value, pos)
+			if c >= 48 and c <= 57 then
+				digitCount += 1
+				-- Avoid accumulated precision loss from very long mantissas.
+				if digitCount > 15 then valid = false; break end
+				mantissa = mantissa * 10 + (c - 48)
+				if decimalSeen then fractionalDigits += 1 end
+			elseif c == 46 and not decimalSeen then
+				decimalSeen = true
+			elseif (c == 101 or c == 69) and digitCount > 0 then
+				ePos = pos
+				break
+			else
+				valid = false
+				break
+			end
+			pos += 1
+		end
+		if valid and ePos ~= 0 and ePos < n then
+			pos = ePos + 1
+			local exponentNegative = false
+			local c = byte(value, pos)
+			if c == 45 or c == 43 then
+				exponentNegative = c == 45
+				pos += 1
+			end
+			if pos <= n then
+				local exponent = 0
+				local exponentValid = true
+				for i = pos, n do
+					c = byte(value, i)
+					if c < 48 or c > 57 then exponentValid = false; break end
+					exponent = exponent * 10 + (c - 48)
+					if exponent > 100000000000000 then exponentValid = false; break end
+				end
+				if exponentValid then
+					if exponentNegative then exponent = -exponent end
+					-- Avoid changing ordinary finite input semantics, including small
+					-- scientific values that tonumber() rounds exactly.
+					if exponent > 308 or exponent < -324 then
+						if mantissa == 0 then
+							local out = bufferCreate(1)
+							bufferWriteU8(out, 0, 0)
+							return out
+						end
+						local coordinate = exponent + log10(mantissa) - fractionalDigits
+						-- Avoid very long mantissa/exponent rounding edge cases.
+						if coordinate == coordinate and coordinate ~= huge and coordinate ~= -huge
+							and (coordinate > 308.25471555991675 or coordinate < -323.3062153431158) then
+							local reciprocal = coordinate < 0
+							local magnitude = reciprocal and -coordinate or coordinate
+							local header = 15 + (negative and 32 or 0) + (reciprocal and 64 or 0)
+							-- Original K_LOG binary format: 7-bit header + scalar.
+							-- Exact small integer coordinates use a variable-length scalar.
+							if magnitude == floor(magnitude) and magnitude >= 0 and magnitude <= 9007199254740991 then
+								local bits
+								if magnitude == 0 then bits = 0
+								elseif magnitude < 4294967296 then bits = 32 - bit32.countlz(magnitude)
+								else bits = 64 - bit32.countlz(floor(magnitude / 4294967296)) end
+								if 7 + bits <= 25 then
+									local totalBits = 14 + bits
+									local out = bufferCreate(floor((totalBits + 7) / 8))
+									bufferWriteBits(out, 0, 7, header)
+									bufferWriteBits(out, 7, 7, bits * 2)
+									if bits > 0 then bufferWriteBits(out, 14, bits, magnitude) end
+									return out
+								end
+							end
+							-- Fractional or large logarithmic coordinates must remain
+							-- exact f64, matching v2.4.1's SCALAR_F64_SENTINEL=124.
+							local out = bufferCreate(10)
+							bufferWriteBits(out, 0, 7, header)
+							bufferWriteBits(out, 7, 7, 124)
+							local scratch = bufferCreate(8)
+							bufferWriteF64(scratch, 0, magnitude)
+							bufferWriteBits(out, 14, 32, buffer.readbits(scratch, 0, 32))
+							bufferWriteBits(out, 46, 32, buffer.readbits(scratch, 32, 32))
+							return out
+						end
+					end
+				end
+			end
+		end
+
+		-- Retain your original fast finite path and all complex-format behavior.
 		local direct = toNumber(value)
 		if direct ~= nil and direct == direct and direct ~= huge and direct ~= -huge then
 			if direct ~= 0 then return NanoNum.fromNumber(direct) end
 			local scientific = false
-			for i = 1, #value do
+			for i = 1, n do
 				local c = byte(value, i)
 				if c == 101 or c == 69 then scientific = true; break end
 			end
 			if not scientific then return NanoNum.fromNumber(0) end
 		end
-		return parseStringRange(value, 1, #value, suffixType)
+		return parseStringRange(value, 1, n, suffixType)
 	end
+
 end)()
+-- Display-only precision sidecar. Existing format-6 buffer bytes are unchanged.
+-- Weak keys avoid retaining buffers after callers release them.
+local COMPACT_DISPLAY = setmetatable({}, {__mode = "k"}) :: {[buffer]: {mantissa: string, exponent: string, negative: boolean}}
+local legacyFromString = NanoNum.fromString
+NanoNum.fromString = function(value: string, suffixType: SuffixName?): buffer
+	-- Preserve original parser's fast path for ordinary values.
+	-- Exact decimal exponents with >15 digits are kept as source text for display.
+	local mant, exp = string.match(value, "^([+-]?%d+%.?%d*)[eE]([+-]?%d+)$")
+	if mant ~= nil and exp ~= nil and #exp >= 16 then
+		local out = legacyFromString(value, suffixType)
+		if NanoNum.isValid(out) and tonumber(mant) ~= 0 then
+			COMPACT_DISPLAY[out] = {mantissa = mant, exponent = exp, negative = string.byte(mant, 1) == 45}
+		end
+		return out
+	end
+	-- Accept compressed scientific input, e.g. 2e1.5e32, using approximate
+	-- exponent arithmetic; metadata preserves the original display coefficient.
+	local cm, ce, power = string.match(value, "^([+-]?%d+%.?%d*)[eE]([+-]?%d+%.?%d*)[eE]%+?(%d+)$")
+	if cm ~= nil and ce ~= nil and power ~= nil then
+		local m, c, pow = tonumber(cm), tonumber(ce), tonumber(power)
+		if m ~= nil and c ~= nil and pow ~= nil and m ~= 0 and c > 0 and pow <= 307 then
+			local exponent = c * 10 ^ pow
+			if exponent < math.huge then
+				local out = NanoNum.fromLog10(exponent + math.log10(math.abs(m)), m < 0)
+				COMPACT_DISPLAY[out] = {mantissa = cm, exponent = ce .. "e" .. power, negative = m < 0}
+				return out
+			end
+		end
+	end
+	return legacyFromString(value, suffixType)
+end
 local function trimText(value: string): string
-	local first = 1
+	local first: number = 1
 	local last = #value
 	while first <= last do
 		local c = byte(value, first)
@@ -1465,8 +1576,8 @@ local function trimText(value: string): string
 end
 local function scalarEndChecked(data: buffer, bitOffset: number, limit: number): number?
 	if bitOffset < 0 or bitOffset + 1 > limit then return nil end
-	local headerBits = min(7, limit - bitOffset)
-	local header = bufferReadBits(data, bitOffset, headerBits)
+	local headerBits: number = min(7, limit - bitOffset)
+	local header: number = bufferReadBits(data, bitOffset, headerBits)
 	if band(header, 1) == 0 then
 		if headerBits < 7 then return nil end
 		if header == SCALAR_F64_SENTINEL then
@@ -1476,7 +1587,7 @@ local function scalarEndChecked(data: buffer, bitOffset: number, limit: number):
 			local value
 			if band(payloadOffset, 7) == 0 then value = bufferReadF64(data, payloadOffset / 8)
 			else
-				local temp = bufferCreate(8)
+				local temp: buffer = bufferCreate(8)
 				bufferWriteBits(temp, 0, 32, bufferReadBits(data, payloadOffset, 32))
 				bufferWriteBits(temp, 32, 32, bufferReadBits(data, payloadOffset + 32, 32))
 				value = bufferReadF64(temp, 0)
@@ -1484,14 +1595,14 @@ local function scalarEndChecked(data: buffer, bitOffset: number, limit: number):
 			if value ~= value or value < 0 or value == huge then return nil end
 			return nextBit
 		end
-		local n = floor(header / 2)
+		local n: number = floor(header / 2)
 		if n > 53 then return nil end
 		local nextBit = bitOffset + 7 + n
 		return nextBit <= limit and nextBit or nil
 	end
 	local nextBit = bitOffset + SCALAR_APPROX_BITS
 	if nextBit > limit then return nil end
-	local expCode = floor(bufferReadBits(data, bitOffset, 11) / 2)
+	local expCode: number = floor(bufferReadBits(data, bitOffset, 11) / 2)
 	if expCode > SCALAR_EXP_MAX + SCALAR_EXP_BIAS then return nil end
 	return nextBit
 end
@@ -1499,19 +1610,19 @@ local function recordEndChecked(data: buffer, bitOffset: number, limit: number?)
 	local physicalLimit = bufferLen(data) * 8
 	local endLimit = limit or physicalLimit
 	if endLimit > physicalLimit or bitOffset < 0 or bitOffset + 6 > endLimit then return nil end
-	local raw = bufferReadBits(data, bitOffset, 6)
+	local raw: number = bufferReadBits(data, bitOffset, 6)
 	if band(raw, 1) == 0 or band(raw, 3) == 1 then
 		local nextBit = bitOffset + 8
 		return nextBit <= endLimit and nextBit or nil
 	end
 	if band(raw, 7) == 3 then
 		if bitOffset + 9 > endLimit then return nil end
-		local header9 = bufferReadBits(data, bitOffset, 9)
-		local n = floor(header9 / 16)
+		local header9: number = bufferReadBits(data, bitOffset, 9)
+		local n: number = floor(header9 / 16)
 		local headerEnd = bitOffset + 9
 		if n == 0 then
 			if bitOffset + 14 > endLimit then return nil end
-			local header14 = bufferReadBits(data, bitOffset, 14)
+			local header14: number = bufferReadBits(data, bitOffset, 14)
 			n = 32 + floor(header14 / 512)
 			headerEnd = bitOffset + 14
 			if n > MAX_INTEGER_MODE_BITS then return nil end
@@ -1520,7 +1631,7 @@ local function recordEndChecked(data: buffer, bitOffset: number, limit: number?)
 		return nextBit <= endLimit and nextBit or nil
 	end
 	if bitOffset + 8 <= endLimit then
-		local first8 = bufferReadBits(data, bitOffset, 8)
+		local first8: number = bufferReadBits(data, bitOffset, 8)
 		if band(first8, 31) == HYPER_LAYER_PREFIX and band(first8, 128) == 0 then
 			local topStart = scalarEndChecked(data, bitOffset + 8, endLimit)
 			if topStart == nil then return nil end
@@ -1552,14 +1663,14 @@ local function recordEndChecked(data: buffer, bitOffset: number, limit: number?)
 		end
 		return scalarEndChecked(data, topStart, endLimit)
 	end
-	local special = bufferReadBits(data, bitOffset + 6, 2)
+	local special: number = bufferReadBits(data, bitOffset + 6, 2)
 	local nextBit = bitOffset + (special == SPECIAL_RESERVED and EXACT_F64_BITS or 8)
 	return nextBit <= endLimit and nextBit or nil
 end
 local function decodeAt(data: buffer, bitOffset: number): (DecodedValue, number)
 	local totalBits = bufferLen(data) * 8
 	if bitOffset < 0 or bitOffset + 6 > totalBits then error("NanoNum: truncated record") end
-	local raw = bufferReadBits(data, bitOffset, 6)
+	local raw: number = bufferReadBits(data, bitOffset, 6)
 	if band(raw, 1) == 0 then
 		local nextBit = bitOffset + 8
 		if nextBit > totalBits then error("NanoNum: truncated tiny") end
@@ -1572,19 +1683,20 @@ local function decodeAt(data: buffer, bitOffset: number): (DecodedValue, number)
 	end
 	if band(raw, 7) == 3 then
 		local negative = bufferReadBits(data, bitOffset + 3, 1) == 1
-		local n = bufferReadBits(data, bitOffset + 4, INTEGER_LEN_BITS)
+		local n: number = bufferReadBits(data, bitOffset + 4, INTEGER_LEN_BITS)
 		local payloadOffset = bitOffset + 9
 		if n == 0 then
 			n = 32 + bufferReadBits(data, payloadOffset, 5)
 			payloadOffset += 5
 		end
+		if n > MAX_INTEGER_MODE_BITS then error("NanoNum: invalid integer length") end
 		local nextBit = payloadOffset + n
 		if nextBit > totalBits then error("NanoNum: truncated integer") end
 		local magnitude = readUIntExactAtFast(data, payloadOffset, n)
 		return {Kind = "Integer", Value = negative and -magnitude or magnitude, Negative = negative}, nextBit
 	end
 	if bitOffset + 8 <= totalBits then
-		local first8 = bufferReadBits(data, bitOffset, 8)
+		local first8: number = bufferReadBits(data, bitOffset, 8)
 		if band(first8, 31) == HYPER_LAYER_PREFIX and band(first8, 128) == 0 then
 			local negative = band(first8, 32) ~= 0
 			local reciprocal = band(first8, 64) ~= 0
@@ -1626,7 +1738,7 @@ local function decodeAt(data: buffer, bitOffset: number): (DecodedValue, number)
 			Kind = "Layer",
 			Negative = negative,
 			Reciprocal = reciprocal,
-			Layer = layerIsLog and nil or layer,
+			Layer = if layerIsLog then nil else layer,
 			LayerLog10 = layerIsLog and layer or nil,
 			LayerLog10Log10 = nil,
 			LayerIsLog = layerIsLog,
@@ -1634,7 +1746,7 @@ local function decodeAt(data: buffer, bitOffset: number): (DecodedValue, number)
 			Top = top,
 		}, nextBit
 	end
-	local special = bufferReadBits(data, bitOffset + 6, 2)
+	local special: number = bufferReadBits(data, bitOffset + 6, 2)
 	if special == SPECIAL_RESERVED then
 		local nextBit = bitOffset + EXACT_F64_BITS
 		if nextBit > totalBits then error("NanoNum: truncated exact finite") end
@@ -1661,12 +1773,12 @@ function NanoNum.tryDecodeAt(data: buffer, bitOffset: number?): (boolean, Decode
 end
 function NanoNum.isValid(value: buffer): boolean
 	if typeof(value) ~= "buffer" then return false end
-	local bytes = bufferLen(value)
+	local bytes: number = bufferLen(value)
 	if bytes < 1 or bytes > MAX_STANDALONE_BYTES then return false end
 	local limit = bytes * 8
 	local nextBit = recordEndChecked(value, 0, limit)
 	if nextBit == nil then return false end
-	local raw = bufferReadBits(value, 0, 6)
+	local raw: number = bufferReadBits(value, 0, 6)
 	if band(raw, 63) == 63 and bufferReadBits(value, 6, 2) == SPECIAL_RESERVED then
 		if nextBit ~= EXACT_F64_BITS then return false end
 		local exact = readExactF64At(value, 0)
@@ -1674,7 +1786,7 @@ function NanoNum.isValid(value: buffer): boolean
 	end
 	local offset = nextBit
 	while offset < limit do
-		local count = min(32, limit - offset)
+		local count: number = min(32, limit - offset)
 		if bufferReadBits(value, offset, count) ~= 0 then return false end
 		offset += count
 	end
@@ -1692,9 +1804,9 @@ function NanoNum.bitLength(value: buffer): number
 end
 NanoNum.byteLength = bufferLen
 local function decodeRegBuffer(value: buffer): (number, number, number)
-	local first = bufferReadU8(value, 0)
+	local first: number = bufferReadU8(value, 0)
 	if first == 255 then
-		local exact = bufferReadF64(value, 1)
+		local exact: number = bufferReadF64(value, 1)
 		if exact ~= exact then return K_NAN, 0, 0 end
 		if exact == huge then return K_INF, 0, 0 end
 		if exact == -huge then return -K_INF, 0, 0 end
@@ -1702,25 +1814,24 @@ local function decodeRegBuffer(value: buffer): (number, number, number)
 		return exact < 0 and -K_NUM or K_NUM, exact < 0 and -exact or exact, 0
 	end
 	if band(first, 1) == 0 then
-		local magnitude = floor(first / 2)
+		local magnitude: number = floor(first / 2)
 		if magnitude == 0 then return 0, 0, 0 end
 		return K_NUM, magnitude, 0
 	end
 	if band(first, 3) == 1 then return -K_NUM, floor(first / 4) + 1, 0 end
-	local raw = band(first, 63)
+	local raw: number = band(first, 63)
 	if band(raw, 7) == 3 then
 		local negative = band(first, 8) ~= 0
-		local n = bufferReadBits(value, 4, 5)
-		local offset = 9
+		local n: number = bufferReadBits(value, 4, 5)
+		local offset: number = 9
 		if n == 0 then
 			n = 32 + bufferReadBits(value, offset, 5)
 			offset = 14
 			if n > MAX_INTEGER_MODE_BITS then return K_NAN, 0, 0 end
 		end
 		local magnitude
-		if n <= 26 then magnitude = bufferReadBits(value, offset, n)
-		elseif n <= 52 then magnitude = bufferReadBits(value, offset, 26) + bufferReadBits(value, offset + 26, n - 26) * 67108864
-		else magnitude = bufferReadBits(value, offset, 26) + bufferReadBits(value, offset + 26, 26) * 67108864 + bufferReadBits(value, offset + 52, n - 52) * 4503599627370496 end
+		if n <= 32 then magnitude = bufferReadBits(value, offset, n)
+		else magnitude = bufferReadBits(value, offset, 32) + bufferReadBits(value, offset + 32, n - 32) * 4294967296 end
 		return negative and -K_NUM or K_NUM, magnitude, 0
 	end
 	if band(first, 31) == HYPER_LAYER_PREFIX and band(first, 128) == 0 then
@@ -1784,12 +1895,12 @@ local function regFromSignedLogSum(left: number, right: number, negative: boolea
 	local leftNegative = left < 0
 	local rightNegative = right < 0
 	if leftNegative ~= rightNegative then return regFromSignedLog(value, negative) end
-	local al = abs(left)
-	local ar = abs(right)
-	local hi = max(al, ar)
-	local lo = min(al, ar)
+	local al: number = abs(left)
+	local ar: number = abs(right)
+	local hi: number = max(al, ar)
+	local lo: number = min(al, ar)
 	if hi == 0 then return regFromSignedLog(0, negative) end
-	local top = log10(hi) + log10(1 + lo / hi)
+	local top: number = log10(hi) + log10(1 + lo / hi)
 	return negative and -K_LAYER or K_LAYER, leftNegative and -2 or 2, top
 end
 local function regFromSignedLogProduct(left: number, right: number, negative: boolean): (number, number, number)
@@ -1803,7 +1914,7 @@ local function regFromSignedLogProduct(left: number, right: number, negative: bo
 		return negative and -K_INF or K_INF, 0, 0
 	end
 	local reciprocal = (left < 0) ~= (right < 0)
-	local top = log10(abs(left)) + log10(abs(right))
+	local top: number = log10(abs(left)) + log10(abs(right))
 	return negative and -K_LAYER or K_LAYER, reciprocal and -2 or 2, top
 end
 local function decodeReg(value: any): (number, number, number)
@@ -1816,7 +1927,7 @@ end
 local function encodeReg(kind: number, a: number, b: number): buffer
 	if kind ~= kind or a ~= a or b ~= b then return makeSpecial(SPECIAL_NAN) end
 	if kind == 0 then return NanoNum.fromNumber(0) end
-	local absoluteKind = abs(kind)
+	local absoluteKind: number = abs(kind)
 	local negative = kind < 0
 	if absoluteKind == K_NUM then
 		if a == huge then return makeSpecial(negative and SPECIAL_NEG_INF or SPECIAL_POS_INF) end
@@ -1837,14 +1948,14 @@ local function regSign(kind: number): number
 	return 0
 end
 local function regLogAbs(kind: number, a: number): number?
-	local absoluteKind = abs(kind)
+	local absoluteKind: number = abs(kind)
 	if absoluteKind == K_NUM then return log10(a) end
 	if absoluteKind == K_LOG then return a end
 	return nil
 end
 local function regToNumber(kind: number, a: number, b: number): number
 	if kind == 0 then return 0 end
-	local absoluteKind = abs(kind)
+	local absoluteKind: number = abs(kind)
 	local negative = kind < 0
 	if absoluteKind == K_NUM then return negative and -a or a end
 	if absoluteKind == K_LOG then
@@ -1860,35 +1971,32 @@ local function regToNumber(kind: number, a: number, b: number): number
 	if absoluteKind == K_INF then return negative and -huge or huge end
 	return NAN
 end
-local function regNeg(kind: number, a: number, b: number): (number, number, number)
-	if kind == 0 or abs(kind) == K_NAN then return kind, a, b end
-	return -kind, a, b
-end
-local function regAbs(kind: number, a: number, b: number): (number, number, number)
-	return abs(kind), a, b
-end
 local function regReciprocal(kind: number, a: number, b: number): (number, number, number)
-	local absoluteKind = abs(kind)
+	local absoluteKind: number = abs(kind)
 	if absoluteKind == K_NAN then return K_NAN, 0, 0 end
 	if kind == 0 then return K_INF, 0, 0 end
 	if absoluteKind == K_INF then return 0, 0, 0 end
-	if absoluteKind == K_NUM then return regFromSignedLog(-log10(a), kind < 0) end
+	if absoluteKind == K_NUM then
+		local result = 1 / a
+		if result ~= huge and result ~= 0 then return kind, result, 0 end
+		return regFromSignedLog(-log10(a), kind < 0)
+	end
 	if absoluteKind == K_LOG then return kind, -a, 0 end
 	if absoluteKind == K_LAYER or absoluteKind == K_LAYER_LOG or absoluteKind == K_HYPER_LAYER then return kind, -a, b end
 	return K_NAN, 0, 0
 end
 local function regLayerCompare(ak: number, aa: number, ab: number, bk: number, ba: number, bb: number): number
-	local aKind = abs(ak)
-	local bKind = abs(bk)
+	local aKind: number = abs(ak)
+	local bKind: number = abs(bk)
 	local aReciprocal = aa < 0
 	local bReciprocal = ba < 0
 	if aReciprocal ~= bReciprocal then return aReciprocal and -1 or 1 end
-	local cmp = 0
+	local cmp: number = 0
 	if aKind ~= bKind then
 		cmp = aKind < bKind and -1 or 1
 	else
-		local al = abs(aa)
-		local bl = abs(ba)
+		local al: number = abs(aa)
+		local bl: number = abs(ba)
 		if al < bl then cmp = -1 elseif al > bl then cmp = 1 elseif ab < bb then cmp = -1 elseif ab > bb then cmp = 1 end
 	end
 	return aReciprocal and -cmp or cmp
@@ -1896,8 +2004,9 @@ end
 local function regAbsCompare(ak: number, aa: number, ab: number, bk: number, ba: number, bb: number): number
 	if ak == 0 then return bk == 0 and 0 or -1 end
 	if bk == 0 then return 1 end
-	local aKind = abs(ak)
-	local bKind = abs(bk)
+	local aKind: number = abs(ak)
+	local bKind: number = abs(bk)
+	if aKind == K_NUM and bKind == K_NUM then return aa < ba and -1 or (aa > ba and 1 or 0) end
 	local aLayer = aKind == K_LAYER or aKind == K_LAYER_LOG or aKind == K_HYPER_LAYER
 	local bLayer = bKind == K_LAYER or bKind == K_LAYER_LOG or bKind == K_HYPER_LAYER
 	if not aLayer and not bLayer then
@@ -1913,8 +2022,8 @@ local function regAbsCompare(ak: number, aa: number, ab: number, bk: number, ba:
 	return regLayerCompare(ak, aa, ab, bk, ba, bb)
 end
 local function regCompare(ak: number, aa: number, ab: number, bk: number, ba: number, bb: number): number
-	local aKind = abs(ak)
-	local bKind = abs(bk)
+	local aKind: number = abs(ak)
+	local bKind: number = abs(bk)
 	if aKind == K_NAN or bKind == K_NAN then return NAN end
 	if aKind == K_INF or bKind == K_INF then
 		if aKind == K_INF and bKind == K_INF then
@@ -1932,8 +2041,8 @@ local function regCompare(ak: number, aa: number, ab: number, bk: number, ba: nu
 	return sa < 0 and -cmp or cmp
 end
 local function regAdd(ak: number, aa: number, ab: number, bk: number, ba: number, bb: number): (number, number, number)
-	local aKind = abs(ak)
-	local bKind = abs(bk)
+	local aKind: number = abs(ak)
+	local bKind: number = abs(bk)
 	if aKind == K_NAN or bKind == K_NAN then return K_NAN, 0, 0 end
 	if aKind == K_INF or bKind == K_INF then
 		if aKind == K_INF and bKind == K_INF and (ak < 0) ~= (bk < 0) then return K_NAN, 0, 0 end
@@ -1962,8 +2071,8 @@ local function regAdd(ak: number, aa: number, ab: number, bk: number, ba: number
 	local negativeA = ak < 0
 	local negativeB = bk < 0
 	if negativeA == negativeB then
-		local hi = max(la, lb)
-		local lo = min(la, lb)
+		local hi: number = max(la, lb)
+		local lo: number = min(la, lb)
 		local delta = hi - lo
 		if delta > 18 then return regFromSignedLog(hi, negativeA) end
 		return regFromSignedLog(hi + log10(1 + 10 ^ (-delta)), negativeA)
@@ -1984,8 +2093,8 @@ local function regSub(ak: number, aa: number, ab: number, bk: number, ba: number
 	return regAdd(ak, aa, ab, bk, ba, bb)
 end
 local function regMul(ak: number, aa: number, ab: number, bk: number, ba: number, bb: number): (number, number, number)
-	local aKind = abs(ak)
-	local bKind = abs(bk)
+	local aKind: number = abs(ak)
+	local bKind: number = abs(bk)
 	if aKind == K_NAN or bKind == K_NAN then return K_NAN, 0, 0 end
 	if ak == 0 or bk == 0 then
 		if aKind == K_INF or bKind == K_INF then return K_NAN, 0, 0 end
@@ -2020,7 +2129,7 @@ local function regMul(ak: number, aa: number, ab: number, bk: number, ba: number
 			if otherLog == 0 then return negative and -K_LAYER or K_LAYER, la, lb end
 			local layerSign = la < 0 and -1 or 1
 			local otherSign = otherLog < 0 and -1 or 1
-			local otherTop = log10(abs(otherLog))
+			local otherTop: number = log10(abs(otherLog))
 			local top, resultSign
 			if layerSign == otherSign then
 				local hi, lo = max(lb, otherTop), min(lb, otherTop)
@@ -2043,19 +2152,19 @@ local function regMul(ak: number, aa: number, ab: number, bk: number, ba: number
 		local sa = aa < 0 and -1 or 1
 		local sb = ba < 0 and -1 or 1
 		if sa == sb then
-			local hi = max(ab, bb)
-			local lo = min(ab, bb)
+			local hi: number = max(ab, bb)
+			local lo: number = min(ab, bb)
 			return negative and -K_LAYER or K_LAYER, sa < 0 and -2 or 2, hi + log10(1 + 10 ^ (lo - hi))
 		end
 		if ab == bb then return negative and -K_NUM or K_NUM, 1, 0 end
 		local hi = ab > bb and ab or bb
 		local lo = ab > bb and bb or ab
-		local reciprocal = ab > bb and sa < 0 or sb < 0
+		local reciprocal = if ab > bb then sa < 0 else sb < 0
 		local term = oneMinusPow10Neg(hi - lo)
 		if term <= 0 then return negative and -K_NUM or K_NUM, 1, 0 end
 		return negative and -K_LAYER or K_LAYER, reciprocal and -2 or 2, hi + log10(term)
 	end
-	local cmp = regLayerCompare(ak, aa, ab, bk, ba, bb)
+	local cmp = regLayerCompare(ak, abs(aa), ab, bk, abs(ba), bb)
 	if cmp == 0 then
 		if (aa < 0) ~= (ba < 0) then return negative and -K_NUM or K_NUM, 1, 0 end
 		return negative and -aKind or aKind, aa, ab
@@ -2064,11 +2173,18 @@ local function regMul(ak: number, aa: number, ab: number, bk: number, ba: number
 	return negative and -bKind or bKind, ba, bb
 end
 local function regDiv(ak: number, aa: number, ab: number, bk: number, ba: number, bb: number): (number, number, number)
+	if abs(ak) == K_NAN or abs(bk) == K_NAN then return K_NAN, 0, 0 end
+	if abs(ak) == K_INF and abs(bk) == K_INF then return K_NAN, 0, 0 end
+	if abs(ak) == K_NUM and abs(bk) == K_NUM then
+		local result = aa / ba
+		if result ~= huge and result ~= 0 then return (ak < 0) ~= (bk < 0) and -K_NUM or K_NUM, result, 0 end
+		return regFromSignedLog(log10(aa) - log10(ba), (ak < 0) ~= (bk < 0))
+	end
 	local rk, ra, rb = regReciprocal(bk, ba, bb)
 	return regMul(ak, aa, ab, rk, ra, rb)
 end
 local function regLog10(kind: number, a: number, b: number): (number, number, number)
-	local absoluteKind = abs(kind)
+	local absoluteKind: number = abs(kind)
 	if absoluteKind == K_NAN or kind < 0 then return K_NAN, 0, 0 end
 	if kind == 0 then return -K_INF, 0, 0 end
 	if absoluteKind == K_INF then return K_INF, 0, 0 end
@@ -2076,7 +2192,7 @@ local function regLog10(kind: number, a: number, b: number): (number, number, nu
 	if absoluteKind == K_LOG then return regFromNumber(a) end
 	if absoluteKind == K_LAYER then
 		local reciprocal = a < 0
-		local layer = abs(a)
+		local layer: number = abs(a)
 		if layer == 2 then return reciprocal and -K_LOG or K_LOG, b, 0 end
 		return reciprocal and -K_LAYER or K_LAYER, layer - 1, b
 	end
@@ -2085,7 +2201,7 @@ local function regLog10(kind: number, a: number, b: number): (number, number, nu
 	return K_NAN, 0, 0
 end
 local function regPow10(kind: number, a: number, b: number): (number, number, number)
-	local absoluteKind = abs(kind)
+	local absoluteKind: number = abs(kind)
 	if absoluteKind == K_NAN then return K_NAN, 0, 0 end
 	if kind == 0 then return K_NUM, 1, 0 end
 	if absoluteKind == K_INF then return kind < 0 and 0 or K_INF, 0, 0 end
@@ -2097,7 +2213,7 @@ local function regPow10(kind: number, a: number, b: number): (number, number, nu
 	end
 	if absoluteKind == K_LAYER then
 		if a < 0 then return K_NUM, 1, 0 end
-		local layer = min(abs(a) + 1, NanoNum.MAX_LAYER)
+		local layer: number = min(abs(a) + 1, NanoNum.MAX_LAYER)
 		return K_LAYER, kind < 0 and -layer or layer, b
 	end
 	if absoluteKind == K_LAYER_LOG then
@@ -2111,7 +2227,8 @@ local function regPow10(kind: number, a: number, b: number): (number, number, nu
 	return K_NAN, 0, 0
 end
 local function regIsInteger(kind: number, a: number, b: number): boolean
-	local absoluteKind = abs(kind)
+	local absoluteKind: number = abs(kind)
+	if kind == 0 then return true end
 	if absoluteKind == K_NUM then return a == floor(a) end
 	-- Log/layer records do not retain arbitrary integer provenance. Stay conservative:
 	-- only return true when the stored canonical coordinates themselves prove integrality.
@@ -2126,14 +2243,14 @@ local function regIsInteger(kind: number, a: number, b: number): boolean
 	return false
 end
 local function regIsOdd(kind: number, a: number, b: number): boolean
-	local absoluteKind = abs(kind)
+	local absoluteKind: number = abs(kind)
 	if absoluteKind == K_NUM then return a == floor(a) and a % 2 == 1 end
 	if absoluteKind == K_LOG then return a == 0 end
 	return false
 end
 local function regPow(bk: number, ba: number, bb: number, ek: number, ea: number, eb: number): (number, number, number)
-	local baseKind = abs(bk)
-	local exponentKind = abs(ek)
+	local baseKind: number = abs(bk)
+	local exponentKind: number = abs(ek)
 	if ek == 0 then return K_NUM, 1, 0 end
 	if bk == K_NUM and ba == 1 then return K_NUM, 1, 0 end
 	if baseKind == K_NAN or exponentKind == K_NAN then return K_NAN, 0, 0 end
@@ -2155,7 +2272,7 @@ local function regPow(bk: number, ba: number, bb: number, ek: number, ea: number
 		local negativeResult = bk < 0 and regIsOdd(ek, ea, eb)
 		return negativeResult and -K_INF or K_INF, 0, 0
 	end
-	local negativeResult = false
+	local negativeResult: boolean = false
 	if bk < 0 then
 		if not regIsInteger(ek, ea, eb) then return K_NAN, 0, 0 end
 		negativeResult = regIsOdd(ek, ea, eb)
@@ -2209,30 +2326,29 @@ local function directFiniteNumber(value: MathValue): number?
 	end
 	if kind ~= "buffer" then return nil end
 	local data = value :: buffer
-	local first = bufferReadU8(data, 0)
+	local first: number = bufferReadU8(data, 0)
 	if first == 255 then
-		local x = bufferReadF64(data, 1)
+		local x: number = bufferReadF64(data, 1)
 		return x == x and x ~= huge and x ~= -huge and x or nil
 	end
 	if band(first, 1) == 0 then return floor(first / 2) end
 	if band(first, 3) == 1 then return -(floor(first / 4) + 1) end
 	if band(first, 7) ~= 3 then return nil end
 	local negative = band(first, 8) ~= 0
-	local n = bufferReadBits(data, 4, 5)
-	local offset = 9
+	local n: number = bufferReadBits(data, 4, 5)
+	local offset: number = 9
 	if n == 0 then n = 32 + bufferReadBits(data, offset, 5); offset = 14 end
 	if n > MAX_INTEGER_MODE_BITS then return nil end
 	local magnitude
-	if n <= 26 then magnitude = bufferReadBits(data, offset, n)
-	elseif n <= 52 then magnitude = bufferReadBits(data, offset, 26) + bufferReadBits(data, offset + 26, n - 26) * 67108864
-	else magnitude = bufferReadBits(data, offset, 26) + bufferReadBits(data, offset + 26, 26) * 67108864 + bufferReadBits(data, offset + 52, n - 52) * 4503599627370496 end
+	if n <= 32 then magnitude = bufferReadBits(data, offset, n)
+	else magnitude = bufferReadBits(data, offset, 32) + bufferReadBits(data, offset + 32, n - 32) * 4294967296 end
 	return negative and -magnitude or magnitude
 end
 local function nativeInverseLerp(a: number, b: number, value: number): number?
 	local span = b - a
 	if span == 0 then return nil end
 	if span ~= huge and span ~= -huge then return (value - a) / span end
-	local scale = max(max(abs(a), abs(b)), abs(value))
+	local scale: number = max(max(abs(a), abs(b)), abs(value))
 	if scale == 0 then return nil end
 	return (value / scale - a / scale) / (b / scale - a / scale)
 end
@@ -2284,7 +2400,7 @@ local function coldPow(a: MathValue, b: MathValue): buffer
 end
 local function coldCompare(a: MathValue, b: MathValue): number
 	if a == b then
-		local k, x, y = directDecode(a)
+		local k = directDecode(a)
 		if abs(k) == K_NAN then return NAN end
 		return 0
 	end
@@ -2373,7 +2489,7 @@ function NanoNum.add(a: MathValue, b: MathValue): buffer
 		adirect = ax == ax and ax ~= huge and ax ~= -huge
 	elseif at == "buffer" then
 		local av = a :: buffer
-		local first = bufferReadU8(av, 0)
+		local first: number = bufferReadU8(av, 0)
 		if first == 255 then
 			ax = bufferReadF64(av, 1)
 			adirect = ax == ax and ax ~= huge and ax ~= -huge
@@ -2385,20 +2501,18 @@ function NanoNum.add(a: MathValue, b: MathValue): buffer
 			adirect = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(av, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(av, 4, 5)
+			local offset: number = 9
 			if n == 0 then
 				n = 32 + bufferReadBits(av, offset, 5)
 				offset = 14
 			end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then
+				if n <= 32 then
 					magnitude = bufferReadBits(av, offset, n)
-				elseif n <= 52 then
-					magnitude = bufferReadBits(av, offset, 26) + bufferReadBits(av, offset + 26, n - 26) * 67108864
 				else
-					magnitude = bufferReadBits(av, offset, 26) + bufferReadBits(av, offset + 26, 26) * 67108864 + bufferReadBits(av, offset + 52, n - 52) * 4503599627370496
+					magnitude = bufferReadBits(av, offset, 32) + bufferReadBits(av, offset + 32, n - 32) * 4294967296
 				end
 				ax = negative and -magnitude or magnitude
 				adirect = true
@@ -2410,7 +2524,7 @@ function NanoNum.add(a: MathValue, b: MathValue): buffer
 		bdirect = bx == bx and bx ~= huge and bx ~= -huge
 	elseif bt == "buffer" then
 		local bv = b :: buffer
-		local first = bufferReadU8(bv, 0)
+		local first: number = bufferReadU8(bv, 0)
 		if first == 255 then
 			bx = bufferReadF64(bv, 1)
 			bdirect = bx == bx and bx ~= huge and bx ~= -huge
@@ -2422,20 +2536,18 @@ function NanoNum.add(a: MathValue, b: MathValue): buffer
 			bdirect = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(bv, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(bv, 4, 5)
+			local offset: number = 9
 			if n == 0 then
 				n = 32 + bufferReadBits(bv, offset, 5)
 				offset = 14
 			end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then
+				if n <= 32 then
 					magnitude = bufferReadBits(bv, offset, n)
-				elseif n <= 52 then
-					magnitude = bufferReadBits(bv, offset, 26) + bufferReadBits(bv, offset + 26, n - 26) * 67108864
 				else
-					magnitude = bufferReadBits(bv, offset, 26) + bufferReadBits(bv, offset + 26, 26) * 67108864 + bufferReadBits(bv, offset + 52, n - 52) * 4503599627370496
+					magnitude = bufferReadBits(bv, offset, 32) + bufferReadBits(bv, offset + 32, n - 32) * 4294967296
 				end
 				bx = negative and -magnitude or magnitude
 				bdirect = true
@@ -2445,54 +2557,43 @@ function NanoNum.add(a: MathValue, b: MathValue): buffer
 	if adirect and bdirect then
 		local value = ax + bx
 		if value == value and value ~= huge and value ~= -huge then
-			local integral = floor(value)
+			local integral: number = floor(value)
 			if value == integral then
 				if value >= 0 and value <= 127 then
-					local data = bufferCreate(1)
+					local data: buffer = bufferCreate(1)
 					bufferWriteU8(data, 0, value * 2)
 					return data
 				end
 				if value < 0 and value >= -64 then
-					local data = bufferCreate(1)
+					local data: buffer = bufferCreate(1)
 					bufferWriteU8(data, 0, 1 + (-value - 1) * 4)
 					return data
 				end
 				local negative = value < 0
 				local magnitude = negative and -value or value
 				if magnitude <= SAFE_INTEGER then
-					local n = bitsRequired(magnitude)
+					local n: number = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
+						local data: buffer = bufferCreate(floor((bits + 7) / 8))
 						local header = 3 + (negative and 8 or 0) + n * 16
 						if bits <= 32 then
 							bufferWriteBits(data, 0, bits, header + magnitude * 512)
 						else
 							bufferWriteBits(data, 0, 9, header)
-							if n <= 26 then
-								bufferWriteBits(data, 9, n, magnitude)
-							else
-								bufferWriteBits(data, 9, 26, magnitude % 67108864)
-								bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-							end
+							bufferWriteBits(data, 9, n, magnitude)
 						end
 						return data
 					end
 					local bits = 14 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
+					local data: buffer = bufferCreate(floor((bits + 7) / 8))
 					bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-					bufferWriteBits(data, 14, 26, magnitude % 67108864)
-					local remaining = n - 26
-					if remaining <= 26 then
-						bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-					else
-						bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-						bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-					end
+					bufferWriteBits(data, 14, 32, magnitude % 4294967296)
+					bufferWriteBits(data, 46, n - 32, floor(magnitude / 4294967296))
 					return data
 				end
 			end
-			local data = bufferCreate(EXACT_F64_BYTES)
+			local data: buffer = bufferCreate(EXACT_F64_BYTES)
 			bufferWriteU8(data, 0, 255)
 			bufferWriteF64(data, 1, value)
 			return data
@@ -2510,7 +2611,7 @@ function NanoNum.sub(a: MathValue, b: MathValue): buffer
 		adirect = ax == ax and ax ~= huge and ax ~= -huge
 	elseif at == "buffer" then
 		local av = a :: buffer
-		local first = bufferReadU8(av, 0)
+		local first: number = bufferReadU8(av, 0)
 		if first == 255 then
 			ax = bufferReadF64(av, 1)
 			adirect = ax == ax and ax ~= huge and ax ~= -huge
@@ -2522,20 +2623,18 @@ function NanoNum.sub(a: MathValue, b: MathValue): buffer
 			adirect = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(av, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(av, 4, 5)
+			local offset: number = 9
 			if n == 0 then
 				n = 32 + bufferReadBits(av, offset, 5)
 				offset = 14
 			end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then
+				if n <= 32 then
 					magnitude = bufferReadBits(av, offset, n)
-				elseif n <= 52 then
-					magnitude = bufferReadBits(av, offset, 26) + bufferReadBits(av, offset + 26, n - 26) * 67108864
 				else
-					magnitude = bufferReadBits(av, offset, 26) + bufferReadBits(av, offset + 26, 26) * 67108864 + bufferReadBits(av, offset + 52, n - 52) * 4503599627370496
+					magnitude = bufferReadBits(av, offset, 32) + bufferReadBits(av, offset + 32, n - 32) * 4294967296
 				end
 				ax = negative and -magnitude or magnitude
 				adirect = true
@@ -2547,7 +2646,7 @@ function NanoNum.sub(a: MathValue, b: MathValue): buffer
 		bdirect = bx == bx and bx ~= huge and bx ~= -huge
 	elseif bt == "buffer" then
 		local bv = b :: buffer
-		local first = bufferReadU8(bv, 0)
+		local first: number = bufferReadU8(bv, 0)
 		if first == 255 then
 			bx = bufferReadF64(bv, 1)
 			bdirect = bx == bx and bx ~= huge and bx ~= -huge
@@ -2559,20 +2658,18 @@ function NanoNum.sub(a: MathValue, b: MathValue): buffer
 			bdirect = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(bv, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(bv, 4, 5)
+			local offset: number = 9
 			if n == 0 then
 				n = 32 + bufferReadBits(bv, offset, 5)
 				offset = 14
 			end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then
+				if n <= 32 then
 					magnitude = bufferReadBits(bv, offset, n)
-				elseif n <= 52 then
-					magnitude = bufferReadBits(bv, offset, 26) + bufferReadBits(bv, offset + 26, n - 26) * 67108864
 				else
-					magnitude = bufferReadBits(bv, offset, 26) + bufferReadBits(bv, offset + 26, 26) * 67108864 + bufferReadBits(bv, offset + 52, n - 52) * 4503599627370496
+					magnitude = bufferReadBits(bv, offset, 32) + bufferReadBits(bv, offset + 32, n - 32) * 4294967296
 				end
 				bx = negative and -magnitude or magnitude
 				bdirect = true
@@ -2582,54 +2679,43 @@ function NanoNum.sub(a: MathValue, b: MathValue): buffer
 	if adirect and bdirect then
 		local value = ax - bx
 		if value == value and value ~= huge and value ~= -huge then
-			local integral = floor(value)
+			local integral: number = floor(value)
 			if value == integral then
 				if value >= 0 and value <= 127 then
-					local data = bufferCreate(1)
+					local data: buffer = bufferCreate(1)
 					bufferWriteU8(data, 0, value * 2)
 					return data
 				end
 				if value < 0 and value >= -64 then
-					local data = bufferCreate(1)
+					local data: buffer = bufferCreate(1)
 					bufferWriteU8(data, 0, 1 + (-value - 1) * 4)
 					return data
 				end
 				local negative = value < 0
 				local magnitude = negative and -value or value
 				if magnitude <= SAFE_INTEGER then
-					local n = bitsRequired(magnitude)
+					local n: number = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
+						local data: buffer = bufferCreate(floor((bits + 7) / 8))
 						local header = 3 + (negative and 8 or 0) + n * 16
 						if bits <= 32 then
 							bufferWriteBits(data, 0, bits, header + magnitude * 512)
 						else
 							bufferWriteBits(data, 0, 9, header)
-							if n <= 26 then
-								bufferWriteBits(data, 9, n, magnitude)
-							else
-								bufferWriteBits(data, 9, 26, magnitude % 67108864)
-								bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-							end
+							bufferWriteBits(data, 9, n, magnitude)
 						end
 						return data
 					end
 					local bits = 14 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
+					local data: buffer = bufferCreate(floor((bits + 7) / 8))
 					bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-					bufferWriteBits(data, 14, 26, magnitude % 67108864)
-					local remaining = n - 26
-					if remaining <= 26 then
-						bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-					else
-						bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-						bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-					end
+					bufferWriteBits(data, 14, 32, magnitude % 4294967296)
+					bufferWriteBits(data, 46, n - 32, floor(magnitude / 4294967296))
 					return data
 				end
 			end
-			local data = bufferCreate(EXACT_F64_BYTES)
+			local data: buffer = bufferCreate(EXACT_F64_BYTES)
 			bufferWriteU8(data, 0, 255)
 			bufferWriteF64(data, 1, value)
 			return data
@@ -2647,7 +2733,7 @@ function NanoNum.mul(a: MathValue, b: MathValue): buffer
 		adirect = ax == ax and ax ~= huge and ax ~= -huge
 	elseif at == "buffer" then
 		local av = a :: buffer
-		local first = bufferReadU8(av, 0)
+		local first: number = bufferReadU8(av, 0)
 		if first == 255 then
 			ax = bufferReadF64(av, 1)
 			adirect = ax == ax and ax ~= huge and ax ~= -huge
@@ -2659,20 +2745,18 @@ function NanoNum.mul(a: MathValue, b: MathValue): buffer
 			adirect = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(av, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(av, 4, 5)
+			local offset: number = 9
 			if n == 0 then
 				n = 32 + bufferReadBits(av, offset, 5)
 				offset = 14
 			end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then
+				if n <= 32 then
 					magnitude = bufferReadBits(av, offset, n)
-				elseif n <= 52 then
-					magnitude = bufferReadBits(av, offset, 26) + bufferReadBits(av, offset + 26, n - 26) * 67108864
 				else
-					magnitude = bufferReadBits(av, offset, 26) + bufferReadBits(av, offset + 26, 26) * 67108864 + bufferReadBits(av, offset + 52, n - 52) * 4503599627370496
+					magnitude = bufferReadBits(av, offset, 32) + bufferReadBits(av, offset + 32, n - 32) * 4294967296
 				end
 				ax = negative and -magnitude or magnitude
 				adirect = true
@@ -2684,7 +2768,7 @@ function NanoNum.mul(a: MathValue, b: MathValue): buffer
 		bdirect = bx == bx and bx ~= huge and bx ~= -huge
 	elseif bt == "buffer" then
 		local bv = b :: buffer
-		local first = bufferReadU8(bv, 0)
+		local first: number = bufferReadU8(bv, 0)
 		if first == 255 then
 			bx = bufferReadF64(bv, 1)
 			bdirect = bx == bx and bx ~= huge and bx ~= -huge
@@ -2696,20 +2780,18 @@ function NanoNum.mul(a: MathValue, b: MathValue): buffer
 			bdirect = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(bv, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(bv, 4, 5)
+			local offset: number = 9
 			if n == 0 then
 				n = 32 + bufferReadBits(bv, offset, 5)
 				offset = 14
 			end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then
+				if n <= 32 then
 					magnitude = bufferReadBits(bv, offset, n)
-				elseif n <= 52 then
-					magnitude = bufferReadBits(bv, offset, 26) + bufferReadBits(bv, offset + 26, n - 26) * 67108864
 				else
-					magnitude = bufferReadBits(bv, offset, 26) + bufferReadBits(bv, offset + 26, 26) * 67108864 + bufferReadBits(bv, offset + 52, n - 52) * 4503599627370496
+					magnitude = bufferReadBits(bv, offset, 32) + bufferReadBits(bv, offset + 32, n - 32) * 4294967296
 				end
 				bx = negative and -magnitude or magnitude
 				bdirect = true
@@ -2719,54 +2801,43 @@ function NanoNum.mul(a: MathValue, b: MathValue): buffer
 	if adirect and bdirect then
 		local value = ax * bx
 		if value == value and value ~= huge and value ~= -huge and (value ~= 0 or ax == 0 or bx == 0) then
-			local integral = floor(value)
+			local integral: number = floor(value)
 			if value == integral then
 				if value >= 0 and value <= 127 then
-					local data = bufferCreate(1)
+					local data: buffer = bufferCreate(1)
 					bufferWriteU8(data, 0, value * 2)
 					return data
 				end
 				if value < 0 and value >= -64 then
-					local data = bufferCreate(1)
+					local data: buffer = bufferCreate(1)
 					bufferWriteU8(data, 0, 1 + (-value - 1) * 4)
 					return data
 				end
 				local negative = value < 0
 				local magnitude = negative and -value or value
 				if magnitude <= SAFE_INTEGER then
-					local n = bitsRequired(magnitude)
+					local n: number = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
+						local data: buffer = bufferCreate(floor((bits + 7) / 8))
 						local header = 3 + (negative and 8 or 0) + n * 16
 						if bits <= 32 then
 							bufferWriteBits(data, 0, bits, header + magnitude * 512)
 						else
 							bufferWriteBits(data, 0, 9, header)
-							if n <= 26 then
-								bufferWriteBits(data, 9, n, magnitude)
-							else
-								bufferWriteBits(data, 9, 26, magnitude % 67108864)
-								bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-							end
+							bufferWriteBits(data, 9, n, magnitude)
 						end
 						return data
 					end
 					local bits = 14 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
+					local data: buffer = bufferCreate(floor((bits + 7) / 8))
 					bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-					bufferWriteBits(data, 14, 26, magnitude % 67108864)
-					local remaining = n - 26
-					if remaining <= 26 then
-						bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-					else
-						bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-						bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-					end
+					bufferWriteBits(data, 14, 32, magnitude % 4294967296)
+					bufferWriteBits(data, 46, n - 32, floor(magnitude / 4294967296))
 					return data
 				end
 			end
-			local data = bufferCreate(EXACT_F64_BYTES)
+			local data: buffer = bufferCreate(EXACT_F64_BYTES)
 			bufferWriteU8(data, 0, 255)
 			bufferWriteF64(data, 1, value)
 			return data
@@ -2784,7 +2855,7 @@ function NanoNum.div(a: MathValue, b: MathValue): buffer
 		adirect = ax == ax and ax ~= huge and ax ~= -huge
 	elseif at == "buffer" then
 		local av = a :: buffer
-		local first = bufferReadU8(av, 0)
+		local first: number = bufferReadU8(av, 0)
 		if first == 255 then
 			ax = bufferReadF64(av, 1)
 			adirect = ax == ax and ax ~= huge and ax ~= -huge
@@ -2796,20 +2867,18 @@ function NanoNum.div(a: MathValue, b: MathValue): buffer
 			adirect = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(av, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(av, 4, 5)
+			local offset: number = 9
 			if n == 0 then
 				n = 32 + bufferReadBits(av, offset, 5)
 				offset = 14
 			end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then
+				if n <= 32 then
 					magnitude = bufferReadBits(av, offset, n)
-				elseif n <= 52 then
-					magnitude = bufferReadBits(av, offset, 26) + bufferReadBits(av, offset + 26, n - 26) * 67108864
 				else
-					magnitude = bufferReadBits(av, offset, 26) + bufferReadBits(av, offset + 26, 26) * 67108864 + bufferReadBits(av, offset + 52, n - 52) * 4503599627370496
+					magnitude = bufferReadBits(av, offset, 32) + bufferReadBits(av, offset + 32, n - 32) * 4294967296
 				end
 				ax = negative and -magnitude or magnitude
 				adirect = true
@@ -2821,7 +2890,7 @@ function NanoNum.div(a: MathValue, b: MathValue): buffer
 		bdirect = bx == bx and bx ~= huge and bx ~= -huge
 	elseif bt == "buffer" then
 		local bv = b :: buffer
-		local first = bufferReadU8(bv, 0)
+		local first: number = bufferReadU8(bv, 0)
 		if first == 255 then
 			bx = bufferReadF64(bv, 1)
 			bdirect = bx == bx and bx ~= huge and bx ~= -huge
@@ -2833,20 +2902,18 @@ function NanoNum.div(a: MathValue, b: MathValue): buffer
 			bdirect = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(bv, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(bv, 4, 5)
+			local offset: number = 9
 			if n == 0 then
 				n = 32 + bufferReadBits(bv, offset, 5)
 				offset = 14
 			end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then
+				if n <= 32 then
 					magnitude = bufferReadBits(bv, offset, n)
-				elseif n <= 52 then
-					magnitude = bufferReadBits(bv, offset, 26) + bufferReadBits(bv, offset + 26, n - 26) * 67108864
 				else
-					magnitude = bufferReadBits(bv, offset, 26) + bufferReadBits(bv, offset + 26, 26) * 67108864 + bufferReadBits(bv, offset + 52, n - 52) * 4503599627370496
+					magnitude = bufferReadBits(bv, offset, 32) + bufferReadBits(bv, offset + 32, n - 32) * 4294967296
 				end
 				bx = negative and -magnitude or magnitude
 				bdirect = true
@@ -2857,54 +2924,43 @@ function NanoNum.div(a: MathValue, b: MathValue): buffer
 		if bx ~= 0 then
 			local value = ax / bx
 			if value == value and value ~= huge and value ~= -huge and (value ~= 0 or ax == 0) then
-				local integral = floor(value)
+				local integral: number = floor(value)
 				if value == integral then
 					if value >= 0 and value <= 127 then
-						local data = bufferCreate(1)
+						local data: buffer = bufferCreate(1)
 						bufferWriteU8(data, 0, value * 2)
 						return data
 					end
 					if value < 0 and value >= -64 then
-						local data = bufferCreate(1)
+						local data: buffer = bufferCreate(1)
 						bufferWriteU8(data, 0, 1 + (-value - 1) * 4)
 						return data
 					end
 					local negative = value < 0
 					local magnitude = negative and -value or value
 					if magnitude <= SAFE_INTEGER then
-						local n = bitsRequired(magnitude)
+						local n: number = bitsRequired(magnitude)
 						if n <= 31 then
 							local bits = 9 + n
-							local data = bufferCreate(floor((bits + 7) / 8))
+							local data: buffer = bufferCreate(floor((bits + 7) / 8))
 							local header = 3 + (negative and 8 or 0) + n * 16
 							if bits <= 32 then
 								bufferWriteBits(data, 0, bits, header + magnitude * 512)
 							else
 								bufferWriteBits(data, 0, 9, header)
-								if n <= 26 then
-									bufferWriteBits(data, 9, n, magnitude)
-								else
-									bufferWriteBits(data, 9, 26, magnitude % 67108864)
-									bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-								end
+								bufferWriteBits(data, 9, n, magnitude)
 							end
 							return data
 						end
 						local bits = 14 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
+						local data: buffer = bufferCreate(floor((bits + 7) / 8))
 						bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-						bufferWriteBits(data, 14, 26, magnitude % 67108864)
-						local remaining = n - 26
-						if remaining <= 26 then
-							bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-						else
-							bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-							bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-						end
+						bufferWriteBits(data, 14, 32, magnitude % 4294967296)
+						bufferWriteBits(data, 46, n - 32, floor(magnitude / 4294967296))
 						return data
 					end
 				end
-				local data = bufferCreate(EXACT_F64_BYTES)
+				local data: buffer = bufferCreate(EXACT_F64_BYTES)
 				bufferWriteU8(data, 0, 255)
 				bufferWriteF64(data, 1, value)
 				return data
@@ -2923,7 +2979,7 @@ function NanoNum.pow(a: MathValue, b: MathValue): buffer
 		adirect = ax == ax and ax ~= huge and ax ~= -huge
 	elseif at == "buffer" then
 		local av = a :: buffer
-		local first = bufferReadU8(av, 0)
+		local first: number = bufferReadU8(av, 0)
 		if first == 255 then
 			ax = bufferReadF64(av, 1)
 			adirect = ax == ax and ax ~= huge and ax ~= -huge
@@ -2935,20 +2991,18 @@ function NanoNum.pow(a: MathValue, b: MathValue): buffer
 			adirect = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(av, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(av, 4, 5)
+			local offset: number = 9
 			if n == 0 then
 				n = 32 + bufferReadBits(av, offset, 5)
 				offset = 14
 			end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then
+				if n <= 32 then
 					magnitude = bufferReadBits(av, offset, n)
-				elseif n <= 52 then
-					magnitude = bufferReadBits(av, offset, 26) + bufferReadBits(av, offset + 26, n - 26) * 67108864
 				else
-					magnitude = bufferReadBits(av, offset, 26) + bufferReadBits(av, offset + 26, 26) * 67108864 + bufferReadBits(av, offset + 52, n - 52) * 4503599627370496
+					magnitude = bufferReadBits(av, offset, 32) + bufferReadBits(av, offset + 32, n - 32) * 4294967296
 				end
 				ax = negative and -magnitude or magnitude
 				adirect = true
@@ -2960,7 +3014,7 @@ function NanoNum.pow(a: MathValue, b: MathValue): buffer
 		bdirect = bx == bx and bx ~= huge and bx ~= -huge
 	elseif bt == "buffer" then
 		local bv = b :: buffer
-		local first = bufferReadU8(bv, 0)
+		local first: number = bufferReadU8(bv, 0)
 		if first == 255 then
 			bx = bufferReadF64(bv, 1)
 			bdirect = bx == bx and bx ~= huge and bx ~= -huge
@@ -2972,20 +3026,18 @@ function NanoNum.pow(a: MathValue, b: MathValue): buffer
 			bdirect = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(bv, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(bv, 4, 5)
+			local offset: number = 9
 			if n == 0 then
 				n = 32 + bufferReadBits(bv, offset, 5)
 				offset = 14
 			end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then
+				if n <= 32 then
 					magnitude = bufferReadBits(bv, offset, n)
-				elseif n <= 52 then
-					magnitude = bufferReadBits(bv, offset, 26) + bufferReadBits(bv, offset + 26, n - 26) * 67108864
 				else
-					magnitude = bufferReadBits(bv, offset, 26) + bufferReadBits(bv, offset + 26, 26) * 67108864 + bufferReadBits(bv, offset + 52, n - 52) * 4503599627370496
+					magnitude = bufferReadBits(bv, offset, 32) + bufferReadBits(bv, offset + 32, n - 32) * 4294967296
 				end
 				bx = negative and -magnitude or magnitude
 				bdirect = true
@@ -2994,55 +3046,44 @@ function NanoNum.pow(a: MathValue, b: MathValue): buffer
 	end
 	if adirect and bdirect then
 		if bx == 0 or ax == 1 then
-			local value = 1
-			local integral = floor(value)
+			local value: number = 1
+			local integral: number = floor(value)
 			if value == integral then
 				if value >= 0 and value <= 127 then
-					local data = bufferCreate(1)
+					local data: buffer = bufferCreate(1)
 					bufferWriteU8(data, 0, value * 2)
 					return data
 				end
 				if value < 0 and value >= -64 then
-					local data = bufferCreate(1)
+					local data: buffer = bufferCreate(1)
 					bufferWriteU8(data, 0, 1 + (-value - 1) * 4)
 					return data
 				end
 				local negative = value < 0
 				local magnitude = negative and -value or value
 				if magnitude <= SAFE_INTEGER then
-					local n = bitsRequired(magnitude)
+					local n: number = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
+						local data: buffer = bufferCreate(floor((bits + 7) / 8))
 						local header = 3 + (negative and 8 or 0) + n * 16
 						if bits <= 32 then
 							bufferWriteBits(data, 0, bits, header + magnitude * 512)
 						else
 							bufferWriteBits(data, 0, 9, header)
-							if n <= 26 then
-								bufferWriteBits(data, 9, n, magnitude)
-							else
-								bufferWriteBits(data, 9, 26, magnitude % 67108864)
-								bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-							end
+							bufferWriteBits(data, 9, n, magnitude)
 						end
 						return data
 					end
 					local bits = 14 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
+					local data: buffer = bufferCreate(floor((bits + 7) / 8))
 					bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-					bufferWriteBits(data, 14, 26, magnitude % 67108864)
-					local remaining = n - 26
-					if remaining <= 26 then
-						bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-					else
-						bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-						bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-					end
+					bufferWriteBits(data, 14, 32, magnitude % 4294967296)
+					bufferWriteBits(data, 46, n - 32, floor(magnitude / 4294967296))
 					return data
 				end
 			end
-			local data = bufferCreate(EXACT_F64_BYTES)
+			local data: buffer = bufferCreate(EXACT_F64_BYTES)
 			bufferWriteU8(data, 0, 255)
 			bufferWriteF64(data, 1, value)
 			return data
@@ -3050,54 +3091,43 @@ function NanoNum.pow(a: MathValue, b: MathValue): buffer
 		if ax >= 0 or bx == floor(bx) then
 			local value = ax ^ bx
 			if value == value and value ~= huge and value ~= -huge and (value ~= 0 or ax == 0) then
-				local integral = floor(value)
+				local integral: number = floor(value)
 				if value == integral then
 					if value >= 0 and value <= 127 then
-						local data = bufferCreate(1)
+						local data: buffer = bufferCreate(1)
 						bufferWriteU8(data, 0, value * 2)
 						return data
 					end
 					if value < 0 and value >= -64 then
-						local data = bufferCreate(1)
+						local data: buffer = bufferCreate(1)
 						bufferWriteU8(data, 0, 1 + (-value - 1) * 4)
 						return data
 					end
 					local negative = value < 0
 					local magnitude = negative and -value or value
 					if magnitude <= SAFE_INTEGER then
-						local n = bitsRequired(magnitude)
+						local n: number = bitsRequired(magnitude)
 						if n <= 31 then
 							local bits = 9 + n
-							local data = bufferCreate(floor((bits + 7) / 8))
+							local data: buffer = bufferCreate(floor((bits + 7) / 8))
 							local header = 3 + (negative and 8 or 0) + n * 16
 							if bits <= 32 then
 								bufferWriteBits(data, 0, bits, header + magnitude * 512)
 							else
 								bufferWriteBits(data, 0, 9, header)
-								if n <= 26 then
-									bufferWriteBits(data, 9, n, magnitude)
-								else
-									bufferWriteBits(data, 9, 26, magnitude % 67108864)
-									bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-								end
+								bufferWriteBits(data, 9, n, magnitude)
 							end
 							return data
 						end
 						local bits = 14 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
+						local data: buffer = bufferCreate(floor((bits + 7) / 8))
 						bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-						bufferWriteBits(data, 14, 26, magnitude % 67108864)
-						local remaining = n - 26
-						if remaining <= 26 then
-							bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-						else
-							bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-							bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-						end
+						bufferWriteBits(data, 14, 32, magnitude % 4294967296)
+						bufferWriteBits(data, 46, n - 32, floor(magnitude / 4294967296))
 						return data
 					end
 				end
-				local data = bufferCreate(EXACT_F64_BYTES)
+				local data: buffer = bufferCreate(EXACT_F64_BYTES)
 				bufferWriteU8(data, 0, 255)
 				bufferWriteF64(data, 1, value)
 				return data
@@ -3120,11 +3150,11 @@ function NanoNum.compare(a: MathValue, b: MathValue): number
 	if at == "buffer" and bt == "buffer" then
 		local av = a :: buffer
 		local bv = b :: buffer
-		local af = bufferReadU8(av, 0)
-		local bf = bufferReadU8(bv, 0)
+		local af: number = bufferReadU8(av, 0)
+		local bf: number = bufferReadU8(bv, 0)
 		if af == 255 and bf == 255 then
-			local ax = bufferReadF64(av, 1)
-			local bx = bufferReadF64(bv, 1)
+			local ax: number = bufferReadF64(av, 1)
+			local bx: number = bufferReadF64(bv, 1)
 			if ax ~= ax or bx ~= bx then return NAN end
 			if ax < bx then return -1 end
 			if ax > bx then return 1 end
@@ -3148,7 +3178,7 @@ function NanoNum.eq(a: MathValue, b: MathValue): boolean
 	local adirect, bdirect = false, false
 	if at == "number" then ax = a :: number; if ax ~= ax then return false end; adirect = ax ~= huge and ax ~= -huge
 	elseif at == "buffer" then local av = a :: buffer
-		local first = bufferReadU8(av, 0)
+		local first: number = bufferReadU8(av, 0)
 		if first == 255 then
 			ax = bufferReadF64(av, 1)
 			adirect = ax == ax and ax ~= huge and ax ~= -huge
@@ -3160,14 +3190,13 @@ function NanoNum.eq(a: MathValue, b: MathValue): boolean
 			adirect = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(av, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(av, 4, 5)
+			local offset: number = 9
 			if n == 0 then n = 32 + bufferReadBits(av, offset, 5); offset = 14 end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then magnitude = bufferReadBits(av, offset, n)
-				elseif n <= 52 then magnitude = bufferReadBits(av, offset, 26) + bufferReadBits(av, offset + 26, n - 26) * 67108864
-				else magnitude = bufferReadBits(av, offset, 26) + bufferReadBits(av, offset + 26, 26) * 67108864 + bufferReadBits(av, offset + 52, n - 52) * 4503599627370496 end
+				if n <= 32 then magnitude = bufferReadBits(av, offset, n)
+				else magnitude = bufferReadBits(av, offset, 32) + bufferReadBits(av, offset + 32, n - 32) * 4294967296 end
 				ax = negative and -magnitude or magnitude
 				adirect = true
 			end
@@ -3175,7 +3204,7 @@ function NanoNum.eq(a: MathValue, b: MathValue): boolean
 	end
 	if bt == "number" then bx = b :: number; if bx ~= bx then return false end; bdirect = bx ~= huge and bx ~= -huge
 	elseif bt == "buffer" then local bv = b :: buffer
-		local first = bufferReadU8(bv, 0)
+		local first: number = bufferReadU8(bv, 0)
 		if first == 255 then
 			bx = bufferReadF64(bv, 1)
 			bdirect = bx == bx and bx ~= huge and bx ~= -huge
@@ -3187,14 +3216,13 @@ function NanoNum.eq(a: MathValue, b: MathValue): boolean
 			bdirect = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(bv, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(bv, 4, 5)
+			local offset: number = 9
 			if n == 0 then n = 32 + bufferReadBits(bv, offset, 5); offset = 14 end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then magnitude = bufferReadBits(bv, offset, n)
-				elseif n <= 52 then magnitude = bufferReadBits(bv, offset, 26) + bufferReadBits(bv, offset + 26, n - 26) * 67108864
-				else magnitude = bufferReadBits(bv, offset, 26) + bufferReadBits(bv, offset + 26, 26) * 67108864 + bufferReadBits(bv, offset + 52, n - 52) * 4503599627370496 end
+				if n <= 32 then magnitude = bufferReadBits(bv, offset, n)
+				else magnitude = bufferReadBits(bv, offset, 32) + bufferReadBits(bv, offset + 32, n - 32) * 4294967296 end
 				bx = negative and -magnitude or magnitude
 				bdirect = true
 			end
@@ -3211,7 +3239,7 @@ function NanoNum.lt(a: MathValue, b: MathValue): boolean
 	local adirect, bdirect = false, false
 	if at == "number" then ax = a :: number; if ax ~= ax then return false end; adirect = ax ~= huge and ax ~= -huge
 	elseif at == "buffer" then local av = a :: buffer
-		local first = bufferReadU8(av, 0)
+		local first: number = bufferReadU8(av, 0)
 		if first == 255 then
 			ax = bufferReadF64(av, 1)
 			adirect = ax == ax and ax ~= huge and ax ~= -huge
@@ -3223,14 +3251,13 @@ function NanoNum.lt(a: MathValue, b: MathValue): boolean
 			adirect = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(av, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(av, 4, 5)
+			local offset: number = 9
 			if n == 0 then n = 32 + bufferReadBits(av, offset, 5); offset = 14 end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then magnitude = bufferReadBits(av, offset, n)
-				elseif n <= 52 then magnitude = bufferReadBits(av, offset, 26) + bufferReadBits(av, offset + 26, n - 26) * 67108864
-				else magnitude = bufferReadBits(av, offset, 26) + bufferReadBits(av, offset + 26, 26) * 67108864 + bufferReadBits(av, offset + 52, n - 52) * 4503599627370496 end
+				if n <= 32 then magnitude = bufferReadBits(av, offset, n)
+				else magnitude = bufferReadBits(av, offset, 32) + bufferReadBits(av, offset + 32, n - 32) * 4294967296 end
 				ax = negative and -magnitude or magnitude
 				adirect = true
 			end
@@ -3238,7 +3265,7 @@ function NanoNum.lt(a: MathValue, b: MathValue): boolean
 	end
 	if bt == "number" then bx = b :: number; if bx ~= bx then return false end; bdirect = bx ~= huge and bx ~= -huge
 	elseif bt == "buffer" then local bv = b :: buffer
-		local first = bufferReadU8(bv, 0)
+		local first: number = bufferReadU8(bv, 0)
 		if first == 255 then
 			bx = bufferReadF64(bv, 1)
 			bdirect = bx == bx and bx ~= huge and bx ~= -huge
@@ -3250,14 +3277,13 @@ function NanoNum.lt(a: MathValue, b: MathValue): boolean
 			bdirect = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(bv, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(bv, 4, 5)
+			local offset: number = 9
 			if n == 0 then n = 32 + bufferReadBits(bv, offset, 5); offset = 14 end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then magnitude = bufferReadBits(bv, offset, n)
-				elseif n <= 52 then magnitude = bufferReadBits(bv, offset, 26) + bufferReadBits(bv, offset + 26, n - 26) * 67108864
-				else magnitude = bufferReadBits(bv, offset, 26) + bufferReadBits(bv, offset + 26, 26) * 67108864 + bufferReadBits(bv, offset + 52, n - 52) * 4503599627370496 end
+				if n <= 32 then magnitude = bufferReadBits(bv, offset, n)
+				else magnitude = bufferReadBits(bv, offset, 32) + bufferReadBits(bv, offset + 32, n - 32) * 4294967296 end
 				bx = negative and -magnitude or magnitude
 				bdirect = true
 			end
@@ -3274,7 +3300,7 @@ function NanoNum.lte(a: MathValue, b: MathValue): boolean
 	local adirect, bdirect = false, false
 	if at == "number" then ax = a :: number; if ax ~= ax then return false end; adirect = ax ~= huge and ax ~= -huge
 	elseif at == "buffer" then local av = a :: buffer
-		local first = bufferReadU8(av, 0)
+		local first: number = bufferReadU8(av, 0)
 		if first == 255 then
 			ax = bufferReadF64(av, 1)
 			adirect = ax == ax and ax ~= huge and ax ~= -huge
@@ -3286,14 +3312,13 @@ function NanoNum.lte(a: MathValue, b: MathValue): boolean
 			adirect = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(av, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(av, 4, 5)
+			local offset: number = 9
 			if n == 0 then n = 32 + bufferReadBits(av, offset, 5); offset = 14 end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then magnitude = bufferReadBits(av, offset, n)
-				elseif n <= 52 then magnitude = bufferReadBits(av, offset, 26) + bufferReadBits(av, offset + 26, n - 26) * 67108864
-				else magnitude = bufferReadBits(av, offset, 26) + bufferReadBits(av, offset + 26, 26) * 67108864 + bufferReadBits(av, offset + 52, n - 52) * 4503599627370496 end
+				if n <= 32 then magnitude = bufferReadBits(av, offset, n)
+				else magnitude = bufferReadBits(av, offset, 32) + bufferReadBits(av, offset + 32, n - 32) * 4294967296 end
 				ax = negative and -magnitude or magnitude
 				adirect = true
 			end
@@ -3301,7 +3326,7 @@ function NanoNum.lte(a: MathValue, b: MathValue): boolean
 	end
 	if bt == "number" then bx = b :: number; if bx ~= bx then return false end; bdirect = bx ~= huge and bx ~= -huge
 	elseif bt == "buffer" then local bv = b :: buffer
-		local first = bufferReadU8(bv, 0)
+		local first: number = bufferReadU8(bv, 0)
 		if first == 255 then
 			bx = bufferReadF64(bv, 1)
 			bdirect = bx == bx and bx ~= huge and bx ~= -huge
@@ -3313,14 +3338,13 @@ function NanoNum.lte(a: MathValue, b: MathValue): boolean
 			bdirect = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(bv, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(bv, 4, 5)
+			local offset: number = 9
 			if n == 0 then n = 32 + bufferReadBits(bv, offset, 5); offset = 14 end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then magnitude = bufferReadBits(bv, offset, n)
-				elseif n <= 52 then magnitude = bufferReadBits(bv, offset, 26) + bufferReadBits(bv, offset + 26, n - 26) * 67108864
-				else magnitude = bufferReadBits(bv, offset, 26) + bufferReadBits(bv, offset + 26, 26) * 67108864 + bufferReadBits(bv, offset + 52, n - 52) * 4503599627370496 end
+				if n <= 32 then magnitude = bufferReadBits(bv, offset, n)
+				else magnitude = bufferReadBits(bv, offset, 32) + bufferReadBits(bv, offset + 32, n - 32) * 4294967296 end
 				bx = negative and -magnitude or magnitude
 				bdirect = true
 			end
@@ -3337,7 +3361,7 @@ function NanoNum.gt(a: MathValue, b: MathValue): boolean
 	local adirect, bdirect = false, false
 	if at == "number" then ax = a :: number; if ax ~= ax then return false end; adirect = ax ~= huge and ax ~= -huge
 	elseif at == "buffer" then local av = a :: buffer
-		local first = bufferReadU8(av, 0)
+		local first: number = bufferReadU8(av, 0)
 		if first == 255 then
 			ax = bufferReadF64(av, 1)
 			adirect = ax == ax and ax ~= huge and ax ~= -huge
@@ -3349,14 +3373,13 @@ function NanoNum.gt(a: MathValue, b: MathValue): boolean
 			adirect = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(av, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(av, 4, 5)
+			local offset: number = 9
 			if n == 0 then n = 32 + bufferReadBits(av, offset, 5); offset = 14 end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then magnitude = bufferReadBits(av, offset, n)
-				elseif n <= 52 then magnitude = bufferReadBits(av, offset, 26) + bufferReadBits(av, offset + 26, n - 26) * 67108864
-				else magnitude = bufferReadBits(av, offset, 26) + bufferReadBits(av, offset + 26, 26) * 67108864 + bufferReadBits(av, offset + 52, n - 52) * 4503599627370496 end
+				if n <= 32 then magnitude = bufferReadBits(av, offset, n)
+				else magnitude = bufferReadBits(av, offset, 32) + bufferReadBits(av, offset + 32, n - 32) * 4294967296 end
 				ax = negative and -magnitude or magnitude
 				adirect = true
 			end
@@ -3364,7 +3387,7 @@ function NanoNum.gt(a: MathValue, b: MathValue): boolean
 	end
 	if bt == "number" then bx = b :: number; if bx ~= bx then return false end; bdirect = bx ~= huge and bx ~= -huge
 	elseif bt == "buffer" then local bv = b :: buffer
-		local first = bufferReadU8(bv, 0)
+		local first: number = bufferReadU8(bv, 0)
 		if first == 255 then
 			bx = bufferReadF64(bv, 1)
 			bdirect = bx == bx and bx ~= huge and bx ~= -huge
@@ -3376,14 +3399,13 @@ function NanoNum.gt(a: MathValue, b: MathValue): boolean
 			bdirect = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(bv, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(bv, 4, 5)
+			local offset: number = 9
 			if n == 0 then n = 32 + bufferReadBits(bv, offset, 5); offset = 14 end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then magnitude = bufferReadBits(bv, offset, n)
-				elseif n <= 52 then magnitude = bufferReadBits(bv, offset, 26) + bufferReadBits(bv, offset + 26, n - 26) * 67108864
-				else magnitude = bufferReadBits(bv, offset, 26) + bufferReadBits(bv, offset + 26, 26) * 67108864 + bufferReadBits(bv, offset + 52, n - 52) * 4503599627370496 end
+				if n <= 32 then magnitude = bufferReadBits(bv, offset, n)
+				else magnitude = bufferReadBits(bv, offset, 32) + bufferReadBits(bv, offset + 32, n - 32) * 4294967296 end
 				bx = negative and -magnitude or magnitude
 				bdirect = true
 			end
@@ -3400,7 +3422,7 @@ function NanoNum.gte(a: MathValue, b: MathValue): boolean
 	local adirect, bdirect = false, false
 	if at == "number" then ax = a :: number; if ax ~= ax then return false end; adirect = ax ~= huge and ax ~= -huge
 	elseif at == "buffer" then local av = a :: buffer
-		local first = bufferReadU8(av, 0)
+		local first: number = bufferReadU8(av, 0)
 		if first == 255 then
 			ax = bufferReadF64(av, 1)
 			adirect = ax == ax and ax ~= huge and ax ~= -huge
@@ -3412,14 +3434,13 @@ function NanoNum.gte(a: MathValue, b: MathValue): boolean
 			adirect = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(av, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(av, 4, 5)
+			local offset: number = 9
 			if n == 0 then n = 32 + bufferReadBits(av, offset, 5); offset = 14 end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then magnitude = bufferReadBits(av, offset, n)
-				elseif n <= 52 then magnitude = bufferReadBits(av, offset, 26) + bufferReadBits(av, offset + 26, n - 26) * 67108864
-				else magnitude = bufferReadBits(av, offset, 26) + bufferReadBits(av, offset + 26, 26) * 67108864 + bufferReadBits(av, offset + 52, n - 52) * 4503599627370496 end
+				if n <= 32 then magnitude = bufferReadBits(av, offset, n)
+				else magnitude = bufferReadBits(av, offset, 32) + bufferReadBits(av, offset + 32, n - 32) * 4294967296 end
 				ax = negative and -magnitude or magnitude
 				adirect = true
 			end
@@ -3427,7 +3448,7 @@ function NanoNum.gte(a: MathValue, b: MathValue): boolean
 	end
 	if bt == "number" then bx = b :: number; if bx ~= bx then return false end; bdirect = bx ~= huge and bx ~= -huge
 	elseif bt == "buffer" then local bv = b :: buffer
-		local first = bufferReadU8(bv, 0)
+		local first: number = bufferReadU8(bv, 0)
 		if first == 255 then
 			bx = bufferReadF64(bv, 1)
 			bdirect = bx == bx and bx ~= huge and bx ~= -huge
@@ -3439,14 +3460,13 @@ function NanoNum.gte(a: MathValue, b: MathValue): boolean
 			bdirect = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(bv, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(bv, 4, 5)
+			local offset: number = 9
 			if n == 0 then n = 32 + bufferReadBits(bv, offset, 5); offset = 14 end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then magnitude = bufferReadBits(bv, offset, n)
-				elseif n <= 52 then magnitude = bufferReadBits(bv, offset, 26) + bufferReadBits(bv, offset + 26, n - 26) * 67108864
-				else magnitude = bufferReadBits(bv, offset, 26) + bufferReadBits(bv, offset + 26, 26) * 67108864 + bufferReadBits(bv, offset + 52, n - 52) * 4503599627370496 end
+				if n <= 32 then magnitude = bufferReadBits(bv, offset, n)
+				else magnitude = bufferReadBits(bv, offset, 32) + bufferReadBits(bv, offset + 32, n - 32) * 4294967296 end
 				bx = negative and -magnitude or magnitude
 				bdirect = true
 			end
@@ -3468,7 +3488,7 @@ function NanoNum.sign(value: MathValue): number
 	if kind == "buffer" then
 		local data = value :: buffer
 		local x, direct = 0, false
-		local first = bufferReadU8(data, 0)
+		local first: number = bufferReadU8(data, 0)
 		if first == 255 then
 			x = bufferReadF64(data, 1)
 			direct = x == x and x ~= huge and x ~= -huge
@@ -3480,20 +3500,18 @@ function NanoNum.sign(value: MathValue): number
 			direct = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(data, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(data, 4, 5)
+			local offset: number = 9
 			if n == 0 then
 				n = 32 + bufferReadBits(data, offset, 5)
 				offset = 14
 			end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then
+				if n <= 32 then
 					magnitude = bufferReadBits(data, offset, n)
-				elseif n <= 52 then
-					magnitude = bufferReadBits(data, offset, 26) + bufferReadBits(data, offset + 26, n - 26) * 67108864
 				else
-					magnitude = bufferReadBits(data, offset, 26) + bufferReadBits(data, offset + 26, 26) * 67108864 + bufferReadBits(data, offset + 52, n - 52) * 4503599627370496
+					magnitude = bufferReadBits(data, offset, 32) + bufferReadBits(data, offset + 32, n - 32) * 4294967296
 				end
 				x = negative and -magnitude or magnitude
 				direct = true
@@ -3515,7 +3533,7 @@ function NanoNum.neg(value: MathValue): buffer
 		direct = x == x and x ~= huge and x ~= -huge
 	elseif kind == "buffer" then
 		local data = value :: buffer
-		local first = bufferReadU8(data, 0)
+		local first: number = bufferReadU8(data, 0)
 		if first == 255 then
 			x = bufferReadF64(data, 1)
 			direct = x == x and x ~= huge and x ~= -huge
@@ -3527,20 +3545,18 @@ function NanoNum.neg(value: MathValue): buffer
 			direct = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(data, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(data, 4, 5)
+			local offset: number = 9
 			if n == 0 then
 				n = 32 + bufferReadBits(data, offset, 5)
 				offset = 14
 			end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then
+				if n <= 32 then
 					magnitude = bufferReadBits(data, offset, n)
-				elseif n <= 52 then
-					magnitude = bufferReadBits(data, offset, 26) + bufferReadBits(data, offset + 26, n - 26) * 67108864
 				else
-					magnitude = bufferReadBits(data, offset, 26) + bufferReadBits(data, offset + 26, 26) * 67108864 + bufferReadBits(data, offset + 52, n - 52) * 4503599627370496
+					magnitude = bufferReadBits(data, offset, 32) + bufferReadBits(data, offset + 32, n - 32) * 4294967296
 				end
 				x = negative and -magnitude or magnitude
 				direct = true
@@ -3550,57 +3566,7 @@ function NanoNum.neg(value: MathValue): buffer
 	if direct and (true) then
 		local result = -x
 		if result == result and result ~= huge and result ~= -huge then
-			local integral = floor(result)
-			if result == integral then
-				if result >= 0 and result <= 127 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, result * 2)
-					return data
-				end
-				if result < 0 and result >= -64 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, 1 + (-result - 1) * 4)
-					return data
-				end
-				local negative = result < 0
-				local magnitude = negative and -result or result
-				if magnitude <= SAFE_INTEGER then
-					local n = bitsRequired(magnitude)
-					if n <= 31 then
-						local bits = 9 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
-						local header = 3 + (negative and 8 or 0) + n * 16
-						if bits <= 32 then
-							bufferWriteBits(data, 0, bits, header + magnitude * 512)
-						else
-							bufferWriteBits(data, 0, 9, header)
-							if n <= 26 then
-								bufferWriteBits(data, 9, n, magnitude)
-							else
-								bufferWriteBits(data, 9, 26, magnitude % 67108864)
-								bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-							end
-						end
-						return data
-					end
-					local bits = 14 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
-					bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-					bufferWriteBits(data, 14, 26, magnitude % 67108864)
-					local remaining = n - 26
-					if remaining <= 26 then
-						bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-					else
-						bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-						bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-					end
-					return data
-				end
-			end
-			local data = bufferCreate(EXACT_F64_BYTES)
-			bufferWriteU8(data, 0, 255)
-			bufferWriteF64(data, 1, result)
-			return data
+			return encodeNumber(result)
 		end
 	end
 	return coldNeg(value)
@@ -3613,7 +3579,7 @@ function NanoNum.abs(value: MathValue): buffer
 		direct = x == x and x ~= huge and x ~= -huge
 	elseif kind == "buffer" then
 		local data = value :: buffer
-		local first = bufferReadU8(data, 0)
+		local first: number = bufferReadU8(data, 0)
 		if first == 255 then
 			x = bufferReadF64(data, 1)
 			direct = x == x and x ~= huge and x ~= -huge
@@ -3625,20 +3591,18 @@ function NanoNum.abs(value: MathValue): buffer
 			direct = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(data, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(data, 4, 5)
+			local offset: number = 9
 			if n == 0 then
 				n = 32 + bufferReadBits(data, offset, 5)
 				offset = 14
 			end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then
+				if n <= 32 then
 					magnitude = bufferReadBits(data, offset, n)
-				elseif n <= 52 then
-					magnitude = bufferReadBits(data, offset, 26) + bufferReadBits(data, offset + 26, n - 26) * 67108864
 				else
-					magnitude = bufferReadBits(data, offset, 26) + bufferReadBits(data, offset + 26, 26) * 67108864 + bufferReadBits(data, offset + 52, n - 52) * 4503599627370496
+					magnitude = bufferReadBits(data, offset, 32) + bufferReadBits(data, offset + 32, n - 32) * 4294967296
 				end
 				x = negative and -magnitude or magnitude
 				direct = true
@@ -3648,57 +3612,7 @@ function NanoNum.abs(value: MathValue): buffer
 	if direct and (true) then
 		local result = x < 0 and -x or x
 		if result == result and result ~= huge and result ~= -huge then
-			local integral = floor(result)
-			if result == integral then
-				if result >= 0 and result <= 127 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, result * 2)
-					return data
-				end
-				if result < 0 and result >= -64 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, 1 + (-result - 1) * 4)
-					return data
-				end
-				local negative = result < 0
-				local magnitude = negative and -result or result
-				if magnitude <= SAFE_INTEGER then
-					local n = bitsRequired(magnitude)
-					if n <= 31 then
-						local bits = 9 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
-						local header = 3 + (negative and 8 or 0) + n * 16
-						if bits <= 32 then
-							bufferWriteBits(data, 0, bits, header + magnitude * 512)
-						else
-							bufferWriteBits(data, 0, 9, header)
-							if n <= 26 then
-								bufferWriteBits(data, 9, n, magnitude)
-							else
-								bufferWriteBits(data, 9, 26, magnitude % 67108864)
-								bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-							end
-						end
-						return data
-					end
-					local bits = 14 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
-					bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-					bufferWriteBits(data, 14, 26, magnitude % 67108864)
-					local remaining = n - 26
-					if remaining <= 26 then
-						bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-					else
-						bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-						bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-					end
-					return data
-				end
-			end
-			local data = bufferCreate(EXACT_F64_BYTES)
-			bufferWriteU8(data, 0, 255)
-			bufferWriteF64(data, 1, result)
-			return data
+			return encodeNumber(result)
 		end
 	end
 	return coldAbs(value)
@@ -3711,7 +3625,7 @@ function NanoNum.reciprocal(value: MathValue): buffer
 		direct = x == x and x ~= huge and x ~= -huge
 	elseif kind == "buffer" then
 		local data = value :: buffer
-		local first = bufferReadU8(data, 0)
+		local first: number = bufferReadU8(data, 0)
 		if first == 255 then
 			x = bufferReadF64(data, 1)
 			direct = x == x and x ~= huge and x ~= -huge
@@ -3723,20 +3637,18 @@ function NanoNum.reciprocal(value: MathValue): buffer
 			direct = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(data, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(data, 4, 5)
+			local offset: number = 9
 			if n == 0 then
 				n = 32 + bufferReadBits(data, offset, 5)
 				offset = 14
 			end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then
+				if n <= 32 then
 					magnitude = bufferReadBits(data, offset, n)
-				elseif n <= 52 then
-					magnitude = bufferReadBits(data, offset, 26) + bufferReadBits(data, offset + 26, n - 26) * 67108864
 				else
-					magnitude = bufferReadBits(data, offset, 26) + bufferReadBits(data, offset + 26, 26) * 67108864 + bufferReadBits(data, offset + 52, n - 52) * 4503599627370496
+					magnitude = bufferReadBits(data, offset, 32) + bufferReadBits(data, offset + 32, n - 32) * 4294967296
 				end
 				x = negative and -magnitude or magnitude
 				direct = true
@@ -3747,57 +3659,7 @@ function NanoNum.reciprocal(value: MathValue): buffer
 		if x == 0 then return makeSpecial(SPECIAL_POS_INF) end
 		local result = 1 / x
 		if result ~= 0 and result ~= huge and result ~= -huge then
-			local integral = floor(result)
-			if result == integral then
-				if result >= 0 and result <= 127 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, result * 2)
-					return data
-				end
-				if result < 0 and result >= -64 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, 1 + (-result - 1) * 4)
-					return data
-				end
-				local negative = result < 0
-				local magnitude = negative and -result or result
-				if magnitude <= SAFE_INTEGER then
-					local n = bitsRequired(magnitude)
-					if n <= 31 then
-						local bits = 9 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
-						local header = 3 + (negative and 8 or 0) + n * 16
-						if bits <= 32 then
-							bufferWriteBits(data, 0, bits, header + magnitude * 512)
-						else
-							bufferWriteBits(data, 0, 9, header)
-							if n <= 26 then
-								bufferWriteBits(data, 9, n, magnitude)
-							else
-								bufferWriteBits(data, 9, 26, magnitude % 67108864)
-								bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-							end
-						end
-						return data
-					end
-					local bits = 14 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
-					bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-					bufferWriteBits(data, 14, 26, magnitude % 67108864)
-					local remaining = n - 26
-					if remaining <= 26 then
-						bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-					else
-						bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-						bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-					end
-					return data
-				end
-			end
-			local data = bufferCreate(EXACT_F64_BYTES)
-			bufferWriteU8(data, 0, 255)
-			bufferWriteF64(data, 1, result)
-			return data
+			return encodeNumber(result)
 		end
 	end
 	return coldReciprocal(value)
@@ -3815,7 +3677,7 @@ function NanoNum.toNumber(value: MathValue): number
 	if kind == "buffer" then
 		local data = value :: buffer
 		local x, direct = 0, false
-		local first = bufferReadU8(data, 0)
+		local first: number = bufferReadU8(data, 0)
 		if first == 255 then
 			x = bufferReadF64(data, 1)
 			direct = x == x and x ~= huge and x ~= -huge
@@ -3827,20 +3689,18 @@ function NanoNum.toNumber(value: MathValue): number
 			direct = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(data, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(data, 4, 5)
+			local offset: number = 9
 			if n == 0 then
 				n = 32 + bufferReadBits(data, offset, 5)
 				offset = 14
 			end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then
+				if n <= 32 then
 					magnitude = bufferReadBits(data, offset, n)
-				elseif n <= 52 then
-					magnitude = bufferReadBits(data, offset, 26) + bufferReadBits(data, offset + 26, n - 26) * 67108864
 				else
-					magnitude = bufferReadBits(data, offset, 26) + bufferReadBits(data, offset + 26, 26) * 67108864 + bufferReadBits(data, offset + 52, n - 52) * 4503599627370496
+					magnitude = bufferReadBits(data, offset, 32) + bufferReadBits(data, offset + 32, n - 32) * 4294967296
 				end
 				x = negative and -magnitude or magnitude
 				direct = true
@@ -3853,52 +3713,81 @@ end
 function NanoNum.toNumberSafe(value: MathValue): number?
 	local k, a, b = directDecode(value)
 	local n = regToNumber(k, a, b)
-	if n ~= n or n == huge or n == -huge then return nil end
+	if n ~= n or n == huge or n == -huge or (n == 0 and k ~= 0) then return nil end
 	return n
 end
 function NanoNum.isNaN(value: MathValue): boolean
+	-- v2.4.2 primitive fast path: zero allocations and no decoder calls.
+	if typeof(value) == "number" then return value ~= value end
 	local k = decodeReg(value)
 	return abs(k) == K_NAN
 end
 function NanoNum.isInfinite(value: MathValue): boolean
+	-- v2.4.2 primitive fast path: zero allocations and no decoder calls.
+	if typeof(value) == "number" then return value == huge or value == -huge end
 	local k = decodeReg(value)
 	return abs(k) == K_INF
 end
 function NanoNum.isFinite(value: MathValue): boolean
+	-- v2.4.2 primitive fast path: zero allocations and no decoder calls.
+	if typeof(value) == "number" then return value == value and value ~= huge and value ~= -huge end
 	local k = decodeReg(value)
 	return abs(k) ~= K_NAN and abs(k) ~= K_INF
 end
 function NanoNum.isZero(value: MathValue): boolean
+	-- v2.4.2 primitive fast path: zero allocations and no decoder calls.
+	if typeof(value) == "number" then return value == 0 end
 	local k = decodeReg(value)
 	return k == 0
 end
 function NanoNum.isInteger(value: MathValue): boolean
+	-- v2.4.2 primitive fast path: zero allocations and no decoder calls.
+	if typeof(value) == "number" then return value == value and value ~= huge and value ~= -huge and value == floor(value) end
 	local k, a, b = decodeReg(value)
 	return regIsInteger(k, a, b)
 end
 function NanoNum.isOdd(value: MathValue): boolean
+	-- v2.4.2 primitive fast path: zero allocations and no decoder calls.
+	if typeof(value) == "number" then if abs(value) <= SAFE_INTEGER then return value == floor(value) and value % 2 ~= 0 end end
 	local k, a, b = decodeReg(value)
 	return regIsOdd(k, a, b)
 end
 function NanoNum.isEven(value: MathValue): boolean
+	-- v2.4.2 primitive fast path: zero allocations and no decoder calls.
+	if typeof(value) == "number" then if abs(value) <= SAFE_INTEGER then return value == floor(value) and value % 2 == 0 end end
 	local k, a, b = decodeReg(value)
 	return regIsInteger(k, a, b) and not regIsOdd(k, a, b)
 end
 function NanoNum.isPositive(value: MathValue): boolean
+	-- v2.4.2 primitive fast path: zero allocations and no decoder calls.
+	if typeof(value) == "number" then return value > 0 and value == value end
 	local k = directDecode(value)
 	return k > 0 and abs(k) ~= K_NAN
 end
 function NanoNum.isNegative(value: MathValue): boolean
+	-- v2.4.2 primitive fast path: zero allocations and no decoder calls.
+	if typeof(value) == "number" then return value < 0 and value == value end
 	local k = directDecode(value)
 	return k < 0 and abs(k) ~= K_NAN
 end
 function NanoNum.min(a: MathValue, b: MathValue): buffer
+	-- Primitive small-integer fast path: inline one-byte writer, no decode/encode dispatch.
+	if typeof(a) == "number" and typeof(b) == "number" then
+		local x, y = a :: number, b :: number
+		if x == x and y == y and x ~= huge and y ~= huge and x ~= -huge and y ~= -huge then
+			local v = a < b and a or b
+			if v == floor(v) then
+				if v >= 0 and v <= 127 then local data = bufferCreate(1); bufferWriteU8(data, 0, v * 2); return data end
+				if v < 0 and v >= -64 then local data = bufferCreate(1); bufferWriteU8(data, 0, 1 + (-v - 1) * 4); return data end
+			end
+		end
+	end
 	local at, bt = typeof(a), typeof(b)
 	local ax, bx = 0, 0
 	local adirect, bdirect = false, false
 	if at == "number" then ax = a :: number; adirect = ax == ax and ax ~= huge and ax ~= -huge
 	elseif at == "buffer" then local av = a :: buffer
-		local first = bufferReadU8(av, 0)
+		local first: number = bufferReadU8(av, 0)
 		if first == 255 then
 			ax = bufferReadF64(av, 1)
 			adirect = ax == ax and ax ~= huge and ax ~= -huge
@@ -3910,14 +3799,13 @@ function NanoNum.min(a: MathValue, b: MathValue): buffer
 			adirect = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(av, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(av, 4, 5)
+			local offset: number = 9
 			if n == 0 then n = 32 + bufferReadBits(av, offset, 5); offset = 14 end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then magnitude = bufferReadBits(av, offset, n)
-				elseif n <= 52 then magnitude = bufferReadBits(av, offset, 26) + bufferReadBits(av, offset + 26, n - 26) * 67108864
-				else magnitude = bufferReadBits(av, offset, 26) + bufferReadBits(av, offset + 26, 26) * 67108864 + bufferReadBits(av, offset + 52, n - 52) * 4503599627370496 end
+				if n <= 32 then magnitude = bufferReadBits(av, offset, n)
+				else magnitude = bufferReadBits(av, offset, 32) + bufferReadBits(av, offset + 32, n - 32) * 4294967296 end
 				ax = negative and -magnitude or magnitude
 				adirect = true
 			end
@@ -3925,7 +3813,7 @@ function NanoNum.min(a: MathValue, b: MathValue): buffer
 	end
 	if bt == "number" then bx = b :: number; bdirect = bx == bx and bx ~= huge and bx ~= -huge
 	elseif bt == "buffer" then local bv = b :: buffer
-		local first = bufferReadU8(bv, 0)
+		local first: number = bufferReadU8(bv, 0)
 		if first == 255 then
 			bx = bufferReadF64(bv, 1)
 			bdirect = bx == bx and bx ~= huge and bx ~= -huge
@@ -3937,14 +3825,13 @@ function NanoNum.min(a: MathValue, b: MathValue): buffer
 			bdirect = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(bv, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(bv, 4, 5)
+			local offset: number = 9
 			if n == 0 then n = 32 + bufferReadBits(bv, offset, 5); offset = 14 end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then magnitude = bufferReadBits(bv, offset, n)
-				elseif n <= 52 then magnitude = bufferReadBits(bv, offset, 26) + bufferReadBits(bv, offset + 26, n - 26) * 67108864
-				else magnitude = bufferReadBits(bv, offset, 26) + bufferReadBits(bv, offset + 26, 26) * 67108864 + bufferReadBits(bv, offset + 52, n - 52) * 4503599627370496 end
+				if n <= 32 then magnitude = bufferReadBits(bv, offset, n)
+				else magnitude = bufferReadBits(bv, offset, 32) + bufferReadBits(bv, offset + 32, n - 32) * 4294967296 end
 				bx = negative and -magnitude or magnitude
 				bdirect = true
 			end
@@ -3952,40 +3839,7 @@ function NanoNum.min(a: MathValue, b: MathValue): buffer
 	end
 	if adirect and bdirect then
 		local value = ax <= bx and ax or bx
-		local integral = floor(value)
-		if value == integral then
-			if value >= 0 and value <= 127 then local data = bufferCreate(1); bufferWriteU8(data, 0, value * 2); return data end
-			if value < 0 and value >= -64 then local data = bufferCreate(1); bufferWriteU8(data, 0, 1 + (-value - 1) * 4); return data end
-			local negative = value < 0
-			local magnitude = negative and -value or value
-			if magnitude <= SAFE_INTEGER then
-				local n = bitsRequired(magnitude)
-				if n <= 31 then
-					local bits = 9 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
-					local header = 3 + (negative and 8 or 0) + n * 16
-					if bits <= 32 then bufferWriteBits(data, 0, bits, header + magnitude * 512)
-					else
-						bufferWriteBits(data, 0, 9, header)
-						if n <= 26 then bufferWriteBits(data, 9, n, magnitude)
-						else bufferWriteBits(data, 9, 26, magnitude % 67108864); bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864)) end
-					end
-					return data
-				end
-				local bits = 14 + n
-				local data = bufferCreate(floor((bits + 7) / 8))
-				bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-				bufferWriteBits(data, 14, 26, magnitude % 67108864)
-				local remaining = n - 26
-				if remaining <= 26 then bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-				else bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864); bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496)) end
-				return data
-			end
-		end
-		local data = bufferCreate(EXACT_F64_BYTES)
-		bufferWriteU8(data, 0, 255)
-		bufferWriteF64(data, 1, value)
-		return data
+		return encodeNumber(value)
 	end
 	local ak, aa, ab = directDecode(a)
 	local bk, ba, bb = directDecode(b)
@@ -3994,12 +3848,23 @@ function NanoNum.min(a: MathValue, b: MathValue): buffer
 	return encodeReg(bk, ba, bb)
 end
 function NanoNum.max(a: MathValue, b: MathValue): buffer
+	-- Primitive small-integer fast path: inline one-byte writer, no decode/encode dispatch.
+	if typeof(a) == "number" and typeof(b) == "number" then
+		local x, y = a :: number, b :: number
+		if x == x and y == y and x ~= huge and y ~= huge and x ~= -huge and y ~= -huge then
+			local v = a > b and a or b
+			if v == floor(v) then
+				if v >= 0 and v <= 127 then local data = bufferCreate(1); bufferWriteU8(data, 0, v * 2); return data end
+				if v < 0 and v >= -64 then local data = bufferCreate(1); bufferWriteU8(data, 0, 1 + (-v - 1) * 4); return data end
+			end
+		end
+	end
 	local at, bt = typeof(a), typeof(b)
 	local ax, bx = 0, 0
 	local adirect, bdirect = false, false
 	if at == "number" then ax = a :: number; adirect = ax == ax and ax ~= huge and ax ~= -huge
 	elseif at == "buffer" then local av = a :: buffer
-		local first = bufferReadU8(av, 0)
+		local first: number = bufferReadU8(av, 0)
 		if first == 255 then
 			ax = bufferReadF64(av, 1)
 			adirect = ax == ax and ax ~= huge and ax ~= -huge
@@ -4011,14 +3876,13 @@ function NanoNum.max(a: MathValue, b: MathValue): buffer
 			adirect = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(av, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(av, 4, 5)
+			local offset: number = 9
 			if n == 0 then n = 32 + bufferReadBits(av, offset, 5); offset = 14 end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then magnitude = bufferReadBits(av, offset, n)
-				elseif n <= 52 then magnitude = bufferReadBits(av, offset, 26) + bufferReadBits(av, offset + 26, n - 26) * 67108864
-				else magnitude = bufferReadBits(av, offset, 26) + bufferReadBits(av, offset + 26, 26) * 67108864 + bufferReadBits(av, offset + 52, n - 52) * 4503599627370496 end
+				if n <= 32 then magnitude = bufferReadBits(av, offset, n)
+				else magnitude = bufferReadBits(av, offset, 32) + bufferReadBits(av, offset + 32, n - 32) * 4294967296 end
 				ax = negative and -magnitude or magnitude
 				adirect = true
 			end
@@ -4026,7 +3890,7 @@ function NanoNum.max(a: MathValue, b: MathValue): buffer
 	end
 	if bt == "number" then bx = b :: number; bdirect = bx == bx and bx ~= huge and bx ~= -huge
 	elseif bt == "buffer" then local bv = b :: buffer
-		local first = bufferReadU8(bv, 0)
+		local first: number = bufferReadU8(bv, 0)
 		if first == 255 then
 			bx = bufferReadF64(bv, 1)
 			bdirect = bx == bx and bx ~= huge and bx ~= -huge
@@ -4038,14 +3902,13 @@ function NanoNum.max(a: MathValue, b: MathValue): buffer
 			bdirect = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(bv, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(bv, 4, 5)
+			local offset: number = 9
 			if n == 0 then n = 32 + bufferReadBits(bv, offset, 5); offset = 14 end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then magnitude = bufferReadBits(bv, offset, n)
-				elseif n <= 52 then magnitude = bufferReadBits(bv, offset, 26) + bufferReadBits(bv, offset + 26, n - 26) * 67108864
-				else magnitude = bufferReadBits(bv, offset, 26) + bufferReadBits(bv, offset + 26, 26) * 67108864 + bufferReadBits(bv, offset + 52, n - 52) * 4503599627370496 end
+				if n <= 32 then magnitude = bufferReadBits(bv, offset, n)
+				else magnitude = bufferReadBits(bv, offset, 32) + bufferReadBits(bv, offset + 32, n - 32) * 4294967296 end
 				bx = negative and -magnitude or magnitude
 				bdirect = true
 			end
@@ -4053,40 +3916,7 @@ function NanoNum.max(a: MathValue, b: MathValue): buffer
 	end
 	if adirect and bdirect then
 		local value = ax >= bx and ax or bx
-		local integral = floor(value)
-		if value == integral then
-			if value >= 0 and value <= 127 then local data = bufferCreate(1); bufferWriteU8(data, 0, value * 2); return data end
-			if value < 0 and value >= -64 then local data = bufferCreate(1); bufferWriteU8(data, 0, 1 + (-value - 1) * 4); return data end
-			local negative = value < 0
-			local magnitude = negative and -value or value
-			if magnitude <= SAFE_INTEGER then
-				local n = bitsRequired(magnitude)
-				if n <= 31 then
-					local bits = 9 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
-					local header = 3 + (negative and 8 or 0) + n * 16
-					if bits <= 32 then bufferWriteBits(data, 0, bits, header + magnitude * 512)
-					else
-						bufferWriteBits(data, 0, 9, header)
-						if n <= 26 then bufferWriteBits(data, 9, n, magnitude)
-						else bufferWriteBits(data, 9, 26, magnitude % 67108864); bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864)) end
-					end
-					return data
-				end
-				local bits = 14 + n
-				local data = bufferCreate(floor((bits + 7) / 8))
-				bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-				bufferWriteBits(data, 14, 26, magnitude % 67108864)
-				local remaining = n - 26
-				if remaining <= 26 then bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-				else bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864); bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496)) end
-				return data
-			end
-		end
-		local data = bufferCreate(EXACT_F64_BYTES)
-		bufferWriteU8(data, 0, 255)
-		bufferWriteF64(data, 1, value)
-		return data
+		return encodeNumber(value)
 	end
 	local ak, aa, ab = directDecode(a)
 	local bk, ba, bb = directDecode(b)
@@ -4106,7 +3936,15 @@ function NanoNum.clamp(value: MathValue, low: MathValue, high: MathValue): buffe
 end
 function NanoNum.clamp01(value: MathValue): buffer return NanoNum.clamp(value, 0, 1) end
 function NanoNum.floor(value: MathValue): buffer
+	-- Direct finite number kernel: one-byte or exact-f64 encoding without register decoding.
+	if typeof(value) == "number" and value == value and value ~= huge and value ~= -huge then
+		local n = floor(value)
+		if n >= 0 and n <= 127 then local data = bufferCreate(1); bufferWriteU8(data, 0, n * 2); return data end
+		if n < 0 and n >= -64 then local data = bufferCreate(1); bufferWriteU8(data, 0, 1 + (-n - 1) * 4); return data end
+		-- Preserve original encoding for larger integers through existing path.
+	end
 	local k, a, b = decodeReg(value)
+	if abs(k) >= K_LOG and abs(k) <= K_HYPER_LAYER and a < 0 then return NanoNum.fromNumber(k < 0 and -1 or 0) end
 	local n = regToNumber(k, a, b)
 	if n == n and n ~= huge and n ~= -huge then return NanoNum.fromNumber(floor(n)) end
 	if abs(k) == K_LOG or abs(k) == K_LAYER or abs(k) == K_LAYER_LOG or abs(k) == K_HYPER_LAYER then
@@ -4116,7 +3954,15 @@ function NanoNum.floor(value: MathValue): buffer
 	return encodeReg(k, a, b)
 end
 function NanoNum.ceil(value: MathValue): buffer
+	-- Direct finite number kernel: one-byte or exact-f64 encoding without register decoding.
+	if typeof(value) == "number" and value == value and value ~= huge and value ~= -huge then
+		local n = ceil(value)
+		if n >= 0 and n <= 127 then local data = bufferCreate(1); bufferWriteU8(data, 0, n * 2); return data end
+		if n < 0 and n >= -64 then local data = bufferCreate(1); bufferWriteU8(data, 0, 1 + (-n - 1) * 4); return data end
+		-- Preserve original encoding for larger integers through existing path.
+	end
 	local k, a, b = decodeReg(value)
+	if abs(k) >= K_LOG and abs(k) <= K_HYPER_LAYER and a < 0 then return NanoNum.fromNumber(k < 0 and 0 or 1) end
 	local n = regToNumber(k, a, b)
 	if n == n and n ~= huge and n ~= -huge then return NanoNum.fromNumber(ceil(n)) end
 	if abs(k) == K_LOG or abs(k) == K_LAYER or abs(k) == K_LAYER_LOG or abs(k) == K_HYPER_LAYER then
@@ -4126,6 +3972,13 @@ function NanoNum.ceil(value: MathValue): buffer
 	return encodeReg(k, a, b)
 end
 function NanoNum.trunc(value: MathValue): buffer
+	-- Direct finite number kernel: one-byte or exact-f64 encoding without register decoding.
+	if typeof(value) == "number" and value == value and value ~= huge and value ~= -huge then
+		local n = value < 0 and ceil(value) or floor(value)
+		if n >= 0 and n <= 127 then local data = bufferCreate(1); bufferWriteU8(data, 0, n * 2); return data end
+		if n < 0 and n >= -64 then local data = bufferCreate(1); bufferWriteU8(data, 0, 1 + (-n - 1) * 4); return data end
+		-- Preserve original encoding for larger integers through existing path.
+	end
 	local k, a, b = decodeReg(value)
 	local n = regToNumber(k, a, b)
 	if n == n and n ~= huge and n ~= -huge then return NanoNum.fromNumber(n < 0 and ceil(n) or floor(n)) end
@@ -4140,25 +3993,26 @@ end
 function NanoNum.round(value: MathValue, decimals: number?): buffer
 	local places = decimals or 0
 	if places ~= floor(places) or places < -308 or places > 308 then return makeSpecial(SPECIAL_NAN) end
-	local k, a, b = directDecode(value)
-	local n = regToNumber(k, a, b)
-	if n == n and n ~= huge and n ~= -huge then
+	if typeof(value) == "string" then value = NanoNum.fromString(value :: string) end
+	local n = directFiniteNumber(value)
+	if n ~= nil then
 		if n == 0 then return NanoNum.fromNumber(0) end
-		if places == 0 then return NanoNum.fromNumber(n >= 0 and floor(n + 0.001) or ceil(n - 0.5)) end
+		if places == 0 then return NanoNum.fromNumber(math.round(n)) end
 		if places > 0 then
 			local scale = places <= 12 and POW10_DECIMAL[places + 1] or 10 ^ places
-			if abs(n) > huge / scale then return NanoNum.fromNumber(n) end
 			local scaled = n * scale
-			local rounded = scaled >= 0 and floor(scaled + 0.001) or ceil(scaled - 0.5)
+			if scaled == huge or scaled == -huge then return NanoNum.fromNumber(n) end
+			local rounded = math.round(scaled)
 			return NanoNum.fromNumber(rounded / scale)
 		end
 		local digits = -places
 		local scale = digits <= 12 and POW10_DECIMAL[digits + 1] or 10 ^ digits
 		local scaled = n / scale
-		local rounded = scaled >= 0 and floor(scaled + 0.001) or ceil(scaled - 0.5)
+		local rounded = math.round(scaled)
 		if rounded ~= 0 and abs(rounded) > huge / scale then return NanoNum.fromLog10(log10(abs(rounded)) - places, rounded < 0) end
 		return NanoNum.fromNumber(rounded * scale)
 	end
+	local k, a, b = directDecode(value)
 	if abs(k) == K_LOG or abs(k) == K_LAYER or abs(k) == K_LAYER_LOG or abs(k) == K_HYPER_LAYER then
 		if a < 0 then return NanoNum.fromNumber(0) end
 		return encodeReg(k, a, b)
@@ -4178,6 +4032,7 @@ function NanoNum.frac(value: MathValue): buffer
 	return makeSpecial(SPECIAL_NAN)
 end
 local function exactInteger(value: MathValue): number?
+	if typeof(value) == "string" then value = NanoNum.fromString(value :: string) end
 	local x = directFiniteNumber(value)
 	if x ~= nil and x == floor(x) and abs(x) <= SAFE_INTEGER then return x end
 	return nil
@@ -4201,8 +4056,7 @@ function NanoNum.fmod(a: MathValue, b: MathValue): buffer
 	local x = regToNumber(ak, aa, ab)
 	local y = regToNumber(bk, ba, bb)
 	if x == x and y == y and x ~= huge and x ~= -huge and y ~= huge and y ~= -huge and y ~= 0 then
-		local r = x % y
-		if r ~= 0 and ((r < 0) ~= (x < 0)) then r -= y end
+		local r = math.fmod(x, y)
 		return NanoNum.fromNumber(r)
 	end
 	return makeSpecial(SPECIAL_NAN)
@@ -4218,7 +4072,7 @@ function NanoNum.divmod(a: MathValue, b: MathValue): (buffer, buffer)
 	local y = regToNumber(bk, ba, bb)
 	if x == x and y == y and x ~= huge and x ~= -huge and y ~= huge and y ~= -huge and y ~= 0 then
 		local r = x % y
-		local q = (x - r) / y
+		local q: number = floor(x / y)
 		return NanoNum.fromNumber(q), NanoNum.fromNumber(r)
 	end
 	local nan = makeSpecial(SPECIAL_NAN)
@@ -4232,7 +4086,7 @@ function NanoNum.log10(value: MathValue): buffer
 		direct = x == x and x ~= huge and x ~= -huge
 	elseif kind == "buffer" then
 		local data = value :: buffer
-		local first = bufferReadU8(data, 0)
+		local first: number = bufferReadU8(data, 0)
 		if first == 255 then
 			x = bufferReadF64(data, 1)
 			direct = x == x and x ~= huge and x ~= -huge
@@ -4244,20 +4098,18 @@ function NanoNum.log10(value: MathValue): buffer
 			direct = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(data, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(data, 4, 5)
+			local offset: number = 9
 			if n == 0 then
 				n = 32 + bufferReadBits(data, offset, 5)
 				offset = 14
 			end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then
+				if n <= 32 then
 					magnitude = bufferReadBits(data, offset, n)
-				elseif n <= 52 then
-					magnitude = bufferReadBits(data, offset, 26) + bufferReadBits(data, offset + 26, n - 26) * 67108864
 				else
-					magnitude = bufferReadBits(data, offset, 26) + bufferReadBits(data, offset + 26, 26) * 67108864 + bufferReadBits(data, offset + 52, n - 52) * 4503599627370496
+					magnitude = bufferReadBits(data, offset, 32) + bufferReadBits(data, offset + 32, n - 32) * 4294967296
 				end
 				x = negative and -magnitude or magnitude
 				direct = true
@@ -4265,59 +4117,9 @@ function NanoNum.log10(value: MathValue): buffer
 		end
 	end
 	if direct and (x > 0) then
-		local result = log10(x)
+		local result: number = log10(x)
 		if result == result and result ~= huge and result ~= -huge and (result ~= 0 or x == 1) then
-			local integral = floor(result)
-			if result == integral then
-				if result >= 0 and result <= 127 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, result * 2)
-					return data
-				end
-				if result < 0 and result >= -64 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, 1 + (-result - 1) * 4)
-					return data
-				end
-				local negative = result < 0
-				local magnitude = negative and -result or result
-				if magnitude <= SAFE_INTEGER then
-					local n = bitsRequired(magnitude)
-					if n <= 31 then
-						local bits = 9 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
-						local header = 3 + (negative and 8 or 0) + n * 16
-						if bits <= 32 then
-							bufferWriteBits(data, 0, bits, header + magnitude * 512)
-						else
-							bufferWriteBits(data, 0, 9, header)
-							if n <= 26 then
-								bufferWriteBits(data, 9, n, magnitude)
-							else
-								bufferWriteBits(data, 9, 26, magnitude % 67108864)
-								bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-							end
-						end
-						return data
-					end
-					local bits = 14 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
-					bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-					bufferWriteBits(data, 14, 26, magnitude % 67108864)
-					local remaining = n - 26
-					if remaining <= 26 then
-						bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-					else
-						bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-						bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-					end
-					return data
-				end
-			end
-			local data = bufferCreate(EXACT_F64_BYTES)
-			bufferWriteU8(data, 0, 255)
-			bufferWriteF64(data, 1, result)
-			return data
+			return encodeNumber(result)
 		end
 	end
 	return coldLog10(value)
@@ -4330,7 +4132,7 @@ function NanoNum.ln(value: MathValue): buffer
 		direct = x == x and x ~= huge and x ~= -huge
 	elseif kind == "buffer" then
 		local data = value :: buffer
-		local first = bufferReadU8(data, 0)
+		local first: number = bufferReadU8(data, 0)
 		if first == 255 then
 			x = bufferReadF64(data, 1)
 			direct = x == x and x ~= huge and x ~= -huge
@@ -4342,20 +4144,18 @@ function NanoNum.ln(value: MathValue): buffer
 			direct = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(data, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(data, 4, 5)
+			local offset: number = 9
 			if n == 0 then
 				n = 32 + bufferReadBits(data, offset, 5)
 				offset = 14
 			end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then
+				if n <= 32 then
 					magnitude = bufferReadBits(data, offset, n)
-				elseif n <= 52 then
-					magnitude = bufferReadBits(data, offset, 26) + bufferReadBits(data, offset + 26, n - 26) * 67108864
 				else
-					magnitude = bufferReadBits(data, offset, 26) + bufferReadBits(data, offset + 26, 26) * 67108864 + bufferReadBits(data, offset + 52, n - 52) * 4503599627370496
+					magnitude = bufferReadBits(data, offset, 32) + bufferReadBits(data, offset + 32, n - 32) * 4294967296
 				end
 				x = negative and -magnitude or magnitude
 				direct = true
@@ -4363,59 +4163,9 @@ function NanoNum.ln(value: MathValue): buffer
 		end
 	end
 	if direct and (x > 0) then
-		local result = log(x)
+		local result: number = log(x)
 		if result == result and result ~= huge and result ~= -huge and (result ~= 0 or x == 1) then
-			local integral = floor(result)
-			if result == integral then
-				if result >= 0 and result <= 127 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, result * 2)
-					return data
-				end
-				if result < 0 and result >= -64 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, 1 + (-result - 1) * 4)
-					return data
-				end
-				local negative = result < 0
-				local magnitude = negative and -result or result
-				if magnitude <= SAFE_INTEGER then
-					local n = bitsRequired(magnitude)
-					if n <= 31 then
-						local bits = 9 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
-						local header = 3 + (negative and 8 or 0) + n * 16
-						if bits <= 32 then
-							bufferWriteBits(data, 0, bits, header + magnitude * 512)
-						else
-							bufferWriteBits(data, 0, 9, header)
-							if n <= 26 then
-								bufferWriteBits(data, 9, n, magnitude)
-							else
-								bufferWriteBits(data, 9, 26, magnitude % 67108864)
-								bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-							end
-						end
-						return data
-					end
-					local bits = 14 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
-					bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-					bufferWriteBits(data, 14, 26, magnitude % 67108864)
-					local remaining = n - 26
-					if remaining <= 26 then
-						bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-					else
-						bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-						bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-					end
-					return data
-				end
-			end
-			local data = bufferCreate(EXACT_F64_BYTES)
-			bufferWriteU8(data, 0, 255)
-			bufferWriteF64(data, 1, result)
-			return data
+			return encodeNumber(result)
 		end
 	end
 	return coldLn(value)
@@ -4444,7 +4194,7 @@ function NanoNum.log2(value: MathValue): buffer
 		direct = x == x and x ~= huge and x ~= -huge
 	elseif kind == "buffer" then
 		local data = value :: buffer
-		local first = bufferReadU8(data, 0)
+		local first: number = bufferReadU8(data, 0)
 		if first == 255 then
 			x = bufferReadF64(data, 1)
 			direct = x == x and x ~= huge and x ~= -huge
@@ -4456,20 +4206,18 @@ function NanoNum.log2(value: MathValue): buffer
 			direct = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(data, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(data, 4, 5)
+			local offset: number = 9
 			if n == 0 then
 				n = 32 + bufferReadBits(data, offset, 5)
 				offset = 14
 			end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then
+				if n <= 32 then
 					magnitude = bufferReadBits(data, offset, n)
-				elseif n <= 52 then
-					magnitude = bufferReadBits(data, offset, 26) + bufferReadBits(data, offset + 26, n - 26) * 67108864
 				else
-					magnitude = bufferReadBits(data, offset, 26) + bufferReadBits(data, offset + 26, 26) * 67108864 + bufferReadBits(data, offset + 52, n - 52) * 4503599627370496
+					magnitude = bufferReadBits(data, offset, 32) + bufferReadBits(data, offset + 32, n - 32) * 4294967296
 				end
 				x = negative and -magnitude or magnitude
 				direct = true
@@ -4477,59 +4225,9 @@ function NanoNum.log2(value: MathValue): buffer
 		end
 	end
 	if direct and (x > 0) then
-		local result = log(x, 2)
+		local result: number = log(x, 2)
 		if result == result and result ~= huge and result ~= -huge and (result ~= 0 or x == 1) then
-			local integral = floor(result)
-			if result == integral then
-				if result >= 0 and result <= 127 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, result * 2)
-					return data
-				end
-				if result < 0 and result >= -64 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, 1 + (-result - 1) * 4)
-					return data
-				end
-				local negative = result < 0
-				local magnitude = negative and -result or result
-				if magnitude <= SAFE_INTEGER then
-					local n = bitsRequired(magnitude)
-					if n <= 31 then
-						local bits = 9 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
-						local header = 3 + (negative and 8 or 0) + n * 16
-						if bits <= 32 then
-							bufferWriteBits(data, 0, bits, header + magnitude * 512)
-						else
-							bufferWriteBits(data, 0, 9, header)
-							if n <= 26 then
-								bufferWriteBits(data, 9, n, magnitude)
-							else
-								bufferWriteBits(data, 9, 26, magnitude % 67108864)
-								bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-							end
-						end
-						return data
-					end
-					local bits = 14 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
-					bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-					bufferWriteBits(data, 14, 26, magnitude % 67108864)
-					local remaining = n - 26
-					if remaining <= 26 then
-						bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-					else
-						bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-						bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-					end
-					return data
-				end
-			end
-			local data = bufferCreate(EXACT_F64_BYTES)
-			bufferWriteU8(data, 0, 255)
-			bufferWriteF64(data, 1, result)
-			return data
+			return encodeNumber(result)
 		end
 	end
 	return coldLog2(value)
@@ -4561,7 +4259,7 @@ function NanoNum.exp(value: MathValue): buffer
 		direct = x == x and x ~= huge and x ~= -huge
 	elseif kind == "buffer" then
 		local data = value :: buffer
-		local first = bufferReadU8(data, 0)
+		local first: number = bufferReadU8(data, 0)
 		if first == 255 then
 			x = bufferReadF64(data, 1)
 			direct = x == x and x ~= huge and x ~= -huge
@@ -4573,20 +4271,18 @@ function NanoNum.exp(value: MathValue): buffer
 			direct = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(data, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(data, 4, 5)
+			local offset: number = 9
 			if n == 0 then
 				n = 32 + bufferReadBits(data, offset, 5)
 				offset = 14
 			end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then
+				if n <= 32 then
 					magnitude = bufferReadBits(data, offset, n)
-				elseif n <= 52 then
-					magnitude = bufferReadBits(data, offset, 26) + bufferReadBits(data, offset + 26, n - 26) * 67108864
 				else
-					magnitude = bufferReadBits(data, offset, 26) + bufferReadBits(data, offset + 26, 26) * 67108864 + bufferReadBits(data, offset + 52, n - 52) * 4503599627370496
+					magnitude = bufferReadBits(data, offset, 32) + bufferReadBits(data, offset + 32, n - 32) * 4294967296
 				end
 				x = negative and -magnitude or magnitude
 				direct = true
@@ -4594,59 +4290,9 @@ function NanoNum.exp(value: MathValue): buffer
 		end
 	end
 	if direct and (true) then
-		local result = exp(x)
+		local result: number = exp(x)
 		if result == result and result ~= huge and result ~= -huge and result ~= 0 then
-			local integral = floor(result)
-			if result == integral then
-				if result >= 0 and result <= 127 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, result * 2)
-					return data
-				end
-				if result < 0 and result >= -64 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, 1 + (-result - 1) * 4)
-					return data
-				end
-				local negative = result < 0
-				local magnitude = negative and -result or result
-				if magnitude <= SAFE_INTEGER then
-					local n = bitsRequired(magnitude)
-					if n <= 31 then
-						local bits = 9 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
-						local header = 3 + (negative and 8 or 0) + n * 16
-						if bits <= 32 then
-							bufferWriteBits(data, 0, bits, header + magnitude * 512)
-						else
-							bufferWriteBits(data, 0, 9, header)
-							if n <= 26 then
-								bufferWriteBits(data, 9, n, magnitude)
-							else
-								bufferWriteBits(data, 9, 26, magnitude % 67108864)
-								bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-							end
-						end
-						return data
-					end
-					local bits = 14 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
-					bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-					bufferWriteBits(data, 14, 26, magnitude % 67108864)
-					local remaining = n - 26
-					if remaining <= 26 then
-						bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-					else
-						bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-						bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-					end
-					return data
-				end
-			end
-			local data = bufferCreate(EXACT_F64_BYTES)
-			bufferWriteU8(data, 0, 255)
-			bufferWriteF64(data, 1, result)
-			return data
+			return encodeNumber(result)
 		end
 	end
 	return coldExp(value)
@@ -4659,7 +4305,7 @@ function NanoNum.exp2(value: MathValue): buffer
 		direct = x == x and x ~= huge and x ~= -huge
 	elseif kind == "buffer" then
 		local data = value :: buffer
-		local first = bufferReadU8(data, 0)
+		local first: number = bufferReadU8(data, 0)
 		if first == 255 then
 			x = bufferReadF64(data, 1)
 			direct = x == x and x ~= huge and x ~= -huge
@@ -4671,20 +4317,18 @@ function NanoNum.exp2(value: MathValue): buffer
 			direct = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(data, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(data, 4, 5)
+			local offset: number = 9
 			if n == 0 then
 				n = 32 + bufferReadBits(data, offset, 5)
 				offset = 14
 			end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then
+				if n <= 32 then
 					magnitude = bufferReadBits(data, offset, n)
-				elseif n <= 52 then
-					magnitude = bufferReadBits(data, offset, 26) + bufferReadBits(data, offset + 26, n - 26) * 67108864
 				else
-					magnitude = bufferReadBits(data, offset, 26) + bufferReadBits(data, offset + 26, 26) * 67108864 + bufferReadBits(data, offset + 52, n - 52) * 4503599627370496
+					magnitude = bufferReadBits(data, offset, 32) + bufferReadBits(data, offset + 32, n - 32) * 4294967296
 				end
 				x = negative and -magnitude or magnitude
 				direct = true
@@ -4694,57 +4338,7 @@ function NanoNum.exp2(value: MathValue): buffer
 	if direct and (true) then
 		local result = 2 ^ x
 		if result == result and result ~= huge and result ~= -huge and result ~= 0 then
-			local integral = floor(result)
-			if result == integral then
-				if result >= 0 and result <= 127 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, result * 2)
-					return data
-				end
-				if result < 0 and result >= -64 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, 1 + (-result - 1) * 4)
-					return data
-				end
-				local negative = result < 0
-				local magnitude = negative and -result or result
-				if magnitude <= SAFE_INTEGER then
-					local n = bitsRequired(magnitude)
-					if n <= 31 then
-						local bits = 9 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
-						local header = 3 + (negative and 8 or 0) + n * 16
-						if bits <= 32 then
-							bufferWriteBits(data, 0, bits, header + magnitude * 512)
-						else
-							bufferWriteBits(data, 0, 9, header)
-							if n <= 26 then
-								bufferWriteBits(data, 9, n, magnitude)
-							else
-								bufferWriteBits(data, 9, 26, magnitude % 67108864)
-								bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-							end
-						end
-						return data
-					end
-					local bits = 14 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
-					bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-					bufferWriteBits(data, 14, 26, magnitude % 67108864)
-					local remaining = n - 26
-					if remaining <= 26 then
-						bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-					else
-						bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-						bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-					end
-					return data
-				end
-			end
-			local data = bufferCreate(EXACT_F64_BYTES)
-			bufferWriteU8(data, 0, 255)
-			bufferWriteF64(data, 1, result)
-			return data
+			return encodeNumber(result)
 		end
 	end
 	return coldExp2(value)
@@ -4792,7 +4386,7 @@ function NanoNum.sqrt(value: MathValue): buffer
 		direct = x == x and x ~= huge and x ~= -huge
 	elseif kind == "buffer" then
 		local data = value :: buffer
-		local first = bufferReadU8(data, 0)
+		local first: number = bufferReadU8(data, 0)
 		if first == 255 then
 			x = bufferReadF64(data, 1)
 			direct = x == x and x ~= huge and x ~= -huge
@@ -4804,20 +4398,18 @@ function NanoNum.sqrt(value: MathValue): buffer
 			direct = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(data, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(data, 4, 5)
+			local offset: number = 9
 			if n == 0 then
 				n = 32 + bufferReadBits(data, offset, 5)
 				offset = 14
 			end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then
+				if n <= 32 then
 					magnitude = bufferReadBits(data, offset, n)
-				elseif n <= 52 then
-					magnitude = bufferReadBits(data, offset, 26) + bufferReadBits(data, offset + 26, n - 26) * 67108864
 				else
-					magnitude = bufferReadBits(data, offset, 26) + bufferReadBits(data, offset + 26, 26) * 67108864 + bufferReadBits(data, offset + 52, n - 52) * 4503599627370496
+					magnitude = bufferReadBits(data, offset, 32) + bufferReadBits(data, offset + 32, n - 32) * 4294967296
 				end
 				x = negative and -magnitude or magnitude
 				direct = true
@@ -4825,59 +4417,9 @@ function NanoNum.sqrt(value: MathValue): buffer
 		end
 	end
 	if direct and (x >= 0) then
-		local result = sqrt(x)
+		local result: number = sqrt(x)
 		if result == result and result ~= huge and result ~= -huge and (result ~= 0 or x == 0) then
-			local integral = floor(result)
-			if result == integral then
-				if result >= 0 and result <= 127 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, result * 2)
-					return data
-				end
-				if result < 0 and result >= -64 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, 1 + (-result - 1) * 4)
-					return data
-				end
-				local negative = result < 0
-				local magnitude = negative and -result or result
-				if magnitude <= SAFE_INTEGER then
-					local n = bitsRequired(magnitude)
-					if n <= 31 then
-						local bits = 9 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
-						local header = 3 + (negative and 8 or 0) + n * 16
-						if bits <= 32 then
-							bufferWriteBits(data, 0, bits, header + magnitude * 512)
-						else
-							bufferWriteBits(data, 0, 9, header)
-							if n <= 26 then
-								bufferWriteBits(data, 9, n, magnitude)
-							else
-								bufferWriteBits(data, 9, 26, magnitude % 67108864)
-								bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-							end
-						end
-						return data
-					end
-					local bits = 14 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
-					bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-					bufferWriteBits(data, 14, 26, magnitude % 67108864)
-					local remaining = n - 26
-					if remaining <= 26 then
-						bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-					else
-						bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-						bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-					end
-					return data
-				end
-			end
-			local data = bufferCreate(EXACT_F64_BYTES)
-			bufferWriteU8(data, 0, 255)
-			bufferWriteF64(data, 1, result)
-			return data
+			return encodeNumber(result)
 		end
 	end
 	return coldSqrt(value)
@@ -4890,7 +4432,7 @@ function NanoNum.cbrt(value: MathValue): buffer
 		direct = x == x and x ~= huge and x ~= -huge
 	elseif kind == "buffer" then
 		local data = value :: buffer
-		local first = bufferReadU8(data, 0)
+		local first: number = bufferReadU8(data, 0)
 		if first == 255 then
 			x = bufferReadF64(data, 1)
 			direct = x == x and x ~= huge and x ~= -huge
@@ -4902,20 +4444,18 @@ function NanoNum.cbrt(value: MathValue): buffer
 			direct = true
 		elseif band(first, 7) == 3 then
 			local negative = band(first, 8) ~= 0
-			local n = bufferReadBits(data, 4, 5)
-			local offset = 9
+			local n: number = bufferReadBits(data, 4, 5)
+			local offset: number = 9
 			if n == 0 then
 				n = 32 + bufferReadBits(data, offset, 5)
 				offset = 14
 			end
 			if n <= MAX_INTEGER_MODE_BITS then
 				local magnitude
-				if n <= 26 then
+				if n <= 32 then
 					magnitude = bufferReadBits(data, offset, n)
-				elseif n <= 52 then
-					magnitude = bufferReadBits(data, offset, 26) + bufferReadBits(data, offset + 26, n - 26) * 67108864
 				else
-					magnitude = bufferReadBits(data, offset, 26) + bufferReadBits(data, offset + 26, 26) * 67108864 + bufferReadBits(data, offset + 52, n - 52) * 4503599627370496
+					magnitude = bufferReadBits(data, offset, 32) + bufferReadBits(data, offset + 32, n - 32) * 4294967296
 				end
 				x = negative and -magnitude or magnitude
 				direct = true
@@ -4926,61 +4466,11 @@ function NanoNum.cbrt(value: MathValue): buffer
 		local result = x < 0 and -((-x) ^ (1 / 3)) or x ^ (1 / 3)
 		-- Floating cube roots can miss exact integer cubes by a few ulps. Snap only when the cube is provably exact.
 		if x == floor(x) and abs(x) <= SAFE_INTEGER and result == result then
-			local nearest = floor(abs(result) + 0.001)
+			local nearest: number = floor(abs(result) + 0.001)
 			if nearest <= 208063 and nearest * nearest * nearest == abs(x) then result = x < 0 and -nearest or nearest end
 		end
 		if result == result and result ~= huge and result ~= -huge and (result ~= 0 or x == 0) then
-			local integral = floor(result)
-			if result == integral then
-				if result >= 0 and result <= 127 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, result * 2)
-					return data
-				end
-				if result < 0 and result >= -64 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, 1 + (-result - 1) * 4)
-					return data
-				end
-				local negative = result < 0
-				local magnitude = negative and -result or result
-				if magnitude <= SAFE_INTEGER then
-					local n = bitsRequired(magnitude)
-					if n <= 31 then
-						local bits = 9 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
-						local header = 3 + (negative and 8 or 0) + n * 16
-						if bits <= 32 then
-							bufferWriteBits(data, 0, bits, header + magnitude * 512)
-						else
-							bufferWriteBits(data, 0, 9, header)
-							if n <= 26 then
-								bufferWriteBits(data, 9, n, magnitude)
-							else
-								bufferWriteBits(data, 9, 26, magnitude % 67108864)
-								bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-							end
-						end
-						return data
-					end
-					local bits = 14 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
-					bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-					bufferWriteBits(data, 14, 26, magnitude % 67108864)
-					local remaining = n - 26
-					if remaining <= 26 then
-						bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-					else
-						bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-						bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-					end
-					return data
-				end
-			end
-			local data = bufferCreate(EXACT_F64_BYTES)
-			bufferWriteU8(data, 0, 255)
-			bufferWriteF64(data, 1, result)
-			return data
+			return encodeNumber(result)
 		end
 	end
 	return coldCbrt(value)
@@ -5035,7 +4525,7 @@ function NanoNum.hypot(a: MathValue, b: MathValue): buffer
 	local y = directFiniteNumber(b)
 	if x ~= nil and y ~= nil then
 		x = abs(x); y = abs(y)
-		local m = max(x, y)
+		local m: number = max(x, y)
 		if m == 0 then return NanoNum.fromNumber(0) end
 		local sx = x / m
 		local sy = y / m
@@ -5117,7 +4607,7 @@ function NanoNum.distance(a: MathValue, b: MathValue): buffer
 	local x = directFiniteNumber(a)
 	local y = directFiniteNumber(b)
 	if x ~= nil and y ~= nil then
-		local result = abs(x - y)
+		local result: number = abs(x - y)
 		if result ~= huge then return NanoNum.fromNumber(result) end
 	end
 	local ak, aa, ab = decodeReg(a)
@@ -5163,7 +4653,7 @@ function NanoNum.smoothstep(edge0: MathValue, edge1: MathValue, value: MathValue
 	local v = directFiniteNumber(value)
 	if a ~= nil and b ~= nil and v ~= nil and a ~= b then
 		local raw = nativeInverseLerp(a, b, v)
-		if raw ~= nil then local t = clamp(raw, 0, 1); return NanoNum.fromNumber(t * t * (3 - 2 * t)) end
+		if raw ~= nil then local t: number = clamp(raw, 0, 1); return NanoNum.fromNumber(t * t * (3 - 2 * t)) end
 	end
 	local t = NanoNum.clamp01(NanoNum.inverseLerp(edge0, edge1, value))
 	return NanoNum.mul(NanoNum.mul(t, t), NanoNum.sub(3, NanoNum.mul(2, t)))
@@ -5175,7 +4665,7 @@ function NanoNum.smootherstep(edge0: MathValue, edge1: MathValue, value: MathVal
 	if a ~= nil and b ~= nil and v ~= nil and a ~= b then
 		local raw = nativeInverseLerp(a, b, v)
 		if raw ~= nil then
-			local t = clamp(raw, 0, 1)
+			local t: number = clamp(raw, 0, 1)
 			local t2 = t * t
 			local t3 = t2 * t
 			return NanoNum.fromNumber(t3 * (t * (t * 6 - 15) + 10))
@@ -5188,7 +4678,7 @@ function NanoNum.smootherstep(edge0: MathValue, edge1: MathValue, value: MathVal
 end
 function NanoNum.sum(values: MathValueArray): buffer
 	local total, correction = 0, 0
-	local direct = true
+	local direct: boolean = true
 	for i = 1, #values do
 		local x = directFiniteNumber(values[i])
 		if x == nil then direct = false; break end
@@ -5209,8 +4699,8 @@ function NanoNum.sum(values: MathValueArray): buffer
 	return encodeReg(rk, ra, rb)
 end
 function NanoNum.product(values: MathValueArray): buffer
-	local total = 1
-	local direct = true
+	local total: number = 1
+	local direct: boolean = true
 	for i = 1, #values do
 		local x = directFiniteNumber(values[i])
 		if x == nil then direct = false; break end
@@ -5230,7 +4720,7 @@ function NanoNum.mean(values: MathValueArray): buffer
 	local count = #values
 	if count == 0 then return makeSpecial(SPECIAL_NAN) end
 	local total, correction = 0, 0
-	local direct = true
+	local direct: boolean = true
 	for i = 1, count do
 		local x = directFiniteNumber(values[i])
 		if x == nil then direct = false; break end
@@ -5248,11 +4738,11 @@ function NanoNum.mean(values: MathValueArray): buffer
 end
 function NanoNum.geometricMean(values: MathValueArray): buffer
 	if #values == 0 then return makeSpecial(SPECIAL_NAN) end
-	local totalK = 0
-	local totalA = 0
-	local totalB = 0
-	local hasZero = false
-	local hasInfinity = false
+	local totalK: number = 0
+	local totalA: number = 0
+	local totalB: number = 0
+	local hasZero: boolean = false
+	local hasInfinity: boolean = false
 	for i = 1, #values do
 		local k, a, b = decodeReg(values[i])
 		if abs(k) == K_NAN or k < 0 then return makeSpecial(SPECIAL_NAN) end
@@ -5273,12 +4763,12 @@ end
 function NanoNum.harmonicMean(values: MathValueArray): buffer
 	local count = #values
 	if count == 0 then return makeSpecial(SPECIAL_NAN) end
-	local reciprocalSum = 0
-	local direct = true
+	local reciprocalSum: number = 0
+	local direct: boolean = true
 	for i = 1, count do
 		local x = directFiniteNumber(values[i])
 		if x == nil then direct = false; break end
-		if x == 0 then return NanoNum.fromNumber(0) end
+		if x == 0 then direct = false; break end
 		reciprocalSum += 1 / x
 		if reciprocalSum ~= reciprocalSum or reciprocalSum == huge or reciprocalSum == -huge then direct = false; break end
 	end
@@ -5289,12 +4779,13 @@ function NanoNum.harmonicMean(values: MathValueArray): buffer
 		direct = false
 	end
 	local totalK, totalA, totalB = 0, 0, 0
-	local onlyInfinite = true
-	local infinitySign = 0
+	local hasZero: boolean = false
+	local onlyInfinite: boolean = true
+	local infinitySign: number = 0
 	for i = 1, count do
 		local k, a, b = decodeReg(values[i])
 		if abs(k) == K_NAN then return makeSpecial(SPECIAL_NAN) end
-		if k == 0 then return NanoNum.fromNumber(0) end
+		if k == 0 then hasZero = true end
 		if abs(k) == K_INF then
 			local sign = k < 0 and -1 or 1
 			if infinitySign == 0 then infinitySign = sign elseif infinitySign ~= sign then infinitySign = 2 end
@@ -5304,6 +4795,7 @@ function NanoNum.harmonicMean(values: MathValueArray): buffer
 		k, a, b = regReciprocal(k, a, b)
 		totalK, totalA, totalB = regAdd(totalK, totalA, totalB, k, a, b)
 	end
+	if hasZero then return NanoNum.fromNumber(0) end
 	if totalK == 0 then
 		if onlyInfinite and infinitySign == 1 then return makeSpecial(SPECIAL_POS_INF) end
 		if onlyInfinite and infinitySign == -1 then return makeSpecial(SPECIAL_NEG_INF) end
@@ -5316,8 +4808,8 @@ end
 local FACTORIAL_NUMBER_CACHE = tableCreate(171)
 local LOG_FACTORIAL_CACHE = tableCreate(257)
 do
-	local factorialValue = 1
-	local logValue = 0
+	local factorialValue: number = 1
+	local logValue: number = 0
 	FACTORIAL_NUMBER_CACHE[1] = 1
 	LOG_FACTORIAL_CACHE[1] = 0
 	for i = 1, 256 do
@@ -5334,13 +4826,14 @@ local function factorialLog10(n: number): number
 	local inv3 = inv2 * inv
 	local inv5 = inv3 * inv2
 	local correction = inv / 12 - inv3 / 360 + inv5 / 1260
-	return (n + 0.001) * log10(n) - n * LOG10_E + 0.001 * log10(TWO_PI) + correction * LOG10_E
+	return (n + 0.5) * log10(n) - n * LOG10_E + 0.5 * log10(TWO_PI) + correction * LOG10_E
 end
 function NanoNum.factorial(value: MathValue): buffer
 	local k, a, b = decodeReg(value)
 	if abs(k) == K_NAN then return makeSpecial(SPECIAL_NAN) end
 	if abs(k) == K_INF then return k > 0 and makeSpecial(SPECIAL_POS_INF) or makeSpecial(SPECIAL_NAN) end
 	if k < 0 or not regIsInteger(k, a, b) then return makeSpecial(SPECIAL_NAN) end
+	if k == 0 then return NanoNum.fromNumber(1) end
 	if abs(k) == K_NUM and a <= SAFE_INTEGER then
 		local n = a
 		if n <= 1 then return NanoNum.fromNumber(1) end
@@ -5357,7 +4850,7 @@ end
 local function logGammaDirect(x: number): number
 	if x <= 0 then return NAN end
 	local z = x - 1
-	local a = 0.99999999999980993
+	local a: number = 0.99999999999980993
 	a += 676.5203681218851 / (z + 1)
 	a -= 1259.1392167224028 / (z + 2)
 	a += 771.32342877765313 / (z + 3)
@@ -5367,11 +4860,11 @@ local function logGammaDirect(x: number): number
 	a += 9.9843695780195716e-6 / (z + 7)
 	a += 1.5056327351493116e-7 / (z + 8)
 	local t = z + 7.5
-	return 0.5 * log(TWO_PI) + (z + 0.001) * log(t) - t + log(a)
+	return 0.5 * log(TWO_PI) + (z + 0.5) * log(t) - t + log(a)
 end
 function NanoNum.gammaSign(value: MathValue): number
 	local k, a, b = decodeReg(value)
-	local absoluteKind = abs(k)
+	local absoluteKind: number = abs(k)
 	if absoluteKind == K_NAN then return NAN end
 	if absoluteKind == K_INF then return k > 0 and 1 or NAN end
 	if k == 0 then return 0 end
@@ -5387,7 +4880,7 @@ function NanoNum.gammaSign(value: MathValue): number
 end
 function NanoNum.logGamma(value: MathValue): buffer
 	local k, a, b = decodeReg(value)
-	local absoluteKind = abs(k)
+	local absoluteKind: number = abs(k)
 	if absoluteKind == K_NAN then return makeSpecial(SPECIAL_NAN) end
 	if absoluteKind == K_INF then return k > 0 and makeSpecial(SPECIAL_POS_INF) or makeSpecial(SPECIAL_NAN) end
 	if (absoluteKind == K_LOG or absoluteKind == K_LAYER or absoluteKind == K_LAYER_LOG or absoluteKind == K_HYPER_LAYER) and a < 0 then
@@ -5402,8 +4895,8 @@ function NanoNum.logGamma(value: MathValue): buffer
 			if native == native and native ~= huge and native ~= -huge then return NanoNum.fromNumber(native) end
 		else
 			local fraction = n - floor(n)
-			local reduced = min(fraction, 1 - fraction)
-			local sine = sin(pi * reduced)
+			local reduced: number = min(fraction, 1 - fraction)
+			local sine: number = sin(pi * reduced)
 			if sine == 0 then return makeSpecial(SPECIAL_POS_INF) end
 			local reflected = logGammaDirect(1 - n)
 			if reflected == reflected and reflected ~= huge then return NanoNum.fromNumber(log(pi) - log(sine) - reflected) end
@@ -5425,22 +4918,42 @@ function NanoNum.logGamma(value: MathValue): buffer
 	return result
 end
 function NanoNum.gamma(value: MathValue): buffer
+	local direct = directFiniteNumber(value)
+	if direct ~= nil and direct >= 1 and direct <= 171 and direct == floor(direct) then return encodeNumber(FACTORIAL_NUMBER_CACHE[direct]) end
 	local sign = NanoNum.gammaSign(value)
 	if sign ~= sign or sign == 0 then return makeSpecial(SPECIAL_NAN) end
 	local magnitude = NanoNum.exp(NanoNum.logGamma(value))
 	return sign < 0 and NanoNum.neg(magnitude) or magnitude
 end
 function NanoNum.factorialReal(value: MathValue): buffer return NanoNum.gamma(NanoNum.add(value, 1)) end
+local function logFactorialRatio(n: number, r: number): number
+	if r == 0 then return 0 end
+	if r <= 1024 then
+		local total: number = 0
+		for i = 0, r - 1 do total += log10(n - i) end
+		return total
+	end
+	local remaining: number = n - r
+	if remaining < 256 then return factorialLog10(n) - factorialLog10(remaining) end
+	local t: number = r / n
+	local logRatio: number
+	if t < 1e-4 then
+		logRatio = t * (1 + t * (0.5 + t * (1 / 3 + t * (0.25 + t / 5))))
+	else
+		logRatio = -log(1 - t)
+	end
+	return r * log10(n) + ((remaining + 0.5) * logRatio - r + (1 / n - 1 / remaining) / 12) * LOG10_E
+end
 function NanoNum.permutation(nValue: MathValue, rValue: MathValue): buffer
 	local n = exactInteger(nValue)
 	local r = exactInteger(rValue)
 	if n == nil or r == nil or n < 0 or r < 0 or r > n then return makeSpecial(SPECIAL_NAN) end
 	if r == 0 then return NanoNum.fromNumber(1) end
-	local result = 1
+	local result: number = 1
 	for i = 0, r - 1 do
 		local factor = n - i
 		if factor ~= 0 and result > SAFE_INTEGER / factor then
-			return NanoNum.fromLog10(factorialLog10(n) - factorialLog10(n - r))
+			return NanoNum.fromLog10(logFactorialRatio(n, r))
 		end
 		result *= factor
 	end
@@ -5452,8 +4965,8 @@ function NanoNum.combination(nValue: MathValue, rValue: MathValue): buffer
 	if n == nil or r == nil or n < 0 or r < 0 or r > n then return makeSpecial(SPECIAL_NAN) end
 	r = min(r, n - r)
 	if r == 0 then return NanoNum.fromNumber(1) end
-	local result = 1
-	local fast = true
+	local result: number = 1
+	local fast: boolean = true
 	for i = 1, r do
 		local numerator = n - r + i
 		if result > SAFE_INTEGER / numerator then fast = false; break end
@@ -5473,12 +4986,12 @@ function NanoNum.combination(nValue: MathValue, rValue: MathValue): buffer
 		result /= g2
 		denominator /= g2
 		if numerator ~= 0 and result > SAFE_INTEGER / numerator then
-			return NanoNum.fromLog10(factorialLog10(n) - factorialLog10(r) - factorialLog10(n - r))
+			return NanoNum.fromLog10(logFactorialRatio(n, r) - factorialLog10(r))
 		end
 		result *= numerator
 		if denominator ~= 1 then result /= denominator end
 		if result > SAFE_INTEGER or result ~= floor(result) then
-			return NanoNum.fromLog10(factorialLog10(n) - factorialLog10(r) - factorialLog10(n - r))
+			return NanoNum.fromLog10(logFactorialRatio(n, r) - factorialLog10(r))
 		end
 	end
 	return NanoNum.fromNumber(result)
@@ -5532,11 +5045,13 @@ function NanoNum.compound(principal: MathValue, rate: MathValue, periods: MathVa
 	return NanoNum.mul(principal, NanoNum.pow(NanoNum.add(1, rate), periods))
 end
 function NanoNum.softcap(value: MathValue, start: MathValue, power: MathValue): buffer
+	if NanoNum.isNaN(value) or NanoNum.isNaN(start) or NanoNum.isNaN(power) then return makeSpecial(SPECIAL_NAN) end
 	if NanoNum.lte(start, 0) or NanoNum.lte(power, 0) then return makeSpecial(SPECIAL_NAN) end
 	if NanoNum.lte(value, start) then return NanoNum.compile(value) end
 	return NanoNum.mul(start, NanoNum.pow(NanoNum.div(value, start), power))
 end
 function NanoNum.inverseSoftcap(value: MathValue, start: MathValue, power: MathValue): buffer
+	if NanoNum.isNaN(value) or NanoNum.isNaN(start) or NanoNum.isNaN(power) then return makeSpecial(SPECIAL_NAN) end
 	if NanoNum.lte(start, 0) or NanoNum.lte(power, 0) then return makeSpecial(SPECIAL_NAN) end
 	if NanoNum.lte(value, start) then return NanoNum.compile(value) end
 	return NanoNum.mul(start, NanoNum.pow(NanoNum.div(value, start), NanoNum.reciprocal(power)))
@@ -5571,11 +5086,12 @@ function NanoNum.logit(value: MathValue): buffer
 	return NanoNum.ln(NanoNum.div(value, NanoNum.sub(1, value)))
 end
 function NanoNum.geometricCost(baseCost: MathValue, growth: MathValue, owned: MathValue, amount: MathValue): buffer
-	if typeof(baseCost) == "number" and typeof(growth) == "number" and typeof(owned) == "number" and typeof(amount) == "number" then
-		local bc = baseCost :: number
-		local gr = growth :: number
-		local ow = owned :: number
-		local am = amount :: number
+	if NanoNum.isNaN(baseCost) or NanoNum.isNaN(growth) or NanoNum.isNaN(owned) or NanoNum.isNaN(amount) then return makeSpecial(SPECIAL_NAN) end
+	local bc = directFiniteNumber(baseCost)
+	local gr = directFiniteNumber(growth)
+	local ow = directFiniteNumber(owned)
+	local am = directFiniteNumber(amount)
+	if bc ~= nil and gr ~= nil and ow ~= nil and am ~= nil then
 		if bc == bc and gr == gr and ow == ow and am == am and bc > 0 and gr >= 1 and ow >= 0 and am >= 0 and bc ~= huge and gr ~= huge and ow ~= huge and am ~= huge then
 			if am == 0 then return NanoNum.fromNumber(0) end
 			local current = bc * gr ^ ow
@@ -5613,6 +5129,7 @@ function NanoNum.geometricCost(baseCost: MathValue, growth: MathValue, owned: Ma
 	return NanoNum.mul(currentCost, NanoNum.div(numerator, delta))
 end
 function NanoNum.maxAffordableGeometric(currency: MathValue, baseCost: MathValue, growth: MathValue, owned: MathValue?): buffer
+	if NanoNum.isNaN(currency) or NanoNum.isNaN(baseCost) or NanoNum.isNaN(growth) then return makeSpecial(SPECIAL_NAN) end
 	local levelsOwned = owned or 0
 	if NanoNum.lt(currency, 0) or NanoNum.lte(baseCost, 0) or NanoNum.lt(levelsOwned, 0) or NanoNum.lt(growth, 1) then return makeSpecial(SPECIAL_NAN) end
 	local currentCost = NanoNum.mul(baseCost, NanoNum.pow(growth, levelsOwned))
@@ -5665,12 +5182,12 @@ function NanoNum.iteratedExp10(value: MathValue, timesValue: MathValue): buffer
 	local k, a, b = decodeReg(value)
 	if times == 0 then return encodeReg(k, a, b) end
 	if abs(k) == K_LAYER and k > 0 and a > 0 then
-		local layer = abs(a)
+		local layer: number = abs(a)
 		local sum = layer + times
 		if sum ~= huge and sum <= NanoNum.MAX_LAYER then return NanoNum.fromLayer(sum, b) end
-		local hi = max(layer, times)
-		local lo = min(layer, times)
-		local layerLog10 = log10(hi) + log10(1 + lo / hi)
+		local hi: number = max(layer, times)
+		local lo: number = min(layer, times)
+		local layerLog10: number = log10(hi) + log10(1 + lo / hi)
 		return NanoNum.fromLayerLog10(layerLog10, b)
 	end
 	if abs(k) == K_LAYER_LOG and k > 0 and a > 0 then return NanoNum.fromLayerLog10(a, b) end
@@ -5681,11 +5198,11 @@ function NanoNum.iteratedExp10(value: MathValue, timesValue: MathValue): buffer
 		remaining -= 1
 		if abs(k) == K_NAN or abs(k) == K_INF then break end
 		if remaining > 0 and abs(k) == K_LAYER and k > 0 and a > 0 then
-			local layer = abs(a)
+			local layer: number = abs(a)
 			local sum = layer + remaining
 			if sum ~= huge and sum <= NanoNum.MAX_LAYER then return NanoNum.fromLayer(sum, b) end
-			local hi = max(layer, remaining)
-			local lo = min(layer, remaining)
+			local hi: number = max(layer, remaining)
+			local lo: number = min(layer, remaining)
 			return NanoNum.fromLayerLog10(log10(hi) + log10(1 + lo / hi), b)
 		end
 	end
@@ -5720,7 +5237,7 @@ function NanoNum.iteratedLog10(value: MathValue, timesValue: MathValue): buffer
 end
 function NanoNum.tetrate10(heightValue: MathValue, payload: MathValue?): buffer
 	local hk, ha, hb = decodeReg(heightValue)
-	local heightKind = abs(hk)
+	local heightKind: number = abs(hk)
 	if heightKind == K_NAN or heightKind == K_INF then return makeSpecial(SPECIAL_NAN) end
 	-- For an enormous positive height H stored as K_LOG, `ha` is log10(H).
 	-- The tower result has layer depth H, so storing log10(layerDepth)=ha preserves
@@ -5744,7 +5261,7 @@ function NanoNum.tetrate10(heightValue: MathValue, payload: MathValue?): buffer
 	end
 	if height < -1 then return makeSpecial(SPECIAL_NAN) end
 	if height < 0 then return NanoNum.fromNumber(height + 1) end
-	local whole = floor(height)
+	local whole: number = floor(height)
 	local fraction = height - whole
 	local seed = 10 ^ fraction
 	if whole == 0 then return NanoNum.fromNumber(seed) end
@@ -5775,7 +5292,7 @@ function NanoNum.tetrate10Integer(heightValue: MathValue, payload: MathValue?): 
 end
 local function scalarSlog10(value: number): number
 	if value <= 0 then return NAN end
-	local count = 0
+	local count: number = 0
 	local x = value
 	while x > 10 and count < 1024 do
 		x = log10(x)
@@ -5809,7 +5326,7 @@ function NanoNum.slog(value: MathValue, baseValue: MathValue?): buffer
 	if NanoNum.isInfinite(value) then return NanoNum.isPositive(value) and makeSpecial(SPECIAL_POS_INF) or makeSpecial(SPECIAL_NAN) end
 	if NanoNum.isZero(value) then return NanoNum.fromNumber(-1) end
 	local x = NanoNum.compile(value)
-	local count = 0
+	local count: number = 0
 	while NanoNum.gt(x, base) and count < 256 do
 		x = NanoNum.log(x, base)
 		count += 1
@@ -5845,7 +5362,7 @@ end
 -- EN slots are {sign, layer, exponent}; slot 4 extends EN losslessly past its numeric-layer ceiling.
 function NanoNum.toEN(value: MathValue): EN
 	local k, a, b = decodeReg(value)
-	local kind = abs(k)
+	local kind: number = abs(k)
 	if kind == K_NAN then return {1, -1, 1} end
 	if k == 0 then return {0, 0, 0} end
 	local sign = k < 0 and -1 or 1
@@ -5882,7 +5399,7 @@ end
 	end
 	function NanoNum.toString(value: MathValue): string
 		local k, a, b = decodeReg(value)
-		local kind = abs(k)
+		local kind: number = abs(k)
 		if kind == K_NAN then return "NaN" end
 		if k == 0 then return "0" end
 		local prefix = k < 0 and "-" or ""
@@ -5890,7 +5407,7 @@ end
 		if kind == K_NUM then return scalarText(k < 0 and -a or a) end
 		if kind == K_LOG then
 			if abs(a) <= SAFE_INTEGER then
-				local exponent = floor(a)
+				local exponent: number = floor(a)
 				local mantissa = 10 ^ (a - exponent)
 				if mantissa >= 10 then mantissa = 1; exponent += 1 end
 				return prefix .. scalarText(mantissa) .. "e" .. format("%.0f", exponent)
@@ -5905,7 +5422,7 @@ end
 	end
 	function NanoNum.toStringEN(value: MathValue): string
 		local k, a, b = decodeReg(value)
-		local kind = abs(k)
+		local kind: number = abs(k)
 		if kind == K_NAN then return "NaN" end
 		if k == 0 then return "0;0" end
 		local prefix = k < 0 and "-" or ""
@@ -5928,11 +5445,11 @@ function NanoNum.isCanonical(value: MathValue): boolean
 	if not NanoNum.isValid(source) then return false end
 	local k, a, b = decodeRegBuffer(source)
 	local canonical = encodeReg(k, a, b)
-	local sourceBytes = bufferLen(source)
-	local canonicalBytes = bufferLen(canonical)
+	local sourceBytes: number = bufferLen(source)
+	local canonicalBytes: number = bufferLen(canonical)
 	if sourceBytes ~= canonicalBytes then return false end
 	for i = 0, sourceBytes - 1 do
-		if buffer.readu8(source, i) ~= buffer.readu8(canonical, i) then return false end
+		if buffer.readu8(source, i) ~= bufferReadU8(canonical, i) then return false end
 	end
 	return true
 end
@@ -5957,7 +5474,7 @@ function NanoNum.fromScientific(mantissa: MathValue, exponent: MathValue): buffe
 end
 function NanoNum.layerDepth(value: MathValue): buffer
 	local k, a = decodeReg(value)
-	local kind = abs(k)
+	local kind: number = abs(k)
 	if kind == K_NAN then return makeSpecial(SPECIAL_NAN) end
 	if kind == K_INF then return makeSpecial(SPECIAL_POS_INF) end
 	if kind == K_LAYER then return NanoNum.fromNumber(abs(a)) end
@@ -5968,7 +5485,7 @@ function NanoNum.layerDepth(value: MathValue): buffer
 end
 function NanoNum.rangeClass(value: MathValue): string
 	local k = decodeReg(value)
-	local kind = abs(k)
+	local kind: number = abs(k)
 	if kind == K_NAN then return "nan" end
 	if kind == K_INF then return "infinity" end
 	if kind == K_HYPER_LAYER then return "hyper-layer" end
@@ -5979,10 +5496,10 @@ function NanoNum.rangeClass(value: MathValue): string
 	return "finite"
 end
 local TYPE_CODE = {number = "N", buffer = "B", string = "S"}
-NanoNum.fast = {}
+NanoNum.fast = {} :: {[string]: any}
 NanoNum.fast.pow10B = function(value: buffer): buffer
 	local x, direct = 0, false
-	local first = bufferReadU8(value, 0)
+	local first: number = bufferReadU8(value, 0)
 	if first == 255 then
 		x = bufferReadF64(value, 1)
 		direct = x == x and x ~= huge and x ~= -huge
@@ -5994,20 +5511,18 @@ NanoNum.fast.pow10B = function(value: buffer): buffer
 		direct = true
 	elseif band(first, 7) == 3 then
 		local negative = band(first, 8) ~= 0
-		local n = bufferReadBits(value, 4, 5)
-		local offset = 9
+		local n: number = bufferReadBits(value, 4, 5)
+		local offset: number = 9
 		if n == 0 then
 			n = 32 + bufferReadBits(value, offset, 5)
 			offset = 14
 		end
 		if n <= MAX_INTEGER_MODE_BITS then
 			local magnitude
-			if n <= 26 then
+			if n <= 32 then
 				magnitude = bufferReadBits(value, offset, n)
-			elseif n <= 52 then
-				magnitude = bufferReadBits(value, offset, 26) + bufferReadBits(value, offset + 26, n - 26) * 67108864
 			else
-				magnitude = bufferReadBits(value, offset, 26) + bufferReadBits(value, offset + 26, 26) * 67108864 + bufferReadBits(value, offset + 52, n - 52) * 4503599627370496
+				magnitude = bufferReadBits(value, offset, 32) + bufferReadBits(value, offset + 32, n - 32) * 4294967296
 			end
 			x = negative and -magnitude or magnitude
 			direct = true
@@ -6016,57 +5531,7 @@ NanoNum.fast.pow10B = function(value: buffer): buffer
 	if direct and x >= DIRECT_LOG_MIN and x <= DIRECT_LOG_MAX then
 		local result = 10 ^ x
 		if result ~= 0 and result ~= huge then
-			local integral = floor(result)
-			if result == integral then
-				if result >= 0 and result <= 127 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, result * 2)
-					return data
-				end
-				if result < 0 and result >= -64 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, 1 + (-result - 1) * 4)
-					return data
-				end
-				local negative = result < 0
-				local magnitude = negative and -result or result
-				if magnitude <= SAFE_INTEGER then
-					local n = bitsRequired(magnitude)
-					if n <= 31 then
-						local bits = 9 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
-						local header = 3 + (negative and 8 or 0) + n * 16
-						if bits <= 32 then
-							bufferWriteBits(data, 0, bits, header + magnitude * 512)
-						else
-							bufferWriteBits(data, 0, 9, header)
-							if n <= 26 then
-								bufferWriteBits(data, 9, n, magnitude)
-							else
-								bufferWriteBits(data, 9, 26, magnitude % 67108864)
-								bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-							end
-						end
-						return data
-					end
-					local bits = 14 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
-					bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-					bufferWriteBits(data, 14, 26, magnitude % 67108864)
-					local remaining = n - 26
-					if remaining <= 26 then
-						bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-					else
-						bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-						bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-					end
-					return data
-				end
-			end
-			local data = bufferCreate(EXACT_F64_BYTES)
-			bufferWriteU8(data, 0, 255)
-			bufferWriteF64(data, 1, result)
-			return data
+			return encodeNumber(result)
 		end
 	end
 	if direct then return makeLog(x, false) end
@@ -6076,7 +5541,7 @@ NanoNum.fast.pow10B = function(value: buffer): buffer
 end
 NanoNum.fast.log10B = function(value: buffer): buffer
 	local x, direct = 0, false
-	local first = bufferReadU8(value, 0)
+	local first: number = bufferReadU8(value, 0)
 	if first == 255 then
 		x = bufferReadF64(value, 1)
 		direct = x == x and x ~= huge and x ~= -huge
@@ -6088,20 +5553,18 @@ NanoNum.fast.log10B = function(value: buffer): buffer
 		direct = true
 	elseif band(first, 7) == 3 then
 		local negative = band(first, 8) ~= 0
-		local n = bufferReadBits(value, 4, 5)
-		local offset = 9
+		local n: number = bufferReadBits(value, 4, 5)
+		local offset: number = 9
 		if n == 0 then
 			n = 32 + bufferReadBits(value, offset, 5)
 			offset = 14
 		end
 		if n <= MAX_INTEGER_MODE_BITS then
 			local magnitude
-			if n <= 26 then
+			if n <= 32 then
 				magnitude = bufferReadBits(value, offset, n)
-			elseif n <= 52 then
-				magnitude = bufferReadBits(value, offset, 26) + bufferReadBits(value, offset + 26, n - 26) * 67108864
 			else
-				magnitude = bufferReadBits(value, offset, 26) + bufferReadBits(value, offset + 26, 26) * 67108864 + bufferReadBits(value, offset + 52, n - 52) * 4503599627370496
+				magnitude = bufferReadBits(value, offset, 32) + bufferReadBits(value, offset + 32, n - 32) * 4294967296
 			end
 			x = negative and -magnitude or magnitude
 			direct = true
@@ -6110,58 +5573,8 @@ NanoNum.fast.log10B = function(value: buffer): buffer
 	if direct then
 		if x < 0 then return makeSpecial(SPECIAL_NAN) end
 		if x == 0 then return makeSpecial(SPECIAL_NEG_INF) end
-		local result = log10(x)
-		local integral = floor(result)
-		if result == integral then
-			if result >= 0 and result <= 127 then
-				local data = bufferCreate(1)
-				bufferWriteU8(data, 0, result * 2)
-				return data
-			end
-			if result < 0 and result >= -64 then
-				local data = bufferCreate(1)
-				bufferWriteU8(data, 0, 1 + (-result - 1) * 4)
-				return data
-			end
-			local negative = result < 0
-			local magnitude = negative and -result or result
-			if magnitude <= SAFE_INTEGER then
-				local n = bitsRequired(magnitude)
-				if n <= 31 then
-					local bits = 9 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
-					local header = 3 + (negative and 8 or 0) + n * 16
-					if bits <= 32 then
-						bufferWriteBits(data, 0, bits, header + magnitude * 512)
-					else
-						bufferWriteBits(data, 0, 9, header)
-						if n <= 26 then
-							bufferWriteBits(data, 9, n, magnitude)
-						else
-							bufferWriteBits(data, 9, 26, magnitude % 67108864)
-							bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-						end
-					end
-					return data
-				end
-				local bits = 14 + n
-				local data = bufferCreate(floor((bits + 7) / 8))
-				bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-				bufferWriteBits(data, 14, 26, magnitude % 67108864)
-				local remaining = n - 26
-				if remaining <= 26 then
-					bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-				else
-					bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-					bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-				end
-				return data
-			end
-		end
-		local data = bufferCreate(EXACT_F64_BYTES)
-		bufferWriteU8(data, 0, 255)
-		bufferWriteF64(data, 1, result)
-		return data
+		local result: number = log10(x)
+		return encodeNumber(result)
 	end
 	local k, a, b = decodeRegBuffer(value)
 	k, a, b = regLog10(k, a, b)
@@ -6169,7 +5582,7 @@ NanoNum.fast.log10B = function(value: buffer): buffer
 end
 NanoNum.fast.negB = function(value: buffer): buffer
 	local x, direct = 0, false
-	local first = bufferReadU8(value, 0)
+	local first: number = bufferReadU8(value, 0)
 	if first == 255 then
 		x = bufferReadF64(value, 1)
 		direct = x == x and x ~= huge and x ~= -huge
@@ -6181,20 +5594,18 @@ NanoNum.fast.negB = function(value: buffer): buffer
 		direct = true
 	elseif band(first, 7) == 3 then
 		local negative = band(first, 8) ~= 0
-		local n = bufferReadBits(value, 4, 5)
-		local offset = 9
+		local n: number = bufferReadBits(value, 4, 5)
+		local offset: number = 9
 		if n == 0 then
 			n = 32 + bufferReadBits(value, offset, 5)
 			offset = 14
 		end
 		if n <= MAX_INTEGER_MODE_BITS then
 			local magnitude
-			if n <= 26 then
+			if n <= 32 then
 				magnitude = bufferReadBits(value, offset, n)
-			elseif n <= 52 then
-				magnitude = bufferReadBits(value, offset, 26) + bufferReadBits(value, offset + 26, n - 26) * 67108864
 			else
-				magnitude = bufferReadBits(value, offset, 26) + bufferReadBits(value, offset + 26, 26) * 67108864 + bufferReadBits(value, offset + 52, n - 52) * 4503599627370496
+				magnitude = bufferReadBits(value, offset, 32) + bufferReadBits(value, offset + 32, n - 32) * 4294967296
 			end
 			x = negative and -magnitude or magnitude
 			direct = true
@@ -6202,57 +5613,7 @@ NanoNum.fast.negB = function(value: buffer): buffer
 	end
 	if direct then
 		local result = -x
-		local integral = floor(result)
-		if result == integral then
-			if result >= 0 and result <= 127 then
-				local data = bufferCreate(1)
-				bufferWriteU8(data, 0, result * 2)
-				return data
-			end
-			if result < 0 and result >= -64 then
-				local data = bufferCreate(1)
-				bufferWriteU8(data, 0, 1 + (-result - 1) * 4)
-				return data
-			end
-			local negative = result < 0
-			local magnitude = negative and -result or result
-			if magnitude <= SAFE_INTEGER then
-				local n = bitsRequired(magnitude)
-				if n <= 31 then
-					local bits = 9 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
-					local header = 3 + (negative and 8 or 0) + n * 16
-					if bits <= 32 then
-						bufferWriteBits(data, 0, bits, header + magnitude * 512)
-					else
-						bufferWriteBits(data, 0, 9, header)
-						if n <= 26 then
-							bufferWriteBits(data, 9, n, magnitude)
-						else
-							bufferWriteBits(data, 9, 26, magnitude % 67108864)
-							bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-						end
-					end
-					return data
-				end
-				local bits = 14 + n
-				local data = bufferCreate(floor((bits + 7) / 8))
-				bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-				bufferWriteBits(data, 14, 26, magnitude % 67108864)
-				local remaining = n - 26
-				if remaining <= 26 then
-					bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-				else
-					bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-					bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-				end
-				return data
-			end
-		end
-		local data = bufferCreate(EXACT_F64_BYTES)
-		bufferWriteU8(data, 0, 255)
-		bufferWriteF64(data, 1, result)
-		return data
+		return encodeNumber(result)
 	end
 	local k, a, b = decodeRegBuffer(value)
 	if k ~= 0 and abs(k) ~= K_NAN then k = -k end
@@ -6260,7 +5621,7 @@ NanoNum.fast.negB = function(value: buffer): buffer
 end
 NanoNum.fast.absB = function(value: buffer): buffer
 	local x, direct = 0, false
-	local first = bufferReadU8(value, 0)
+	local first: number = bufferReadU8(value, 0)
 	if first == 255 then
 		x = bufferReadF64(value, 1)
 		direct = x == x and x ~= huge and x ~= -huge
@@ -6272,20 +5633,18 @@ NanoNum.fast.absB = function(value: buffer): buffer
 		direct = true
 	elseif band(first, 7) == 3 then
 		local negative = band(first, 8) ~= 0
-		local n = bufferReadBits(value, 4, 5)
-		local offset = 9
+		local n: number = bufferReadBits(value, 4, 5)
+		local offset: number = 9
 		if n == 0 then
 			n = 32 + bufferReadBits(value, offset, 5)
 			offset = 14
 		end
 		if n <= MAX_INTEGER_MODE_BITS then
 			local magnitude
-			if n <= 26 then
+			if n <= 32 then
 				magnitude = bufferReadBits(value, offset, n)
-			elseif n <= 52 then
-				magnitude = bufferReadBits(value, offset, 26) + bufferReadBits(value, offset + 26, n - 26) * 67108864
 			else
-				magnitude = bufferReadBits(value, offset, 26) + bufferReadBits(value, offset + 26, 26) * 67108864 + bufferReadBits(value, offset + 52, n - 52) * 4503599627370496
+				magnitude = bufferReadBits(value, offset, 32) + bufferReadBits(value, offset + 32, n - 32) * 4294967296
 			end
 			x = negative and -magnitude or magnitude
 			direct = true
@@ -6293,64 +5652,14 @@ NanoNum.fast.absB = function(value: buffer): buffer
 	end
 	if direct then
 		local result = x < 0 and -x or x
-		local integral = floor(result)
-		if result == integral then
-			if result >= 0 and result <= 127 then
-				local data = bufferCreate(1)
-				bufferWriteU8(data, 0, result * 2)
-				return data
-			end
-			if result < 0 and result >= -64 then
-				local data = bufferCreate(1)
-				bufferWriteU8(data, 0, 1 + (-result - 1) * 4)
-				return data
-			end
-			local negative = result < 0
-			local magnitude = negative and -result or result
-			if magnitude <= SAFE_INTEGER then
-				local n = bitsRequired(magnitude)
-				if n <= 31 then
-					local bits = 9 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
-					local header = 3 + (negative and 8 or 0) + n * 16
-					if bits <= 32 then
-						bufferWriteBits(data, 0, bits, header + magnitude * 512)
-					else
-						bufferWriteBits(data, 0, 9, header)
-						if n <= 26 then
-							bufferWriteBits(data, 9, n, magnitude)
-						else
-							bufferWriteBits(data, 9, 26, magnitude % 67108864)
-							bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-						end
-					end
-					return data
-				end
-				local bits = 14 + n
-				local data = bufferCreate(floor((bits + 7) / 8))
-				bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-				bufferWriteBits(data, 14, 26, magnitude % 67108864)
-				local remaining = n - 26
-				if remaining <= 26 then
-					bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-				else
-					bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-					bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-				end
-				return data
-			end
-		end
-		local data = bufferCreate(EXACT_F64_BYTES)
-		bufferWriteU8(data, 0, 255)
-		bufferWriteF64(data, 1, result)
-		return data
+		return encodeNumber(result)
 	end
 	local k, a, b = decodeRegBuffer(value)
 	return encodeReg(abs(k), a, b)
 end
 NanoNum.fast.reciprocalB = function(value: buffer): buffer
 	local x, direct = 0, false
-	local first = bufferReadU8(value, 0)
+	local first: number = bufferReadU8(value, 0)
 	if first == 255 then
 		x = bufferReadF64(value, 1)
 		direct = x == x and x ~= huge and x ~= -huge
@@ -6362,20 +5671,18 @@ NanoNum.fast.reciprocalB = function(value: buffer): buffer
 		direct = true
 	elseif band(first, 7) == 3 then
 		local negative = band(first, 8) ~= 0
-		local n = bufferReadBits(value, 4, 5)
-		local offset = 9
+		local n: number = bufferReadBits(value, 4, 5)
+		local offset: number = 9
 		if n == 0 then
 			n = 32 + bufferReadBits(value, offset, 5)
 			offset = 14
 		end
 		if n <= MAX_INTEGER_MODE_BITS then
 			local magnitude
-			if n <= 26 then
+			if n <= 32 then
 				magnitude = bufferReadBits(value, offset, n)
-			elseif n <= 52 then
-				magnitude = bufferReadBits(value, offset, 26) + bufferReadBits(value, offset + 26, n - 26) * 67108864
 			else
-				magnitude = bufferReadBits(value, offset, 26) + bufferReadBits(value, offset + 26, 26) * 67108864 + bufferReadBits(value, offset + 52, n - 52) * 4503599627370496
+				magnitude = bufferReadBits(value, offset, 32) + bufferReadBits(value, offset + 32, n - 32) * 4294967296
 			end
 			x = negative and -magnitude or magnitude
 			direct = true
@@ -6385,74 +5692,17 @@ NanoNum.fast.reciprocalB = function(value: buffer): buffer
 		if x == 0 then return makeSpecial(SPECIAL_POS_INF) end
 		local result = 1 / x
 		if result ~= 0 and result ~= huge and result ~= -huge then
-			local integral = floor(result)
-			if result == integral then
-				if result >= 0 and result <= 127 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, result * 2)
-					return data
-				end
-				if result < 0 and result >= -64 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, 1 + (-result - 1) * 4)
-					return data
-				end
-				local negative = result < 0
-				local magnitude = negative and -result or result
-				if magnitude <= SAFE_INTEGER then
-					local n = bitsRequired(magnitude)
-					if n <= 31 then
-						local bits = 9 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
-						local header = 3 + (negative and 8 or 0) + n * 16
-						if bits <= 32 then
-							bufferWriteBits(data, 0, bits, header + magnitude * 512)
-						else
-							bufferWriteBits(data, 0, 9, header)
-							if n <= 26 then
-								bufferWriteBits(data, 9, n, magnitude)
-							else
-								bufferWriteBits(data, 9, 26, magnitude % 67108864)
-								bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-							end
-						end
-						return data
-					end
-					local bits = 14 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
-					bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-					bufferWriteBits(data, 14, 26, magnitude % 67108864)
-					local remaining = n - 26
-					if remaining <= 26 then
-						bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-					else
-						bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-						bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-					end
-					return data
-				end
-			end
-			local data = bufferCreate(EXACT_F64_BYTES)
-			bufferWriteU8(data, 0, 255)
-			bufferWriteF64(data, 1, result)
-			return data
+			return encodeNumber(result)
 		end
 	end
 	local k, a, b = decodeRegBuffer(value)
 	k, a, b = regReciprocal(k, a, b)
 	return encodeReg(k, a, b)
 end
-local function fastDecodeN(value: number): (number, number, number)
-	if value ~= value then return K_NAN, 0, 0 end
-	if value == huge then return K_INF, 0, 0 end
-	if value == -huge then return -K_INF, 0, 0 end
-	if value == 0 then return 0, 0, 0 end
-	return value < 0 and -K_NUM or K_NUM, value < 0 and -value or value, 0
-end
 NanoNum.fast.addBB = function(a: buffer, b: buffer): buffer
 	local ax, bx = 0, 0
 	local adirect, bdirect = false, false
-	local first = bufferReadU8(a, 0)
+	local first: number = bufferReadU8(a, 0)
 	if first == 255 then
 		ax = bufferReadF64(a, 1)
 		adirect = ax == ax and ax ~= huge and ax ~= -huge
@@ -6464,51 +5714,47 @@ NanoNum.fast.addBB = function(a: buffer, b: buffer): buffer
 		adirect = true
 	elseif band(first, 7) == 3 then
 		local negative = band(first, 8) ~= 0
-		local n = bufferReadBits(a, 4, 5)
-		local offset = 9
+		local n: number = bufferReadBits(a, 4, 5)
+		local offset: number = 9
 		if n == 0 then
 			n = 32 + bufferReadBits(a, offset, 5)
 			offset = 14
 		end
 		if n <= MAX_INTEGER_MODE_BITS then
 			local magnitude
-			if n <= 26 then
+			if n <= 32 then
 				magnitude = bufferReadBits(a, offset, n)
-			elseif n <= 52 then
-				magnitude = bufferReadBits(a, offset, 26) + bufferReadBits(a, offset + 26, n - 26) * 67108864
 			else
-				magnitude = bufferReadBits(a, offset, 26) + bufferReadBits(a, offset + 26, 26) * 67108864 + bufferReadBits(a, offset + 52, n - 52) * 4503599627370496
+				magnitude = bufferReadBits(a, offset, 32) + bufferReadBits(a, offset + 32, n - 32) * 4294967296
 			end
 			ax = negative and -magnitude or magnitude
 			adirect = true
 		end
 	end
-	local first = bufferReadU8(b, 0)
-	if first == 255 then
+	local second: number = bufferReadU8(b, 0)
+	if second == 255 then
 		bx = bufferReadF64(b, 1)
 		bdirect = bx == bx and bx ~= huge and bx ~= -huge
-	elseif band(first, 1) == 0 then
-		bx = floor(first / 2)
+	elseif band(second, 1) == 0 then
+		bx = floor(second / 2)
 		bdirect = true
-	elseif band(first, 3) == 1 then
-		bx = -(floor(first / 4) + 1)
+	elseif band(second, 3) == 1 then
+		bx = -(floor(second / 4) + 1)
 		bdirect = true
-	elseif band(first, 7) == 3 then
-		local negative = band(first, 8) ~= 0
-		local n = bufferReadBits(b, 4, 5)
-		local offset = 9
+	elseif band(second, 7) == 3 then
+		local negative = band(second, 8) ~= 0
+		local n: number = bufferReadBits(b, 4, 5)
+		local offset: number = 9
 		if n == 0 then
 			n = 32 + bufferReadBits(b, offset, 5)
 			offset = 14
 		end
 		if n <= MAX_INTEGER_MODE_BITS then
 			local magnitude
-			if n <= 26 then
+			if n <= 32 then
 				magnitude = bufferReadBits(b, offset, n)
-			elseif n <= 52 then
-				magnitude = bufferReadBits(b, offset, 26) + bufferReadBits(b, offset + 26, n - 26) * 67108864
 			else
-				magnitude = bufferReadBits(b, offset, 26) + bufferReadBits(b, offset + 26, 26) * 67108864 + bufferReadBits(b, offset + 52, n - 52) * 4503599627370496
+				magnitude = bufferReadBits(b, offset, 32) + bufferReadBits(b, offset + 32, n - 32) * 4294967296
 			end
 			bx = negative and -magnitude or magnitude
 			bdirect = true
@@ -6517,54 +5763,43 @@ NanoNum.fast.addBB = function(a: buffer, b: buffer): buffer
 	if adirect and bdirect then
 		local value = ax + bx
 		if value == value and value ~= huge and value ~= -huge then
-			local integral = floor(value)
+			local integral: number = floor(value)
 			if value == integral then
 				if value >= 0 and value <= 127 then
-					local data = bufferCreate(1)
+					local data: buffer = bufferCreate(1)
 					bufferWriteU8(data, 0, value * 2)
 					return data
 				end
 				if value < 0 and value >= -64 then
-					local data = bufferCreate(1)
+					local data: buffer = bufferCreate(1)
 					bufferWriteU8(data, 0, 1 + (-value - 1) * 4)
 					return data
 				end
 				local negative = value < 0
 				local magnitude = negative and -value or value
 				if magnitude <= SAFE_INTEGER then
-					local n = bitsRequired(magnitude)
+					local n: number = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
+						local data: buffer = bufferCreate(floor((bits + 7) / 8))
 						local header = 3 + (negative and 8 or 0) + n * 16
 						if bits <= 32 then
 							bufferWriteBits(data, 0, bits, header + magnitude * 512)
 						else
 							bufferWriteBits(data, 0, 9, header)
-							if n <= 26 then
-								bufferWriteBits(data, 9, n, magnitude)
-							else
-								bufferWriteBits(data, 9, 26, magnitude % 67108864)
-								bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-							end
+							bufferWriteBits(data, 9, n, magnitude)
 						end
 						return data
 					end
 					local bits = 14 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
+					local data: buffer = bufferCreate(floor((bits + 7) / 8))
 					bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-					bufferWriteBits(data, 14, 26, magnitude % 67108864)
-					local remaining = n - 26
-					if remaining <= 26 then
-						bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-					else
-						bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-						bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-					end
+					bufferWriteBits(data, 14, 32, magnitude % 4294967296)
+					bufferWriteBits(data, 46, n - 32, floor(magnitude / 4294967296))
 					return data
 				end
 			end
-			local data = bufferCreate(EXACT_F64_BYTES)
+			local data: buffer = bufferCreate(EXACT_F64_BYTES)
 			bufferWriteU8(data, 0, 255)
 			bufferWriteF64(data, 1, value)
 			return data
@@ -6575,7 +5810,7 @@ end
 NanoNum.fast.subBB = function(a: buffer, b: buffer): buffer
 	local ax, bx = 0, 0
 	local adirect, bdirect = false, false
-	local first = bufferReadU8(a, 0)
+	local first: number = bufferReadU8(a, 0)
 	if first == 255 then
 		ax = bufferReadF64(a, 1)
 		adirect = ax == ax and ax ~= huge and ax ~= -huge
@@ -6587,51 +5822,47 @@ NanoNum.fast.subBB = function(a: buffer, b: buffer): buffer
 		adirect = true
 	elseif band(first, 7) == 3 then
 		local negative = band(first, 8) ~= 0
-		local n = bufferReadBits(a, 4, 5)
-		local offset = 9
+		local n: number = bufferReadBits(a, 4, 5)
+		local offset: number = 9
 		if n == 0 then
 			n = 32 + bufferReadBits(a, offset, 5)
 			offset = 14
 		end
 		if n <= MAX_INTEGER_MODE_BITS then
 			local magnitude
-			if n <= 26 then
+			if n <= 32 then
 				magnitude = bufferReadBits(a, offset, n)
-			elseif n <= 52 then
-				magnitude = bufferReadBits(a, offset, 26) + bufferReadBits(a, offset + 26, n - 26) * 67108864
 			else
-				magnitude = bufferReadBits(a, offset, 26) + bufferReadBits(a, offset + 26, 26) * 67108864 + bufferReadBits(a, offset + 52, n - 52) * 4503599627370496
+				magnitude = bufferReadBits(a, offset, 32) + bufferReadBits(a, offset + 32, n - 32) * 4294967296
 			end
 			ax = negative and -magnitude or magnitude
 			adirect = true
 		end
 	end
-	local first = bufferReadU8(b, 0)
-	if first == 255 then
+	local second: number = bufferReadU8(b, 0)
+	if second == 255 then
 		bx = bufferReadF64(b, 1)
 		bdirect = bx == bx and bx ~= huge and bx ~= -huge
-	elseif band(first, 1) == 0 then
-		bx = floor(first / 2)
+	elseif band(second, 1) == 0 then
+		bx = floor(second / 2)
 		bdirect = true
-	elseif band(first, 3) == 1 then
-		bx = -(floor(first / 4) + 1)
+	elseif band(second, 3) == 1 then
+		bx = -(floor(second / 4) + 1)
 		bdirect = true
-	elseif band(first, 7) == 3 then
-		local negative = band(first, 8) ~= 0
-		local n = bufferReadBits(b, 4, 5)
-		local offset = 9
+	elseif band(second, 7) == 3 then
+		local negative = band(second, 8) ~= 0
+		local n: number = bufferReadBits(b, 4, 5)
+		local offset: number = 9
 		if n == 0 then
 			n = 32 + bufferReadBits(b, offset, 5)
 			offset = 14
 		end
 		if n <= MAX_INTEGER_MODE_BITS then
 			local magnitude
-			if n <= 26 then
+			if n <= 32 then
 				magnitude = bufferReadBits(b, offset, n)
-			elseif n <= 52 then
-				magnitude = bufferReadBits(b, offset, 26) + bufferReadBits(b, offset + 26, n - 26) * 67108864
 			else
-				magnitude = bufferReadBits(b, offset, 26) + bufferReadBits(b, offset + 26, 26) * 67108864 + bufferReadBits(b, offset + 52, n - 52) * 4503599627370496
+				magnitude = bufferReadBits(b, offset, 32) + bufferReadBits(b, offset + 32, n - 32) * 4294967296
 			end
 			bx = negative and -magnitude or magnitude
 			bdirect = true
@@ -6640,54 +5871,43 @@ NanoNum.fast.subBB = function(a: buffer, b: buffer): buffer
 	if adirect and bdirect then
 		local value = ax - bx
 		if value == value and value ~= huge and value ~= -huge then
-			local integral = floor(value)
+			local integral: number = floor(value)
 			if value == integral then
 				if value >= 0 and value <= 127 then
-					local data = bufferCreate(1)
+					local data: buffer = bufferCreate(1)
 					bufferWriteU8(data, 0, value * 2)
 					return data
 				end
 				if value < 0 and value >= -64 then
-					local data = bufferCreate(1)
+					local data: buffer = bufferCreate(1)
 					bufferWriteU8(data, 0, 1 + (-value - 1) * 4)
 					return data
 				end
 				local negative = value < 0
 				local magnitude = negative and -value or value
 				if magnitude <= SAFE_INTEGER then
-					local n = bitsRequired(magnitude)
+					local n: number = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
+						local data: buffer = bufferCreate(floor((bits + 7) / 8))
 						local header = 3 + (negative and 8 or 0) + n * 16
 						if bits <= 32 then
 							bufferWriteBits(data, 0, bits, header + magnitude * 512)
 						else
 							bufferWriteBits(data, 0, 9, header)
-							if n <= 26 then
-								bufferWriteBits(data, 9, n, magnitude)
-							else
-								bufferWriteBits(data, 9, 26, magnitude % 67108864)
-								bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-							end
+							bufferWriteBits(data, 9, n, magnitude)
 						end
 						return data
 					end
 					local bits = 14 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
+					local data: buffer = bufferCreate(floor((bits + 7) / 8))
 					bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-					bufferWriteBits(data, 14, 26, magnitude % 67108864)
-					local remaining = n - 26
-					if remaining <= 26 then
-						bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-					else
-						bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-						bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-					end
+					bufferWriteBits(data, 14, 32, magnitude % 4294967296)
+					bufferWriteBits(data, 46, n - 32, floor(magnitude / 4294967296))
 					return data
 				end
 			end
-			local data = bufferCreate(EXACT_F64_BYTES)
+			local data: buffer = bufferCreate(EXACT_F64_BYTES)
 			bufferWriteU8(data, 0, 255)
 			bufferWriteF64(data, 1, value)
 			return data
@@ -6698,7 +5918,7 @@ end
 NanoNum.fast.mulBB = function(a: buffer, b: buffer): buffer
 	local ax, bx = 0, 0
 	local adirect, bdirect = false, false
-	local first = bufferReadU8(a, 0)
+	local first: number = bufferReadU8(a, 0)
 	if first == 255 then
 		ax = bufferReadF64(a, 1)
 		adirect = ax == ax and ax ~= huge and ax ~= -huge
@@ -6710,51 +5930,47 @@ NanoNum.fast.mulBB = function(a: buffer, b: buffer): buffer
 		adirect = true
 	elseif band(first, 7) == 3 then
 		local negative = band(first, 8) ~= 0
-		local n = bufferReadBits(a, 4, 5)
-		local offset = 9
+		local n: number = bufferReadBits(a, 4, 5)
+		local offset: number = 9
 		if n == 0 then
 			n = 32 + bufferReadBits(a, offset, 5)
 			offset = 14
 		end
 		if n <= MAX_INTEGER_MODE_BITS then
 			local magnitude
-			if n <= 26 then
+			if n <= 32 then
 				magnitude = bufferReadBits(a, offset, n)
-			elseif n <= 52 then
-				magnitude = bufferReadBits(a, offset, 26) + bufferReadBits(a, offset + 26, n - 26) * 67108864
 			else
-				magnitude = bufferReadBits(a, offset, 26) + bufferReadBits(a, offset + 26, 26) * 67108864 + bufferReadBits(a, offset + 52, n - 52) * 4503599627370496
+				magnitude = bufferReadBits(a, offset, 32) + bufferReadBits(a, offset + 32, n - 32) * 4294967296
 			end
 			ax = negative and -magnitude or magnitude
 			adirect = true
 		end
 	end
-	local first = bufferReadU8(b, 0)
-	if first == 255 then
+	local second: number = bufferReadU8(b, 0)
+	if second == 255 then
 		bx = bufferReadF64(b, 1)
 		bdirect = bx == bx and bx ~= huge and bx ~= -huge
-	elseif band(first, 1) == 0 then
-		bx = floor(first / 2)
+	elseif band(second, 1) == 0 then
+		bx = floor(second / 2)
 		bdirect = true
-	elseif band(first, 3) == 1 then
-		bx = -(floor(first / 4) + 1)
+	elseif band(second, 3) == 1 then
+		bx = -(floor(second / 4) + 1)
 		bdirect = true
-	elseif band(first, 7) == 3 then
-		local negative = band(first, 8) ~= 0
-		local n = bufferReadBits(b, 4, 5)
-		local offset = 9
+	elseif band(second, 7) == 3 then
+		local negative = band(second, 8) ~= 0
+		local n: number = bufferReadBits(b, 4, 5)
+		local offset: number = 9
 		if n == 0 then
 			n = 32 + bufferReadBits(b, offset, 5)
 			offset = 14
 		end
 		if n <= MAX_INTEGER_MODE_BITS then
 			local magnitude
-			if n <= 26 then
+			if n <= 32 then
 				magnitude = bufferReadBits(b, offset, n)
-			elseif n <= 52 then
-				magnitude = bufferReadBits(b, offset, 26) + bufferReadBits(b, offset + 26, n - 26) * 67108864
 			else
-				magnitude = bufferReadBits(b, offset, 26) + bufferReadBits(b, offset + 26, 26) * 67108864 + bufferReadBits(b, offset + 52, n - 52) * 4503599627370496
+				magnitude = bufferReadBits(b, offset, 32) + bufferReadBits(b, offset + 32, n - 32) * 4294967296
 			end
 			bx = negative and -magnitude or magnitude
 			bdirect = true
@@ -6763,54 +5979,43 @@ NanoNum.fast.mulBB = function(a: buffer, b: buffer): buffer
 	if adirect and bdirect then
 		local value = ax * bx
 		if value == value and value ~= huge and value ~= -huge and (value ~= 0 or ax == 0 or bx == 0) then
-			local integral = floor(value)
+			local integral: number = floor(value)
 			if value == integral then
 				if value >= 0 and value <= 127 then
-					local data = bufferCreate(1)
+					local data: buffer = bufferCreate(1)
 					bufferWriteU8(data, 0, value * 2)
 					return data
 				end
 				if value < 0 and value >= -64 then
-					local data = bufferCreate(1)
+					local data: buffer = bufferCreate(1)
 					bufferWriteU8(data, 0, 1 + (-value - 1) * 4)
 					return data
 				end
 				local negative = value < 0
 				local magnitude = negative and -value or value
 				if magnitude <= SAFE_INTEGER then
-					local n = bitsRequired(magnitude)
+					local n: number = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
+						local data: buffer = bufferCreate(floor((bits + 7) / 8))
 						local header = 3 + (negative and 8 or 0) + n * 16
 						if bits <= 32 then
 							bufferWriteBits(data, 0, bits, header + magnitude * 512)
 						else
 							bufferWriteBits(data, 0, 9, header)
-							if n <= 26 then
-								bufferWriteBits(data, 9, n, magnitude)
-							else
-								bufferWriteBits(data, 9, 26, magnitude % 67108864)
-								bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-							end
+							bufferWriteBits(data, 9, n, magnitude)
 						end
 						return data
 					end
 					local bits = 14 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
+					local data: buffer = bufferCreate(floor((bits + 7) / 8))
 					bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-					bufferWriteBits(data, 14, 26, magnitude % 67108864)
-					local remaining = n - 26
-					if remaining <= 26 then
-						bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-					else
-						bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-						bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-					end
+					bufferWriteBits(data, 14, 32, magnitude % 4294967296)
+					bufferWriteBits(data, 46, n - 32, floor(magnitude / 4294967296))
 					return data
 				end
 			end
-			local data = bufferCreate(EXACT_F64_BYTES)
+			local data: buffer = bufferCreate(EXACT_F64_BYTES)
 			bufferWriteU8(data, 0, 255)
 			bufferWriteF64(data, 1, value)
 			return data
@@ -6821,7 +6026,7 @@ end
 NanoNum.fast.divBB = function(a: buffer, b: buffer): buffer
 	local ax, bx = 0, 0
 	local adirect, bdirect = false, false
-	local first = bufferReadU8(a, 0)
+	local first: number = bufferReadU8(a, 0)
 	if first == 255 then
 		ax = bufferReadF64(a, 1)
 		adirect = ax == ax and ax ~= huge and ax ~= -huge
@@ -6833,51 +6038,47 @@ NanoNum.fast.divBB = function(a: buffer, b: buffer): buffer
 		adirect = true
 	elseif band(first, 7) == 3 then
 		local negative = band(first, 8) ~= 0
-		local n = bufferReadBits(a, 4, 5)
-		local offset = 9
+		local n: number = bufferReadBits(a, 4, 5)
+		local offset: number = 9
 		if n == 0 then
 			n = 32 + bufferReadBits(a, offset, 5)
 			offset = 14
 		end
 		if n <= MAX_INTEGER_MODE_BITS then
 			local magnitude
-			if n <= 26 then
+			if n <= 32 then
 				magnitude = bufferReadBits(a, offset, n)
-			elseif n <= 52 then
-				magnitude = bufferReadBits(a, offset, 26) + bufferReadBits(a, offset + 26, n - 26) * 67108864
 			else
-				magnitude = bufferReadBits(a, offset, 26) + bufferReadBits(a, offset + 26, 26) * 67108864 + bufferReadBits(a, offset + 52, n - 52) * 4503599627370496
+				magnitude = bufferReadBits(a, offset, 32) + bufferReadBits(a, offset + 32, n - 32) * 4294967296
 			end
 			ax = negative and -magnitude or magnitude
 			adirect = true
 		end
 	end
-	local first = bufferReadU8(b, 0)
-	if first == 255 then
+	local second: number = bufferReadU8(b, 0)
+	if second == 255 then
 		bx = bufferReadF64(b, 1)
 		bdirect = bx == bx and bx ~= huge and bx ~= -huge
-	elseif band(first, 1) == 0 then
-		bx = floor(first / 2)
+	elseif band(second, 1) == 0 then
+		bx = floor(second / 2)
 		bdirect = true
-	elseif band(first, 3) == 1 then
-		bx = -(floor(first / 4) + 1)
+	elseif band(second, 3) == 1 then
+		bx = -(floor(second / 4) + 1)
 		bdirect = true
-	elseif band(first, 7) == 3 then
-		local negative = band(first, 8) ~= 0
-		local n = bufferReadBits(b, 4, 5)
-		local offset = 9
+	elseif band(second, 7) == 3 then
+		local negative = band(second, 8) ~= 0
+		local n: number = bufferReadBits(b, 4, 5)
+		local offset: number = 9
 		if n == 0 then
 			n = 32 + bufferReadBits(b, offset, 5)
 			offset = 14
 		end
 		if n <= MAX_INTEGER_MODE_BITS then
 			local magnitude
-			if n <= 26 then
+			if n <= 32 then
 				magnitude = bufferReadBits(b, offset, n)
-			elseif n <= 52 then
-				magnitude = bufferReadBits(b, offset, 26) + bufferReadBits(b, offset + 26, n - 26) * 67108864
 			else
-				magnitude = bufferReadBits(b, offset, 26) + bufferReadBits(b, offset + 26, 26) * 67108864 + bufferReadBits(b, offset + 52, n - 52) * 4503599627370496
+				magnitude = bufferReadBits(b, offset, 32) + bufferReadBits(b, offset + 32, n - 32) * 4294967296
 			end
 			bx = negative and -magnitude or magnitude
 			bdirect = true
@@ -6887,54 +6088,43 @@ NanoNum.fast.divBB = function(a: buffer, b: buffer): buffer
 		if bx ~= 0 then
 			local value = ax / bx
 			if value == value and value ~= huge and value ~= -huge and (value ~= 0 or ax == 0) then
-				local integral = floor(value)
+				local integral: number = floor(value)
 				if value == integral then
 					if value >= 0 and value <= 127 then
-						local data = bufferCreate(1)
+						local data: buffer = bufferCreate(1)
 						bufferWriteU8(data, 0, value * 2)
 						return data
 					end
 					if value < 0 and value >= -64 then
-						local data = bufferCreate(1)
+						local data: buffer = bufferCreate(1)
 						bufferWriteU8(data, 0, 1 + (-value - 1) * 4)
 						return data
 					end
 					local negative = value < 0
 					local magnitude = negative and -value or value
 					if magnitude <= SAFE_INTEGER then
-						local n = bitsRequired(magnitude)
+						local n: number = bitsRequired(magnitude)
 						if n <= 31 then
 							local bits = 9 + n
-							local data = bufferCreate(floor((bits + 7) / 8))
+							local data: buffer = bufferCreate(floor((bits + 7) / 8))
 							local header = 3 + (negative and 8 or 0) + n * 16
 							if bits <= 32 then
 								bufferWriteBits(data, 0, bits, header + magnitude * 512)
 							else
 								bufferWriteBits(data, 0, 9, header)
-								if n <= 26 then
-									bufferWriteBits(data, 9, n, magnitude)
-								else
-									bufferWriteBits(data, 9, 26, magnitude % 67108864)
-									bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-								end
+								bufferWriteBits(data, 9, n, magnitude)
 							end
 							return data
 						end
 						local bits = 14 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
+						local data: buffer = bufferCreate(floor((bits + 7) / 8))
 						bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-						bufferWriteBits(data, 14, 26, magnitude % 67108864)
-						local remaining = n - 26
-						if remaining <= 26 then
-							bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-						else
-							bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-							bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-						end
+						bufferWriteBits(data, 14, 32, magnitude % 4294967296)
+						bufferWriteBits(data, 46, n - 32, floor(magnitude / 4294967296))
 						return data
 					end
 				end
-				local data = bufferCreate(EXACT_F64_BYTES)
+				local data: buffer = bufferCreate(EXACT_F64_BYTES)
 				bufferWriteU8(data, 0, 255)
 				bufferWriteF64(data, 1, value)
 				return data
@@ -6946,7 +6136,7 @@ end
 NanoNum.fast.powBB = function(a: buffer, b: buffer): buffer
 	local ax, bx = 0, 0
 	local adirect, bdirect = false, false
-	local first = bufferReadU8(a, 0)
+	local first: number = bufferReadU8(a, 0)
 	if first == 255 then
 		ax = bufferReadF64(a, 1)
 		adirect = ax == ax and ax ~= huge and ax ~= -huge
@@ -6958,51 +6148,47 @@ NanoNum.fast.powBB = function(a: buffer, b: buffer): buffer
 		adirect = true
 	elseif band(first, 7) == 3 then
 		local negative = band(first, 8) ~= 0
-		local n = bufferReadBits(a, 4, 5)
-		local offset = 9
+		local n: number = bufferReadBits(a, 4, 5)
+		local offset: number = 9
 		if n == 0 then
 			n = 32 + bufferReadBits(a, offset, 5)
 			offset = 14
 		end
 		if n <= MAX_INTEGER_MODE_BITS then
 			local magnitude
-			if n <= 26 then
+			if n <= 32 then
 				magnitude = bufferReadBits(a, offset, n)
-			elseif n <= 52 then
-				magnitude = bufferReadBits(a, offset, 26) + bufferReadBits(a, offset + 26, n - 26) * 67108864
 			else
-				magnitude = bufferReadBits(a, offset, 26) + bufferReadBits(a, offset + 26, 26) * 67108864 + bufferReadBits(a, offset + 52, n - 52) * 4503599627370496
+				magnitude = bufferReadBits(a, offset, 32) + bufferReadBits(a, offset + 32, n - 32) * 4294967296
 			end
 			ax = negative and -magnitude or magnitude
 			adirect = true
 		end
 	end
-	local first = bufferReadU8(b, 0)
-	if first == 255 then
+	local second: number = bufferReadU8(b, 0)
+	if second == 255 then
 		bx = bufferReadF64(b, 1)
 		bdirect = bx == bx and bx ~= huge and bx ~= -huge
-	elseif band(first, 1) == 0 then
-		bx = floor(first / 2)
+	elseif band(second, 1) == 0 then
+		bx = floor(second / 2)
 		bdirect = true
-	elseif band(first, 3) == 1 then
-		bx = -(floor(first / 4) + 1)
+	elseif band(second, 3) == 1 then
+		bx = -(floor(second / 4) + 1)
 		bdirect = true
-	elseif band(first, 7) == 3 then
-		local negative = band(first, 8) ~= 0
-		local n = bufferReadBits(b, 4, 5)
-		local offset = 9
+	elseif band(second, 7) == 3 then
+		local negative = band(second, 8) ~= 0
+		local n: number = bufferReadBits(b, 4, 5)
+		local offset: number = 9
 		if n == 0 then
 			n = 32 + bufferReadBits(b, offset, 5)
 			offset = 14
 		end
 		if n <= MAX_INTEGER_MODE_BITS then
 			local magnitude
-			if n <= 26 then
+			if n <= 32 then
 				magnitude = bufferReadBits(b, offset, n)
-			elseif n <= 52 then
-				magnitude = bufferReadBits(b, offset, 26) + bufferReadBits(b, offset + 26, n - 26) * 67108864
 			else
-				magnitude = bufferReadBits(b, offset, 26) + bufferReadBits(b, offset + 26, 26) * 67108864 + bufferReadBits(b, offset + 52, n - 52) * 4503599627370496
+				magnitude = bufferReadBits(b, offset, 32) + bufferReadBits(b, offset + 32, n - 32) * 4294967296
 			end
 			bx = negative and -magnitude or magnitude
 			bdirect = true
@@ -7010,55 +6196,44 @@ NanoNum.fast.powBB = function(a: buffer, b: buffer): buffer
 	end
 	if adirect and bdirect then
 		if bx == 0 or ax == 1 then
-			local value = 1
-			local integral = floor(value)
+			local value: number = 1
+			local integral: number = floor(value)
 			if value == integral then
 				if value >= 0 and value <= 127 then
-					local data = bufferCreate(1)
+					local data: buffer = bufferCreate(1)
 					bufferWriteU8(data, 0, value * 2)
 					return data
 				end
 				if value < 0 and value >= -64 then
-					local data = bufferCreate(1)
+					local data: buffer = bufferCreate(1)
 					bufferWriteU8(data, 0, 1 + (-value - 1) * 4)
 					return data
 				end
 				local negative = value < 0
 				local magnitude = negative and -value or value
 				if magnitude <= SAFE_INTEGER then
-					local n = bitsRequired(magnitude)
+					local n: number = bitsRequired(magnitude)
 					if n <= 31 then
 						local bits = 9 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
+						local data: buffer = bufferCreate(floor((bits + 7) / 8))
 						local header = 3 + (negative and 8 or 0) + n * 16
 						if bits <= 32 then
 							bufferWriteBits(data, 0, bits, header + magnitude * 512)
 						else
 							bufferWriteBits(data, 0, 9, header)
-							if n <= 26 then
-								bufferWriteBits(data, 9, n, magnitude)
-							else
-								bufferWriteBits(data, 9, 26, magnitude % 67108864)
-								bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-							end
+							bufferWriteBits(data, 9, n, magnitude)
 						end
 						return data
 					end
 					local bits = 14 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
+					local data: buffer = bufferCreate(floor((bits + 7) / 8))
 					bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-					bufferWriteBits(data, 14, 26, magnitude % 67108864)
-					local remaining = n - 26
-					if remaining <= 26 then
-						bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-					else
-						bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-						bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-					end
+					bufferWriteBits(data, 14, 32, magnitude % 4294967296)
+					bufferWriteBits(data, 46, n - 32, floor(magnitude / 4294967296))
 					return data
 				end
 			end
-			local data = bufferCreate(EXACT_F64_BYTES)
+			local data: buffer = bufferCreate(EXACT_F64_BYTES)
 			bufferWriteU8(data, 0, 255)
 			bufferWriteF64(data, 1, value)
 			return data
@@ -7066,54 +6241,43 @@ NanoNum.fast.powBB = function(a: buffer, b: buffer): buffer
 		if ax >= 0 or bx == floor(bx) then
 			local value = ax ^ bx
 			if value == value and value ~= huge and value ~= -huge and (value ~= 0 or ax == 0) then
-				local integral = floor(value)
+				local integral: number = floor(value)
 				if value == integral then
 					if value >= 0 and value <= 127 then
-						local data = bufferCreate(1)
+						local data: buffer = bufferCreate(1)
 						bufferWriteU8(data, 0, value * 2)
 						return data
 					end
 					if value < 0 and value >= -64 then
-						local data = bufferCreate(1)
+						local data: buffer = bufferCreate(1)
 						bufferWriteU8(data, 0, 1 + (-value - 1) * 4)
 						return data
 					end
 					local negative = value < 0
 					local magnitude = negative and -value or value
 					if magnitude <= SAFE_INTEGER then
-						local n = bitsRequired(magnitude)
+						local n: number = bitsRequired(magnitude)
 						if n <= 31 then
 							local bits = 9 + n
-							local data = bufferCreate(floor((bits + 7) / 8))
+							local data: buffer = bufferCreate(floor((bits + 7) / 8))
 							local header = 3 + (negative and 8 or 0) + n * 16
 							if bits <= 32 then
 								bufferWriteBits(data, 0, bits, header + magnitude * 512)
 							else
 								bufferWriteBits(data, 0, 9, header)
-								if n <= 26 then
-									bufferWriteBits(data, 9, n, magnitude)
-								else
-									bufferWriteBits(data, 9, 26, magnitude % 67108864)
-									bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-								end
+								bufferWriteBits(data, 9, n, magnitude)
 							end
 							return data
 						end
 						local bits = 14 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
+						local data: buffer = bufferCreate(floor((bits + 7) / 8))
 						bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-						bufferWriteBits(data, 14, 26, magnitude % 67108864)
-						local remaining = n - 26
-						if remaining <= 26 then
-							bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-						else
-							bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-							bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-						end
+						bufferWriteBits(data, 14, 32, magnitude % 4294967296)
+						bufferWriteBits(data, 46, n - 32, floor(magnitude / 4294967296))
 						return data
 					end
 				end
-				local data = bufferCreate(EXACT_F64_BYTES)
+				local data: buffer = bufferCreate(EXACT_F64_BYTES)
 				bufferWriteU8(data, 0, 255)
 				bufferWriteF64(data, 1, value)
 				return data
@@ -7123,11 +6287,11 @@ NanoNum.fast.powBB = function(a: buffer, b: buffer): buffer
 	return coldPow(a, b)
 end
 NanoNum.fast.compareBB = function(a: buffer, b: buffer): number
-	local af = bufferReadU8(a, 0)
-	local bf = bufferReadU8(b, 0)
+	local af: number = bufferReadU8(a, 0)
+	local bf: number = bufferReadU8(b, 0)
 	if af == 255 and bf == 255 then
-		local ax = bufferReadF64(a, 1)
-		local bx = bufferReadF64(b, 1)
+		local ax: number = bufferReadF64(a, 1)
+		local bx: number = bufferReadF64(b, 1)
 		if ax ~= ax or bx ~= bx then return NAN end
 		if ax < bx then return -1 elseif ax > bx then return 1 else return 0 end
 	end
@@ -7145,20 +6309,18 @@ NanoNum.fast.compareBB = function(a: buffer, b: buffer): number
 		adirect = true
 	elseif band(first, 7) == 3 then
 		local negative = band(first, 8) ~= 0
-		local n = bufferReadBits(a, 4, 5)
-		local offset = 9
+		local n: number = bufferReadBits(a, 4, 5)
+		local offset: number = 9
 		if n == 0 then
 			n = 32 + bufferReadBits(a, offset, 5)
 			offset = 14
 		end
 		if n <= MAX_INTEGER_MODE_BITS then
 			local magnitude
-			if n <= 26 then
+			if n <= 32 then
 				magnitude = bufferReadBits(a, offset, n)
-			elseif n <= 52 then
-				magnitude = bufferReadBits(a, offset, 26) + bufferReadBits(a, offset + 26, n - 26) * 67108864
 			else
-				magnitude = bufferReadBits(a, offset, 26) + bufferReadBits(a, offset + 26, 26) * 67108864 + bufferReadBits(a, offset + 52, n - 52) * 4503599627370496
+				magnitude = bufferReadBits(a, offset, 32) + bufferReadBits(a, offset + 32, n - 32) * 4294967296
 			end
 			ax = negative and -magnitude or magnitude
 			adirect = true
@@ -7176,20 +6338,18 @@ NanoNum.fast.compareBB = function(a: buffer, b: buffer): number
 		bdirect = true
 	elseif band(first, 7) == 3 then
 		local negative = band(first, 8) ~= 0
-		local n = bufferReadBits(b, 4, 5)
-		local offset = 9
+		local n: number = bufferReadBits(b, 4, 5)
+		local offset: number = 9
 		if n == 0 then
 			n = 32 + bufferReadBits(b, offset, 5)
 			offset = 14
 		end
 		if n <= MAX_INTEGER_MODE_BITS then
 			local magnitude
-			if n <= 26 then
+			if n <= 32 then
 				magnitude = bufferReadBits(b, offset, n)
-			elseif n <= 52 then
-				magnitude = bufferReadBits(b, offset, 26) + bufferReadBits(b, offset + 26, n - 26) * 67108864
 			else
-				magnitude = bufferReadBits(b, offset, 26) + bufferReadBits(b, offset + 26, 26) * 67108864 + bufferReadBits(b, offset + 52, n - 52) * 4503599627370496
+				magnitude = bufferReadBits(b, offset, 32) + bufferReadBits(b, offset + 32, n - 32) * 4294967296
 			end
 			bx = negative and -magnitude or magnitude
 			bdirect = true
@@ -7203,171 +6363,21 @@ end
 NanoNum.fast.addNN = function(a: number, b: number): buffer
 	local value = a + b
 	if value == value and value ~= huge and value ~= -huge then
-		local integral = floor(value)
-		if value == integral then
-			if value >= 0 and value <= 127 then
-				local data = bufferCreate(1)
-				bufferWriteU8(data, 0, value * 2)
-				return data
-			end
-			if value < 0 and value >= -64 then
-				local data = bufferCreate(1)
-				bufferWriteU8(data, 0, 1 + (-value - 1) * 4)
-				return data
-			end
-			local negative = value < 0
-			local magnitude = negative and -value or value
-			if magnitude <= SAFE_INTEGER then
-				local n = bitsRequired(magnitude)
-				if n <= 31 then
-					local bits = 9 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
-					local header = 3 + (negative and 8 or 0) + n * 16
-					if bits <= 32 then
-						bufferWriteBits(data, 0, bits, header + magnitude * 512)
-					else
-						bufferWriteBits(data, 0, 9, header)
-						if n <= 26 then
-							bufferWriteBits(data, 9, n, magnitude)
-						else
-							bufferWriteBits(data, 9, 26, magnitude % 67108864)
-							bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-						end
-					end
-					return data
-				end
-				local bits = 14 + n
-				local data = bufferCreate(floor((bits + 7) / 8))
-				bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-				bufferWriteBits(data, 14, 26, magnitude % 67108864)
-				local remaining = n - 26
-				if remaining <= 26 then
-					bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-				else
-					bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-					bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-				end
-				return data
-			end
-		end
-		local data = bufferCreate(EXACT_F64_BYTES)
-		bufferWriteU8(data, 0, 255)
-		bufferWriteF64(data, 1, value)
-		return data
+		return encodeNumber(value)
 	end
 	return coldAdd(a, b)
 end
 NanoNum.fast.subNN = function(a: number, b: number): buffer
 	local value = a - b
 	if value == value and value ~= huge and value ~= -huge then
-		local integral = floor(value)
-		if value == integral then
-			if value >= 0 and value <= 127 then
-				local data = bufferCreate(1)
-				bufferWriteU8(data, 0, value * 2)
-				return data
-			end
-			if value < 0 and value >= -64 then
-				local data = bufferCreate(1)
-				bufferWriteU8(data, 0, 1 + (-value - 1) * 4)
-				return data
-			end
-			local negative = value < 0
-			local magnitude = negative and -value or value
-			if magnitude <= SAFE_INTEGER then
-				local n = bitsRequired(magnitude)
-				if n <= 31 then
-					local bits = 9 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
-					local header = 3 + (negative and 8 or 0) + n * 16
-					if bits <= 32 then
-						bufferWriteBits(data, 0, bits, header + magnitude * 512)
-					else
-						bufferWriteBits(data, 0, 9, header)
-						if n <= 26 then
-							bufferWriteBits(data, 9, n, magnitude)
-						else
-							bufferWriteBits(data, 9, 26, magnitude % 67108864)
-							bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-						end
-					end
-					return data
-				end
-				local bits = 14 + n
-				local data = bufferCreate(floor((bits + 7) / 8))
-				bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-				bufferWriteBits(data, 14, 26, magnitude % 67108864)
-				local remaining = n - 26
-				if remaining <= 26 then
-					bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-				else
-					bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-					bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-				end
-				return data
-			end
-		end
-		local data = bufferCreate(EXACT_F64_BYTES)
-		bufferWriteU8(data, 0, 255)
-		bufferWriteF64(data, 1, value)
-		return data
+		return encodeNumber(value)
 	end
 	return coldSub(a, b)
 end
 NanoNum.fast.mulNN = function(a: number, b: number): buffer
 	local value = a * b
 	if value == value and value ~= huge and value ~= -huge and (value ~= 0 or a == 0 or b == 0) then
-		local integral = floor(value)
-		if value == integral then
-			if value >= 0 and value <= 127 then
-				local data = bufferCreate(1)
-				bufferWriteU8(data, 0, value * 2)
-				return data
-			end
-			if value < 0 and value >= -64 then
-				local data = bufferCreate(1)
-				bufferWriteU8(data, 0, 1 + (-value - 1) * 4)
-				return data
-			end
-			local negative = value < 0
-			local magnitude = negative and -value or value
-			if magnitude <= SAFE_INTEGER then
-				local n = bitsRequired(magnitude)
-				if n <= 31 then
-					local bits = 9 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
-					local header = 3 + (negative and 8 or 0) + n * 16
-					if bits <= 32 then
-						bufferWriteBits(data, 0, bits, header + magnitude * 512)
-					else
-						bufferWriteBits(data, 0, 9, header)
-						if n <= 26 then
-							bufferWriteBits(data, 9, n, magnitude)
-						else
-							bufferWriteBits(data, 9, 26, magnitude % 67108864)
-							bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-						end
-					end
-					return data
-				end
-				local bits = 14 + n
-				local data = bufferCreate(floor((bits + 7) / 8))
-				bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-				bufferWriteBits(data, 14, 26, magnitude % 67108864)
-				local remaining = n - 26
-				if remaining <= 26 then
-					bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-				else
-					bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-					bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-				end
-				return data
-			end
-		end
-		local data = bufferCreate(EXACT_F64_BYTES)
-		bufferWriteU8(data, 0, 255)
-		bufferWriteF64(data, 1, value)
-		return data
+		return encodeNumber(value)
 	end
 	return coldMul(a, b)
 end
@@ -7375,57 +6385,7 @@ NanoNum.fast.divNN = function(a: number, b: number): buffer
 	if b ~= 0 then
 		local value = a / b
 		if value == value and value ~= huge and value ~= -huge and (value ~= 0 or a == 0) then
-			local integral = floor(value)
-			if value == integral then
-				if value >= 0 and value <= 127 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, value * 2)
-					return data
-				end
-				if value < 0 and value >= -64 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, 1 + (-value - 1) * 4)
-					return data
-				end
-				local negative = value < 0
-				local magnitude = negative and -value or value
-				if magnitude <= SAFE_INTEGER then
-					local n = bitsRequired(magnitude)
-					if n <= 31 then
-						local bits = 9 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
-						local header = 3 + (negative and 8 or 0) + n * 16
-						if bits <= 32 then
-							bufferWriteBits(data, 0, bits, header + magnitude * 512)
-						else
-							bufferWriteBits(data, 0, 9, header)
-							if n <= 26 then
-								bufferWriteBits(data, 9, n, magnitude)
-							else
-								bufferWriteBits(data, 9, 26, magnitude % 67108864)
-								bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-							end
-						end
-						return data
-					end
-					local bits = 14 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
-					bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-					bufferWriteBits(data, 14, 26, magnitude % 67108864)
-					local remaining = n - 26
-					if remaining <= 26 then
-						bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-					else
-						bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-						bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-					end
-					return data
-				end
-			end
-			local data = bufferCreate(EXACT_F64_BYTES)
-			bufferWriteU8(data, 0, 255)
-			bufferWriteF64(data, 1, value)
-			return data
+			return encodeNumber(value)
 		end
 	end
 	return coldDiv(a, b)
@@ -7433,113 +6393,13 @@ end
 NanoNum.fast.powNN = function(a: number, b: number): buffer
 	if a == a and b == b then
 		if b == 0 or a == 1 then
-			local value = 1
-			local integral = floor(value)
-			if value == integral then
-				if value >= 0 and value <= 127 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, value * 2)
-					return data
-				end
-				if value < 0 and value >= -64 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, 1 + (-value - 1) * 4)
-					return data
-				end
-				local negative = value < 0
-				local magnitude = negative and -value or value
-				if magnitude <= SAFE_INTEGER then
-					local n = bitsRequired(magnitude)
-					if n <= 31 then
-						local bits = 9 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
-						local header = 3 + (negative and 8 or 0) + n * 16
-						if bits <= 32 then
-							bufferWriteBits(data, 0, bits, header + magnitude * 512)
-						else
-							bufferWriteBits(data, 0, 9, header)
-							if n <= 26 then
-								bufferWriteBits(data, 9, n, magnitude)
-							else
-								bufferWriteBits(data, 9, 26, magnitude % 67108864)
-								bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-							end
-						end
-						return data
-					end
-					local bits = 14 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
-					bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-					bufferWriteBits(data, 14, 26, magnitude % 67108864)
-					local remaining = n - 26
-					if remaining <= 26 then
-						bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-					else
-						bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-						bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-					end
-					return data
-				end
-			end
-			local data = bufferCreate(EXACT_F64_BYTES)
-			bufferWriteU8(data, 0, 255)
-			bufferWriteF64(data, 1, value)
-			return data
+			local value: number = 1
+			return encodeNumber(value)
 		end
 		if a >= 0 or b == floor(b) then
 			local value = a ^ b
 			if value == value and value ~= huge and value ~= -huge and (value ~= 0 or a == 0) then
-				local integral = floor(value)
-				if value == integral then
-					if value >= 0 and value <= 127 then
-						local data = bufferCreate(1)
-						bufferWriteU8(data, 0, value * 2)
-						return data
-					end
-					if value < 0 and value >= -64 then
-						local data = bufferCreate(1)
-						bufferWriteU8(data, 0, 1 + (-value - 1) * 4)
-						return data
-					end
-					local negative = value < 0
-					local magnitude = negative and -value or value
-					if magnitude <= SAFE_INTEGER then
-						local n = bitsRequired(magnitude)
-						if n <= 31 then
-							local bits = 9 + n
-							local data = bufferCreate(floor((bits + 7) / 8))
-							local header = 3 + (negative and 8 or 0) + n * 16
-							if bits <= 32 then
-								bufferWriteBits(data, 0, bits, header + magnitude * 512)
-							else
-								bufferWriteBits(data, 0, 9, header)
-								if n <= 26 then
-									bufferWriteBits(data, 9, n, magnitude)
-								else
-									bufferWriteBits(data, 9, 26, magnitude % 67108864)
-									bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-								end
-							end
-							return data
-						end
-						local bits = 14 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
-						bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-						bufferWriteBits(data, 14, 26, magnitude % 67108864)
-						local remaining = n - 26
-						if remaining <= 26 then
-							bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-						else
-							bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-							bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-						end
-						return data
-					end
-				end
-				local data = bufferCreate(EXACT_F64_BYTES)
-				bufferWriteU8(data, 0, 255)
-				bufferWriteF64(data, 1, value)
-				return data
+				return encodeNumber(value)
 			end
 		end
 	end
@@ -7552,7 +6412,7 @@ end
 NanoNum.fast.addBN = function(a: buffer, b: number): buffer
 	local ax, bx = 0, 0
 	local adirect, bdirect = false, false
-	local first = bufferReadU8(a, 0)
+	local first: number = bufferReadU8(a, 0)
 	if first == 255 then
 		ax = bufferReadF64(a, 1)
 		adirect = ax == ax and ax ~= huge and ax ~= -huge
@@ -7564,20 +6424,18 @@ NanoNum.fast.addBN = function(a: buffer, b: number): buffer
 		adirect = true
 	elseif band(first, 7) == 3 then
 		local negative = band(first, 8) ~= 0
-		local n = bufferReadBits(a, 4, 5)
-		local offset = 9
+		local n: number = bufferReadBits(a, 4, 5)
+		local offset: number = 9
 		if n == 0 then
 			n = 32 + bufferReadBits(a, offset, 5)
 			offset = 14
 		end
 		if n <= MAX_INTEGER_MODE_BITS then
 			local magnitude
-			if n <= 26 then
+			if n <= 32 then
 				magnitude = bufferReadBits(a, offset, n)
-			elseif n <= 52 then
-				magnitude = bufferReadBits(a, offset, 26) + bufferReadBits(a, offset + 26, n - 26) * 67108864
 			else
-				magnitude = bufferReadBits(a, offset, 26) + bufferReadBits(a, offset + 26, 26) * 67108864 + bufferReadBits(a, offset + 52, n - 52) * 4503599627370496
+				magnitude = bufferReadBits(a, offset, 32) + bufferReadBits(a, offset + 32, n - 32) * 4294967296
 			end
 			ax = negative and -magnitude or magnitude
 			adirect = true
@@ -7588,57 +6446,7 @@ NanoNum.fast.addBN = function(a: buffer, b: number): buffer
 	if adirect and bdirect then
 		local value = ax + bx
 		if value == value and value ~= huge and value ~= -huge then
-			local integral = floor(value)
-			if value == integral then
-				if value >= 0 and value <= 127 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, value * 2)
-					return data
-				end
-				if value < 0 and value >= -64 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, 1 + (-value - 1) * 4)
-					return data
-				end
-				local negative = value < 0
-				local magnitude = negative and -value or value
-				if magnitude <= SAFE_INTEGER then
-					local n = bitsRequired(magnitude)
-					if n <= 31 then
-						local bits = 9 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
-						local header = 3 + (negative and 8 or 0) + n * 16
-						if bits <= 32 then
-							bufferWriteBits(data, 0, bits, header + magnitude * 512)
-						else
-							bufferWriteBits(data, 0, 9, header)
-							if n <= 26 then
-								bufferWriteBits(data, 9, n, magnitude)
-							else
-								bufferWriteBits(data, 9, 26, magnitude % 67108864)
-								bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-							end
-						end
-						return data
-					end
-					local bits = 14 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
-					bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-					bufferWriteBits(data, 14, 26, magnitude % 67108864)
-					local remaining = n - 26
-					if remaining <= 26 then
-						bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-					else
-						bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-						bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-					end
-					return data
-				end
-			end
-			local data = bufferCreate(EXACT_F64_BYTES)
-			bufferWriteU8(data, 0, 255)
-			bufferWriteF64(data, 1, value)
-			return data
+			return encodeNumber(value)
 		end
 	end
 	return coldAdd(a, b)
@@ -7648,32 +6456,30 @@ NanoNum.fast.addNB = function(a: number, b: buffer): buffer
 	local adirect, bdirect = false, false
 	ax = a
 	adirect = ax == ax and ax ~= huge and ax ~= -huge
-	local first = bufferReadU8(b, 0)
-	if first == 255 then
+	local second: number = bufferReadU8(b, 0)
+	if second == 255 then
 		bx = bufferReadF64(b, 1)
 		bdirect = bx == bx and bx ~= huge and bx ~= -huge
-	elseif band(first, 1) == 0 then
-		bx = floor(first / 2)
+	elseif band(second, 1) == 0 then
+		bx = floor(second / 2)
 		bdirect = true
-	elseif band(first, 3) == 1 then
-		bx = -(floor(first / 4) + 1)
+	elseif band(second, 3) == 1 then
+		bx = -(floor(second / 4) + 1)
 		bdirect = true
-	elseif band(first, 7) == 3 then
-		local negative = band(first, 8) ~= 0
-		local n = bufferReadBits(b, 4, 5)
-		local offset = 9
+	elseif band(second, 7) == 3 then
+		local negative = band(second, 8) ~= 0
+		local n: number = bufferReadBits(b, 4, 5)
+		local offset: number = 9
 		if n == 0 then
 			n = 32 + bufferReadBits(b, offset, 5)
 			offset = 14
 		end
 		if n <= MAX_INTEGER_MODE_BITS then
 			local magnitude
-			if n <= 26 then
+			if n <= 32 then
 				magnitude = bufferReadBits(b, offset, n)
-			elseif n <= 52 then
-				magnitude = bufferReadBits(b, offset, 26) + bufferReadBits(b, offset + 26, n - 26) * 67108864
 			else
-				magnitude = bufferReadBits(b, offset, 26) + bufferReadBits(b, offset + 26, 26) * 67108864 + bufferReadBits(b, offset + 52, n - 52) * 4503599627370496
+				magnitude = bufferReadBits(b, offset, 32) + bufferReadBits(b, offset + 32, n - 32) * 4294967296
 			end
 			bx = negative and -magnitude or magnitude
 			bdirect = true
@@ -7682,57 +6488,7 @@ NanoNum.fast.addNB = function(a: number, b: buffer): buffer
 	if adirect and bdirect then
 		local value = ax + bx
 		if value == value and value ~= huge and value ~= -huge then
-			local integral = floor(value)
-			if value == integral then
-				if value >= 0 and value <= 127 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, value * 2)
-					return data
-				end
-				if value < 0 and value >= -64 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, 1 + (-value - 1) * 4)
-					return data
-				end
-				local negative = value < 0
-				local magnitude = negative and -value or value
-				if magnitude <= SAFE_INTEGER then
-					local n = bitsRequired(magnitude)
-					if n <= 31 then
-						local bits = 9 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
-						local header = 3 + (negative and 8 or 0) + n * 16
-						if bits <= 32 then
-							bufferWriteBits(data, 0, bits, header + magnitude * 512)
-						else
-							bufferWriteBits(data, 0, 9, header)
-							if n <= 26 then
-								bufferWriteBits(data, 9, n, magnitude)
-							else
-								bufferWriteBits(data, 9, 26, magnitude % 67108864)
-								bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-							end
-						end
-						return data
-					end
-					local bits = 14 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
-					bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-					bufferWriteBits(data, 14, 26, magnitude % 67108864)
-					local remaining = n - 26
-					if remaining <= 26 then
-						bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-					else
-						bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-						bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-					end
-					return data
-				end
-			end
-			local data = bufferCreate(EXACT_F64_BYTES)
-			bufferWriteU8(data, 0, 255)
-			bufferWriteF64(data, 1, value)
-			return data
+			return encodeNumber(value)
 		end
 	end
 	return coldAdd(a, b)
@@ -7745,7 +6501,7 @@ NanoNum.fast.addNS = function(a: number, b: string): buffer return NanoNum.fast.
 NanoNum.fast.subBN = function(a: buffer, b: number): buffer
 	local ax, bx = 0, 0
 	local adirect, bdirect = false, false
-	local first = bufferReadU8(a, 0)
+	local first: number = bufferReadU8(a, 0)
 	if first == 255 then
 		ax = bufferReadF64(a, 1)
 		adirect = ax == ax and ax ~= huge and ax ~= -huge
@@ -7757,20 +6513,18 @@ NanoNum.fast.subBN = function(a: buffer, b: number): buffer
 		adirect = true
 	elseif band(first, 7) == 3 then
 		local negative = band(first, 8) ~= 0
-		local n = bufferReadBits(a, 4, 5)
-		local offset = 9
+		local n: number = bufferReadBits(a, 4, 5)
+		local offset: number = 9
 		if n == 0 then
 			n = 32 + bufferReadBits(a, offset, 5)
 			offset = 14
 		end
 		if n <= MAX_INTEGER_MODE_BITS then
 			local magnitude
-			if n <= 26 then
+			if n <= 32 then
 				magnitude = bufferReadBits(a, offset, n)
-			elseif n <= 52 then
-				magnitude = bufferReadBits(a, offset, 26) + bufferReadBits(a, offset + 26, n - 26) * 67108864
 			else
-				magnitude = bufferReadBits(a, offset, 26) + bufferReadBits(a, offset + 26, 26) * 67108864 + bufferReadBits(a, offset + 52, n - 52) * 4503599627370496
+				magnitude = bufferReadBits(a, offset, 32) + bufferReadBits(a, offset + 32, n - 32) * 4294967296
 			end
 			ax = negative and -magnitude or magnitude
 			adirect = true
@@ -7781,57 +6535,7 @@ NanoNum.fast.subBN = function(a: buffer, b: number): buffer
 	if adirect and bdirect then
 		local value = ax - bx
 		if value == value and value ~= huge and value ~= -huge then
-			local integral = floor(value)
-			if value == integral then
-				if value >= 0 and value <= 127 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, value * 2)
-					return data
-				end
-				if value < 0 and value >= -64 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, 1 + (-value - 1) * 4)
-					return data
-				end
-				local negative = value < 0
-				local magnitude = negative and -value or value
-				if magnitude <= SAFE_INTEGER then
-					local n = bitsRequired(magnitude)
-					if n <= 31 then
-						local bits = 9 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
-						local header = 3 + (negative and 8 or 0) + n * 16
-						if bits <= 32 then
-							bufferWriteBits(data, 0, bits, header + magnitude * 512)
-						else
-							bufferWriteBits(data, 0, 9, header)
-							if n <= 26 then
-								bufferWriteBits(data, 9, n, magnitude)
-							else
-								bufferWriteBits(data, 9, 26, magnitude % 67108864)
-								bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-							end
-						end
-						return data
-					end
-					local bits = 14 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
-					bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-					bufferWriteBits(data, 14, 26, magnitude % 67108864)
-					local remaining = n - 26
-					if remaining <= 26 then
-						bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-					else
-						bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-						bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-					end
-					return data
-				end
-			end
-			local data = bufferCreate(EXACT_F64_BYTES)
-			bufferWriteU8(data, 0, 255)
-			bufferWriteF64(data, 1, value)
-			return data
+			return encodeNumber(value)
 		end
 	end
 	return coldSub(a, b)
@@ -7841,32 +6545,30 @@ NanoNum.fast.subNB = function(a: number, b: buffer): buffer
 	local adirect, bdirect = false, false
 	ax = a
 	adirect = ax == ax and ax ~= huge and ax ~= -huge
-	local first = bufferReadU8(b, 0)
-	if first == 255 then
+	local second: number = bufferReadU8(b, 0)
+	if second == 255 then
 		bx = bufferReadF64(b, 1)
 		bdirect = bx == bx and bx ~= huge and bx ~= -huge
-	elseif band(first, 1) == 0 then
-		bx = floor(first / 2)
+	elseif band(second, 1) == 0 then
+		bx = floor(second / 2)
 		bdirect = true
-	elseif band(first, 3) == 1 then
-		bx = -(floor(first / 4) + 1)
+	elseif band(second, 3) == 1 then
+		bx = -(floor(second / 4) + 1)
 		bdirect = true
-	elseif band(first, 7) == 3 then
-		local negative = band(first, 8) ~= 0
-		local n = bufferReadBits(b, 4, 5)
-		local offset = 9
+	elseif band(second, 7) == 3 then
+		local negative = band(second, 8) ~= 0
+		local n: number = bufferReadBits(b, 4, 5)
+		local offset: number = 9
 		if n == 0 then
 			n = 32 + bufferReadBits(b, offset, 5)
 			offset = 14
 		end
 		if n <= MAX_INTEGER_MODE_BITS then
 			local magnitude
-			if n <= 26 then
+			if n <= 32 then
 				magnitude = bufferReadBits(b, offset, n)
-			elseif n <= 52 then
-				magnitude = bufferReadBits(b, offset, 26) + bufferReadBits(b, offset + 26, n - 26) * 67108864
 			else
-				magnitude = bufferReadBits(b, offset, 26) + bufferReadBits(b, offset + 26, 26) * 67108864 + bufferReadBits(b, offset + 52, n - 52) * 4503599627370496
+				magnitude = bufferReadBits(b, offset, 32) + bufferReadBits(b, offset + 32, n - 32) * 4294967296
 			end
 			bx = negative and -magnitude or magnitude
 			bdirect = true
@@ -7875,57 +6577,7 @@ NanoNum.fast.subNB = function(a: number, b: buffer): buffer
 	if adirect and bdirect then
 		local value = ax - bx
 		if value == value and value ~= huge and value ~= -huge then
-			local integral = floor(value)
-			if value == integral then
-				if value >= 0 and value <= 127 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, value * 2)
-					return data
-				end
-				if value < 0 and value >= -64 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, 1 + (-value - 1) * 4)
-					return data
-				end
-				local negative = value < 0
-				local magnitude = negative and -value or value
-				if magnitude <= SAFE_INTEGER then
-					local n = bitsRequired(magnitude)
-					if n <= 31 then
-						local bits = 9 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
-						local header = 3 + (negative and 8 or 0) + n * 16
-						if bits <= 32 then
-							bufferWriteBits(data, 0, bits, header + magnitude * 512)
-						else
-							bufferWriteBits(data, 0, 9, header)
-							if n <= 26 then
-								bufferWriteBits(data, 9, n, magnitude)
-							else
-								bufferWriteBits(data, 9, 26, magnitude % 67108864)
-								bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-							end
-						end
-						return data
-					end
-					local bits = 14 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
-					bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-					bufferWriteBits(data, 14, 26, magnitude % 67108864)
-					local remaining = n - 26
-					if remaining <= 26 then
-						bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-					else
-						bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-						bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-					end
-					return data
-				end
-			end
-			local data = bufferCreate(EXACT_F64_BYTES)
-			bufferWriteU8(data, 0, 255)
-			bufferWriteF64(data, 1, value)
-			return data
+			return encodeNumber(value)
 		end
 	end
 	return coldSub(a, b)
@@ -7938,7 +6590,7 @@ NanoNum.fast.subNS = function(a: number, b: string): buffer return NanoNum.fast.
 NanoNum.fast.mulBN = function(a: buffer, b: number): buffer
 	local ax, bx = 0, 0
 	local adirect, bdirect = false, false
-	local first = bufferReadU8(a, 0)
+	local first: number = bufferReadU8(a, 0)
 	if first == 255 then
 		ax = bufferReadF64(a, 1)
 		adirect = ax == ax and ax ~= huge and ax ~= -huge
@@ -7950,20 +6602,18 @@ NanoNum.fast.mulBN = function(a: buffer, b: number): buffer
 		adirect = true
 	elseif band(first, 7) == 3 then
 		local negative = band(first, 8) ~= 0
-		local n = bufferReadBits(a, 4, 5)
-		local offset = 9
+		local n: number = bufferReadBits(a, 4, 5)
+		local offset: number = 9
 		if n == 0 then
 			n = 32 + bufferReadBits(a, offset, 5)
 			offset = 14
 		end
 		if n <= MAX_INTEGER_MODE_BITS then
 			local magnitude
-			if n <= 26 then
+			if n <= 32 then
 				magnitude = bufferReadBits(a, offset, n)
-			elseif n <= 52 then
-				magnitude = bufferReadBits(a, offset, 26) + bufferReadBits(a, offset + 26, n - 26) * 67108864
 			else
-				magnitude = bufferReadBits(a, offset, 26) + bufferReadBits(a, offset + 26, 26) * 67108864 + bufferReadBits(a, offset + 52, n - 52) * 4503599627370496
+				magnitude = bufferReadBits(a, offset, 32) + bufferReadBits(a, offset + 32, n - 32) * 4294967296
 			end
 			ax = negative and -magnitude or magnitude
 			adirect = true
@@ -7974,57 +6624,7 @@ NanoNum.fast.mulBN = function(a: buffer, b: number): buffer
 	if adirect and bdirect then
 		local value = ax * bx
 		if value == value and value ~= huge and value ~= -huge and (value ~= 0 or ax == 0 or bx == 0) then
-			local integral = floor(value)
-			if value == integral then
-				if value >= 0 and value <= 127 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, value * 2)
-					return data
-				end
-				if value < 0 and value >= -64 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, 1 + (-value - 1) * 4)
-					return data
-				end
-				local negative = value < 0
-				local magnitude = negative and -value or value
-				if magnitude <= SAFE_INTEGER then
-					local n = bitsRequired(magnitude)
-					if n <= 31 then
-						local bits = 9 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
-						local header = 3 + (negative and 8 or 0) + n * 16
-						if bits <= 32 then
-							bufferWriteBits(data, 0, bits, header + magnitude * 512)
-						else
-							bufferWriteBits(data, 0, 9, header)
-							if n <= 26 then
-								bufferWriteBits(data, 9, n, magnitude)
-							else
-								bufferWriteBits(data, 9, 26, magnitude % 67108864)
-								bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-							end
-						end
-						return data
-					end
-					local bits = 14 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
-					bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-					bufferWriteBits(data, 14, 26, magnitude % 67108864)
-					local remaining = n - 26
-					if remaining <= 26 then
-						bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-					else
-						bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-						bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-					end
-					return data
-				end
-			end
-			local data = bufferCreate(EXACT_F64_BYTES)
-			bufferWriteU8(data, 0, 255)
-			bufferWriteF64(data, 1, value)
-			return data
+			return encodeNumber(value)
 		end
 	end
 	return coldMul(a, b)
@@ -8034,32 +6634,30 @@ NanoNum.fast.mulNB = function(a: number, b: buffer): buffer
 	local adirect, bdirect = false, false
 	ax = a
 	adirect = ax == ax and ax ~= huge and ax ~= -huge
-	local first = bufferReadU8(b, 0)
-	if first == 255 then
+	local second: number = bufferReadU8(b, 0)
+	if second == 255 then
 		bx = bufferReadF64(b, 1)
 		bdirect = bx == bx and bx ~= huge and bx ~= -huge
-	elseif band(first, 1) == 0 then
-		bx = floor(first / 2)
+	elseif band(second, 1) == 0 then
+		bx = floor(second / 2)
 		bdirect = true
-	elseif band(first, 3) == 1 then
-		bx = -(floor(first / 4) + 1)
+	elseif band(second, 3) == 1 then
+		bx = -(floor(second / 4) + 1)
 		bdirect = true
-	elseif band(first, 7) == 3 then
-		local negative = band(first, 8) ~= 0
-		local n = bufferReadBits(b, 4, 5)
-		local offset = 9
+	elseif band(second, 7) == 3 then
+		local negative = band(second, 8) ~= 0
+		local n: number = bufferReadBits(b, 4, 5)
+		local offset: number = 9
 		if n == 0 then
 			n = 32 + bufferReadBits(b, offset, 5)
 			offset = 14
 		end
 		if n <= MAX_INTEGER_MODE_BITS then
 			local magnitude
-			if n <= 26 then
+			if n <= 32 then
 				magnitude = bufferReadBits(b, offset, n)
-			elseif n <= 52 then
-				magnitude = bufferReadBits(b, offset, 26) + bufferReadBits(b, offset + 26, n - 26) * 67108864
 			else
-				magnitude = bufferReadBits(b, offset, 26) + bufferReadBits(b, offset + 26, 26) * 67108864 + bufferReadBits(b, offset + 52, n - 52) * 4503599627370496
+				magnitude = bufferReadBits(b, offset, 32) + bufferReadBits(b, offset + 32, n - 32) * 4294967296
 			end
 			bx = negative and -magnitude or magnitude
 			bdirect = true
@@ -8068,57 +6666,7 @@ NanoNum.fast.mulNB = function(a: number, b: buffer): buffer
 	if adirect and bdirect then
 		local value = ax * bx
 		if value == value and value ~= huge and value ~= -huge and (value ~= 0 or ax == 0 or bx == 0) then
-			local integral = floor(value)
-			if value == integral then
-				if value >= 0 and value <= 127 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, value * 2)
-					return data
-				end
-				if value < 0 and value >= -64 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, 1 + (-value - 1) * 4)
-					return data
-				end
-				local negative = value < 0
-				local magnitude = negative and -value or value
-				if magnitude <= SAFE_INTEGER then
-					local n = bitsRequired(magnitude)
-					if n <= 31 then
-						local bits = 9 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
-						local header = 3 + (negative and 8 or 0) + n * 16
-						if bits <= 32 then
-							bufferWriteBits(data, 0, bits, header + magnitude * 512)
-						else
-							bufferWriteBits(data, 0, 9, header)
-							if n <= 26 then
-								bufferWriteBits(data, 9, n, magnitude)
-							else
-								bufferWriteBits(data, 9, 26, magnitude % 67108864)
-								bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-							end
-						end
-						return data
-					end
-					local bits = 14 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
-					bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-					bufferWriteBits(data, 14, 26, magnitude % 67108864)
-					local remaining = n - 26
-					if remaining <= 26 then
-						bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-					else
-						bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-						bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-					end
-					return data
-				end
-			end
-			local data = bufferCreate(EXACT_F64_BYTES)
-			bufferWriteU8(data, 0, 255)
-			bufferWriteF64(data, 1, value)
-			return data
+			return encodeNumber(value)
 		end
 	end
 	return coldMul(a, b)
@@ -8131,7 +6679,7 @@ NanoNum.fast.mulNS = function(a: number, b: string): buffer return NanoNum.fast.
 NanoNum.fast.divBN = function(a: buffer, b: number): buffer
 	local ax, bx = 0, 0
 	local adirect, bdirect = false, false
-	local first = bufferReadU8(a, 0)
+	local first: number = bufferReadU8(a, 0)
 	if first == 255 then
 		ax = bufferReadF64(a, 1)
 		adirect = ax == ax and ax ~= huge and ax ~= -huge
@@ -8143,20 +6691,18 @@ NanoNum.fast.divBN = function(a: buffer, b: number): buffer
 		adirect = true
 	elseif band(first, 7) == 3 then
 		local negative = band(first, 8) ~= 0
-		local n = bufferReadBits(a, 4, 5)
-		local offset = 9
+		local n: number = bufferReadBits(a, 4, 5)
+		local offset: number = 9
 		if n == 0 then
 			n = 32 + bufferReadBits(a, offset, 5)
 			offset = 14
 		end
 		if n <= MAX_INTEGER_MODE_BITS then
 			local magnitude
-			if n <= 26 then
+			if n <= 32 then
 				magnitude = bufferReadBits(a, offset, n)
-			elseif n <= 52 then
-				magnitude = bufferReadBits(a, offset, 26) + bufferReadBits(a, offset + 26, n - 26) * 67108864
 			else
-				magnitude = bufferReadBits(a, offset, 26) + bufferReadBits(a, offset + 26, 26) * 67108864 + bufferReadBits(a, offset + 52, n - 52) * 4503599627370496
+				magnitude = bufferReadBits(a, offset, 32) + bufferReadBits(a, offset + 32, n - 32) * 4294967296
 			end
 			ax = negative and -magnitude or magnitude
 			adirect = true
@@ -8168,57 +6714,7 @@ NanoNum.fast.divBN = function(a: buffer, b: number): buffer
 		if bx ~= 0 then
 			local value = ax / bx
 			if value == value and value ~= huge and value ~= -huge and (value ~= 0 or ax == 0) then
-				local integral = floor(value)
-				if value == integral then
-					if value >= 0 and value <= 127 then
-						local data = bufferCreate(1)
-						bufferWriteU8(data, 0, value * 2)
-						return data
-					end
-					if value < 0 and value >= -64 then
-						local data = bufferCreate(1)
-						bufferWriteU8(data, 0, 1 + (-value - 1) * 4)
-						return data
-					end
-					local negative = value < 0
-					local magnitude = negative and -value or value
-					if magnitude <= SAFE_INTEGER then
-						local n = bitsRequired(magnitude)
-						if n <= 31 then
-							local bits = 9 + n
-							local data = bufferCreate(floor((bits + 7) / 8))
-							local header = 3 + (negative and 8 or 0) + n * 16
-							if bits <= 32 then
-								bufferWriteBits(data, 0, bits, header + magnitude * 512)
-							else
-								bufferWriteBits(data, 0, 9, header)
-								if n <= 26 then
-									bufferWriteBits(data, 9, n, magnitude)
-								else
-									bufferWriteBits(data, 9, 26, magnitude % 67108864)
-									bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-								end
-							end
-							return data
-						end
-						local bits = 14 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
-						bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-						bufferWriteBits(data, 14, 26, magnitude % 67108864)
-						local remaining = n - 26
-						if remaining <= 26 then
-							bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-						else
-							bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-							bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-						end
-						return data
-					end
-				end
-				local data = bufferCreate(EXACT_F64_BYTES)
-				bufferWriteU8(data, 0, 255)
-				bufferWriteF64(data, 1, value)
-				return data
+				return encodeNumber(value)
 			end
 		end
 	end
@@ -8229,32 +6725,30 @@ NanoNum.fast.divNB = function(a: number, b: buffer): buffer
 	local adirect, bdirect = false, false
 	ax = a
 	adirect = ax == ax and ax ~= huge and ax ~= -huge
-	local first = bufferReadU8(b, 0)
-	if first == 255 then
+	local second: number = bufferReadU8(b, 0)
+	if second == 255 then
 		bx = bufferReadF64(b, 1)
 		bdirect = bx == bx and bx ~= huge and bx ~= -huge
-	elseif band(first, 1) == 0 then
-		bx = floor(first / 2)
+	elseif band(second, 1) == 0 then
+		bx = floor(second / 2)
 		bdirect = true
-	elseif band(first, 3) == 1 then
-		bx = -(floor(first / 4) + 1)
+	elseif band(second, 3) == 1 then
+		bx = -(floor(second / 4) + 1)
 		bdirect = true
-	elseif band(first, 7) == 3 then
-		local negative = band(first, 8) ~= 0
-		local n = bufferReadBits(b, 4, 5)
-		local offset = 9
+	elseif band(second, 7) == 3 then
+		local negative = band(second, 8) ~= 0
+		local n: number = bufferReadBits(b, 4, 5)
+		local offset: number = 9
 		if n == 0 then
 			n = 32 + bufferReadBits(b, offset, 5)
 			offset = 14
 		end
 		if n <= MAX_INTEGER_MODE_BITS then
 			local magnitude
-			if n <= 26 then
+			if n <= 32 then
 				magnitude = bufferReadBits(b, offset, n)
-			elseif n <= 52 then
-				magnitude = bufferReadBits(b, offset, 26) + bufferReadBits(b, offset + 26, n - 26) * 67108864
 			else
-				magnitude = bufferReadBits(b, offset, 26) + bufferReadBits(b, offset + 26, 26) * 67108864 + bufferReadBits(b, offset + 52, n - 52) * 4503599627370496
+				magnitude = bufferReadBits(b, offset, 32) + bufferReadBits(b, offset + 32, n - 32) * 4294967296
 			end
 			bx = negative and -magnitude or magnitude
 			bdirect = true
@@ -8264,57 +6758,7 @@ NanoNum.fast.divNB = function(a: number, b: buffer): buffer
 		if bx ~= 0 then
 			local value = ax / bx
 			if value == value and value ~= huge and value ~= -huge and (value ~= 0 or ax == 0) then
-				local integral = floor(value)
-				if value == integral then
-					if value >= 0 and value <= 127 then
-						local data = bufferCreate(1)
-						bufferWriteU8(data, 0, value * 2)
-						return data
-					end
-					if value < 0 and value >= -64 then
-						local data = bufferCreate(1)
-						bufferWriteU8(data, 0, 1 + (-value - 1) * 4)
-						return data
-					end
-					local negative = value < 0
-					local magnitude = negative and -value or value
-					if magnitude <= SAFE_INTEGER then
-						local n = bitsRequired(magnitude)
-						if n <= 31 then
-							local bits = 9 + n
-							local data = bufferCreate(floor((bits + 7) / 8))
-							local header = 3 + (negative and 8 or 0) + n * 16
-							if bits <= 32 then
-								bufferWriteBits(data, 0, bits, header + magnitude * 512)
-							else
-								bufferWriteBits(data, 0, 9, header)
-								if n <= 26 then
-									bufferWriteBits(data, 9, n, magnitude)
-								else
-									bufferWriteBits(data, 9, 26, magnitude % 67108864)
-									bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-								end
-							end
-							return data
-						end
-						local bits = 14 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
-						bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-						bufferWriteBits(data, 14, 26, magnitude % 67108864)
-						local remaining = n - 26
-						if remaining <= 26 then
-							bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-						else
-							bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-							bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-						end
-						return data
-					end
-				end
-				local data = bufferCreate(EXACT_F64_BYTES)
-				bufferWriteU8(data, 0, 255)
-				bufferWriteF64(data, 1, value)
-				return data
+				return encodeNumber(value)
 			end
 		end
 	end
@@ -8328,7 +6772,7 @@ NanoNum.fast.divNS = function(a: number, b: string): buffer return NanoNum.fast.
 NanoNum.fast.powBN = function(a: buffer, b: number): buffer
 	local ax, bx = 0, 0
 	local adirect, bdirect = false, false
-	local first = bufferReadU8(a, 0)
+	local first: number = bufferReadU8(a, 0)
 	if first == 255 then
 		ax = bufferReadF64(a, 1)
 		adirect = ax == ax and ax ~= huge and ax ~= -huge
@@ -8340,20 +6784,18 @@ NanoNum.fast.powBN = function(a: buffer, b: number): buffer
 		adirect = true
 	elseif band(first, 7) == 3 then
 		local negative = band(first, 8) ~= 0
-		local n = bufferReadBits(a, 4, 5)
-		local offset = 9
+		local n: number = bufferReadBits(a, 4, 5)
+		local offset: number = 9
 		if n == 0 then
 			n = 32 + bufferReadBits(a, offset, 5)
 			offset = 14
 		end
 		if n <= MAX_INTEGER_MODE_BITS then
 			local magnitude
-			if n <= 26 then
+			if n <= 32 then
 				magnitude = bufferReadBits(a, offset, n)
-			elseif n <= 52 then
-				magnitude = bufferReadBits(a, offset, 26) + bufferReadBits(a, offset + 26, n - 26) * 67108864
 			else
-				magnitude = bufferReadBits(a, offset, 26) + bufferReadBits(a, offset + 26, 26) * 67108864 + bufferReadBits(a, offset + 52, n - 52) * 4503599627370496
+				magnitude = bufferReadBits(a, offset, 32) + bufferReadBits(a, offset + 32, n - 32) * 4294967296
 			end
 			ax = negative and -magnitude or magnitude
 			adirect = true
@@ -8363,113 +6805,13 @@ NanoNum.fast.powBN = function(a: buffer, b: number): buffer
 	bdirect = bx == bx and bx ~= huge and bx ~= -huge
 	if adirect and bdirect then
 		if bx == 0 or ax == 1 then
-			local value = 1
-			local integral = floor(value)
-			if value == integral then
-				if value >= 0 and value <= 127 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, value * 2)
-					return data
-				end
-				if value < 0 and value >= -64 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, 1 + (-value - 1) * 4)
-					return data
-				end
-				local negative = value < 0
-				local magnitude = negative and -value or value
-				if magnitude <= SAFE_INTEGER then
-					local n = bitsRequired(magnitude)
-					if n <= 31 then
-						local bits = 9 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
-						local header = 3 + (negative and 8 or 0) + n * 16
-						if bits <= 32 then
-							bufferWriteBits(data, 0, bits, header + magnitude * 512)
-						else
-							bufferWriteBits(data, 0, 9, header)
-							if n <= 26 then
-								bufferWriteBits(data, 9, n, magnitude)
-							else
-								bufferWriteBits(data, 9, 26, magnitude % 67108864)
-								bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-							end
-						end
-						return data
-					end
-					local bits = 14 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
-					bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-					bufferWriteBits(data, 14, 26, magnitude % 67108864)
-					local remaining = n - 26
-					if remaining <= 26 then
-						bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-					else
-						bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-						bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-					end
-					return data
-				end
-			end
-			local data = bufferCreate(EXACT_F64_BYTES)
-			bufferWriteU8(data, 0, 255)
-			bufferWriteF64(data, 1, value)
-			return data
+			local value: number = 1
+			return encodeNumber(value)
 		end
 		if ax >= 0 or bx == floor(bx) then
 			local value = ax ^ bx
 			if value == value and value ~= huge and value ~= -huge and (value ~= 0 or ax == 0) then
-				local integral = floor(value)
-				if value == integral then
-					if value >= 0 and value <= 127 then
-						local data = bufferCreate(1)
-						bufferWriteU8(data, 0, value * 2)
-						return data
-					end
-					if value < 0 and value >= -64 then
-						local data = bufferCreate(1)
-						bufferWriteU8(data, 0, 1 + (-value - 1) * 4)
-						return data
-					end
-					local negative = value < 0
-					local magnitude = negative and -value or value
-					if magnitude <= SAFE_INTEGER then
-						local n = bitsRequired(magnitude)
-						if n <= 31 then
-							local bits = 9 + n
-							local data = bufferCreate(floor((bits + 7) / 8))
-							local header = 3 + (negative and 8 or 0) + n * 16
-							if bits <= 32 then
-								bufferWriteBits(data, 0, bits, header + magnitude * 512)
-							else
-								bufferWriteBits(data, 0, 9, header)
-								if n <= 26 then
-									bufferWriteBits(data, 9, n, magnitude)
-								else
-									bufferWriteBits(data, 9, 26, magnitude % 67108864)
-									bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-								end
-							end
-							return data
-						end
-						local bits = 14 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
-						bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-						bufferWriteBits(data, 14, 26, magnitude % 67108864)
-						local remaining = n - 26
-						if remaining <= 26 then
-							bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-						else
-							bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-							bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-						end
-						return data
-					end
-				end
-				local data = bufferCreate(EXACT_F64_BYTES)
-				bufferWriteU8(data, 0, 255)
-				bufferWriteF64(data, 1, value)
-				return data
+				return encodeNumber(value)
 			end
 		end
 	end
@@ -8480,32 +6822,30 @@ NanoNum.fast.powNB = function(a: number, b: buffer): buffer
 	local adirect, bdirect = false, false
 	ax = a
 	adirect = ax == ax and ax ~= huge and ax ~= -huge
-	local first = bufferReadU8(b, 0)
-	if first == 255 then
+	local second: number = bufferReadU8(b, 0)
+	if second == 255 then
 		bx = bufferReadF64(b, 1)
 		bdirect = bx == bx and bx ~= huge and bx ~= -huge
-	elseif band(first, 1) == 0 then
-		bx = floor(first / 2)
+	elseif band(second, 1) == 0 then
+		bx = floor(second / 2)
 		bdirect = true
-	elseif band(first, 3) == 1 then
-		bx = -(floor(first / 4) + 1)
+	elseif band(second, 3) == 1 then
+		bx = -(floor(second / 4) + 1)
 		bdirect = true
-	elseif band(first, 7) == 3 then
-		local negative = band(first, 8) ~= 0
-		local n = bufferReadBits(b, 4, 5)
-		local offset = 9
+	elseif band(second, 7) == 3 then
+		local negative = band(second, 8) ~= 0
+		local n: number = bufferReadBits(b, 4, 5)
+		local offset: number = 9
 		if n == 0 then
 			n = 32 + bufferReadBits(b, offset, 5)
 			offset = 14
 		end
 		if n <= MAX_INTEGER_MODE_BITS then
 			local magnitude
-			if n <= 26 then
+			if n <= 32 then
 				magnitude = bufferReadBits(b, offset, n)
-			elseif n <= 52 then
-				magnitude = bufferReadBits(b, offset, 26) + bufferReadBits(b, offset + 26, n - 26) * 67108864
 			else
-				magnitude = bufferReadBits(b, offset, 26) + bufferReadBits(b, offset + 26, 26) * 67108864 + bufferReadBits(b, offset + 52, n - 52) * 4503599627370496
+				magnitude = bufferReadBits(b, offset, 32) + bufferReadBits(b, offset + 32, n - 32) * 4294967296
 			end
 			bx = negative and -magnitude or magnitude
 			bdirect = true
@@ -8513,113 +6853,13 @@ NanoNum.fast.powNB = function(a: number, b: buffer): buffer
 	end
 	if adirect and bdirect then
 		if bx == 0 or ax == 1 then
-			local value = 1
-			local integral = floor(value)
-			if value == integral then
-				if value >= 0 and value <= 127 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, value * 2)
-					return data
-				end
-				if value < 0 and value >= -64 then
-					local data = bufferCreate(1)
-					bufferWriteU8(data, 0, 1 + (-value - 1) * 4)
-					return data
-				end
-				local negative = value < 0
-				local magnitude = negative and -value or value
-				if magnitude <= SAFE_INTEGER then
-					local n = bitsRequired(magnitude)
-					if n <= 31 then
-						local bits = 9 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
-						local header = 3 + (negative and 8 or 0) + n * 16
-						if bits <= 32 then
-							bufferWriteBits(data, 0, bits, header + magnitude * 512)
-						else
-							bufferWriteBits(data, 0, 9, header)
-							if n <= 26 then
-								bufferWriteBits(data, 9, n, magnitude)
-							else
-								bufferWriteBits(data, 9, 26, magnitude % 67108864)
-								bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-							end
-						end
-						return data
-					end
-					local bits = 14 + n
-					local data = bufferCreate(floor((bits + 7) / 8))
-					bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-					bufferWriteBits(data, 14, 26, magnitude % 67108864)
-					local remaining = n - 26
-					if remaining <= 26 then
-						bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-					else
-						bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-						bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-					end
-					return data
-				end
-			end
-			local data = bufferCreate(EXACT_F64_BYTES)
-			bufferWriteU8(data, 0, 255)
-			bufferWriteF64(data, 1, value)
-			return data
+			local value: number = 1
+			return encodeNumber(value)
 		end
 		if ax >= 0 or bx == floor(bx) then
 			local value = ax ^ bx
 			if value == value and value ~= huge and value ~= -huge and (value ~= 0 or ax == 0) then
-				local integral = floor(value)
-				if value == integral then
-					if value >= 0 and value <= 127 then
-						local data = bufferCreate(1)
-						bufferWriteU8(data, 0, value * 2)
-						return data
-					end
-					if value < 0 and value >= -64 then
-						local data = bufferCreate(1)
-						bufferWriteU8(data, 0, 1 + (-value - 1) * 4)
-						return data
-					end
-					local negative = value < 0
-					local magnitude = negative and -value or value
-					if magnitude <= SAFE_INTEGER then
-						local n = bitsRequired(magnitude)
-						if n <= 31 then
-							local bits = 9 + n
-							local data = bufferCreate(floor((bits + 7) / 8))
-							local header = 3 + (negative and 8 or 0) + n * 16
-							if bits <= 32 then
-								bufferWriteBits(data, 0, bits, header + magnitude * 512)
-							else
-								bufferWriteBits(data, 0, 9, header)
-								if n <= 26 then
-									bufferWriteBits(data, 9, n, magnitude)
-								else
-									bufferWriteBits(data, 9, 26, magnitude % 67108864)
-									bufferWriteBits(data, 35, n - 26, floor(magnitude / 67108864))
-								end
-							end
-							return data
-						end
-						local bits = 14 + n
-						local data = bufferCreate(floor((bits + 7) / 8))
-						bufferWriteBits(data, 0, 14, 3 + (negative and 8 or 0) + (n - 32) * 512)
-						bufferWriteBits(data, 14, 26, magnitude % 67108864)
-						local remaining = n - 26
-						if remaining <= 26 then
-							bufferWriteBits(data, 40, remaining, floor(magnitude / 67108864))
-						else
-							bufferWriteBits(data, 40, 26, floor(magnitude / 67108864) % 67108864)
-							bufferWriteBits(data, 66, remaining - 26, floor(magnitude / 4503599627370496))
-						end
-						return data
-					end
-				end
-				local data = bufferCreate(EXACT_F64_BYTES)
-				bufferWriteU8(data, 0, 255)
-				bufferWriteF64(data, 1, value)
-				return data
+				return encodeNumber(value)
 			end
 		end
 	end
@@ -8633,7 +6873,7 @@ NanoNum.fast.powNS = function(a: number, b: string): buffer return NanoNum.fast.
 NanoNum.fast.compareBN = function(a: buffer, b: number): number
 	local ax, bx = 0, 0
 	local adirect, bdirect = false, false
-	local first = bufferReadU8(a, 0)
+	local first: number = bufferReadU8(a, 0)
 	if first == 255 then
 		ax = bufferReadF64(a, 1)
 		adirect = ax == ax and ax ~= huge and ax ~= -huge
@@ -8645,20 +6885,18 @@ NanoNum.fast.compareBN = function(a: buffer, b: number): number
 		adirect = true
 	elseif band(first, 7) == 3 then
 		local negative = band(first, 8) ~= 0
-		local n = bufferReadBits(a, 4, 5)
-		local offset = 9
+		local n: number = bufferReadBits(a, 4, 5)
+		local offset: number = 9
 		if n == 0 then
 			n = 32 + bufferReadBits(a, offset, 5)
 			offset = 14
 		end
 		if n <= MAX_INTEGER_MODE_BITS then
 			local magnitude
-			if n <= 26 then
+			if n <= 32 then
 				magnitude = bufferReadBits(a, offset, n)
-			elseif n <= 52 then
-				magnitude = bufferReadBits(a, offset, 26) + bufferReadBits(a, offset + 26, n - 26) * 67108864
 			else
-				magnitude = bufferReadBits(a, offset, 26) + bufferReadBits(a, offset + 26, 26) * 67108864 + bufferReadBits(a, offset + 52, n - 52) * 4503599627370496
+				magnitude = bufferReadBits(a, offset, 32) + bufferReadBits(a, offset + 32, n - 32) * 4294967296
 			end
 			ax = negative and -magnitude or magnitude
 			adirect = true
@@ -8676,32 +6914,30 @@ NanoNum.fast.compareNB = function(a: number, b: buffer): number
 	local adirect, bdirect = false, false
 	ax = a
 	adirect = ax == ax and ax ~= huge and ax ~= -huge
-	local first = bufferReadU8(b, 0)
-	if first == 255 then
+	local second: number = bufferReadU8(b, 0)
+	if second == 255 then
 		bx = bufferReadF64(b, 1)
 		bdirect = bx == bx and bx ~= huge and bx ~= -huge
-	elseif band(first, 1) == 0 then
-		bx = floor(first / 2)
+	elseif band(second, 1) == 0 then
+		bx = floor(second / 2)
 		bdirect = true
-	elseif band(first, 3) == 1 then
-		bx = -(floor(first / 4) + 1)
+	elseif band(second, 3) == 1 then
+		bx = -(floor(second / 4) + 1)
 		bdirect = true
-	elseif band(first, 7) == 3 then
-		local negative = band(first, 8) ~= 0
-		local n = bufferReadBits(b, 4, 5)
-		local offset = 9
+	elseif band(second, 7) == 3 then
+		local negative = band(second, 8) ~= 0
+		local n: number = bufferReadBits(b, 4, 5)
+		local offset: number = 9
 		if n == 0 then
 			n = 32 + bufferReadBits(b, offset, 5)
 			offset = 14
 		end
 		if n <= MAX_INTEGER_MODE_BITS then
 			local magnitude
-			if n <= 26 then
+			if n <= 32 then
 				magnitude = bufferReadBits(b, offset, n)
-			elseif n <= 52 then
-				magnitude = bufferReadBits(b, offset, 26) + bufferReadBits(b, offset + 26, n - 26) * 67108864
 			else
-				magnitude = bufferReadBits(b, offset, 26) + bufferReadBits(b, offset + 26, 26) * 67108864 + bufferReadBits(b, offset + 52, n - 52) * 4503599627370496
+				magnitude = bufferReadBits(b, offset, 32) + bufferReadBits(b, offset + 32, n - 32) * 4294967296
 			end
 			bx = negative and -magnitude or magnitude
 			bdirect = true
@@ -8730,7 +6966,7 @@ function NanoNum.bindRight(operation: MathBinaryOperation, constant: MathValue, 
 	if constantKind ~= "number" and constantKind ~= "string" and constantKind ~= "buffer" then return nil end
 	local compiled = constantKind == "string" and NanoNum.fromString(constant) or constant
 	local rightCode = constantKind == "number" and "N" or "B"
-	local leftCode = leftType == nil and nil or (TYPE_CODE[leftType] or leftType)
+	local leftCode = if leftType == nil then nil else (TYPE_CODE[leftType] or leftType)
 	if leftCode ~= nil and leftCode ~= "N" and leftCode ~= "B" and leftCode ~= "S" then return nil end
 	if leftCode ~= nil then
 		local fn = NanoNum.fast[operation .. leftCode .. rightCode]
@@ -8755,7 +6991,7 @@ function NanoNum.tryCompile(value: any): (boolean, buffer?)
 end
 function NanoNum.tryMath(operation: MathBinaryOperation, a: any, b: any): (boolean, buffer?)
 	local fn = NanoNum[operation]
-	if fn == nil or operation == "compare" or not NanoNum.isMathValue(a) or not NanoNum.isMathValue(b) then return false, nil end
+	if fn == nil or (operation :: string) == "compare" or not NanoNum.isMathValue(a) or not NanoNum.isMathValue(b) then return false, nil end
 	local ok, result = fastPcall(fn, a, b)
 	if not ok or typeof(result) ~= "buffer" or not NanoNum.isValid(result) then return false, nil end
 	return true, result
@@ -8796,7 +7032,7 @@ function NanoNum.mathPerfInfo(): MathPerfInfo
 		Version = NanoNum.MATH_PERF_VERSION,
 		PathVersion = NanoNum.MATH_PATH_VERSION,
 		DefaultPath = 0,
-		Path0 = "NanoNum 2.3 finite kernel; countlz integer encoding; canonical NanoNum/EN string round-trip; byte parser",
+		Path0 = "NanoNum 2.4.1 finite kernel; 32-bit integer codec chunks; shared exact finite encoder",
 		Path1 = "canonical log/layer/hyper-layer fallback kernel; cached combinatorics; compact source under 10k lines",
 		TemporaryDecodeTablesOnPath0 = 0,
 	}
@@ -8821,7 +7057,7 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 	local ROMAN_SYMBOLS = {"M","CM","D","CD","C","XC","L","XL","X","IX","V","IV","I"}
 	local function trimZeros(value: string): string
 		local n = #value
-		local dot = 0
+		local dot: number = 0
 		for i = 1, n do if byte(value, i) == 46 then dot = i; break end end
 		if dot == 0 then return value end
 		local last = n
@@ -8832,20 +7068,20 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 		return result == "-0" and "0" or result
 	end
 	local function shortNumber(value: number, decimalPlaces: number): string
-		local decimals = clamp(floor(decimalPlaces), 0, 12)
+		local decimals: number = clamp(floor(decimalPlaces), 0, 12)
 		local text = trimZeros(format(FIXED_FORMATS[decimals + 1], value))
 		return text == "-0" and "0" or text
 	end
 	local function roundedPositive(value: number, decimalPlaces: number): number
-		local decimals = clamp(floor(decimalPlaces), 0, 12)
+		local decimals: number = clamp(floor(decimalPlaces), 0, 12)
 		local scale = POW10_DECIMAL[decimals + 1]
-		return floor(value * scale + 0.001) / scale
+		return math.round(value * scale) / scale
 	end
 	local function commaFiniteText(value: number, decimalPlaces: number): string?
 		local rounded = roundedPositive(value, decimalPlaces)
 		if rounded >= 1000000 then return nil end
 		local text = shortNumber(rounded, decimalPlaces)
-		local dot = 0
+		local dot: number = 0
 		for i = 1, #text do if byte(text, i) == 46 then dot = i; break end end
 		local integerEnd = dot == 0 and #text or dot - 1
 		local cut = integerEnd - 3
@@ -8859,7 +7095,7 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 		local text = shortNumber(value, decimalPlaces)
 		local negative = byte(text, 1) == 45
 		local firstDigit = negative and 2 or 1
-		local dot = 0
+		local dot: number = 0
 		for i = firstDigit, #text do if byte(text, i) == 46 then dot = i; break end end
 		local integerEnd = dot == 0 and #text or dot - 1
 		local integerDigits = integerEnd - firstDigit + 1
@@ -8867,7 +7103,7 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 		local firstGroup = integerDigits % 3
 		if firstGroup == 0 then firstGroup = 3 end
 		local out = tableCreate(floor((integerDigits - 1) / 3) + 4)
-		local count = 0
+		local count: number = 0
 		if negative then count += 1; out[count] = "-" end
 		local pos = firstDigit
 		count += 1; out[count] = sub(text, pos, pos + firstGroup - 1)
@@ -8880,11 +7116,32 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 		if dot ~= 0 then count += 1; out[count] = sub(text, dot) end
 		return concat(out, "", 1, count)
 	end
+	-- Format the coefficient of standard E and L descriptors with the SAME
+	-- k/m/b/... family used by ordinary standard numbers. Do not round an
+	-- exponent containing a meaningful fractional correction into a suffix.
+	local function standardInnerScale(value: number, precision: number): string?
+		-- Exponent DESCRIPTORS are magnitudes, not precise integer counters.
+		-- Applying SAFE_INTEGER here discarded suffix formatting for e32 and beyond.
+		if value ~= value or value == huge or value < 1000 then return nil end
+		local power = floor(log10(value))
+		local index = floor(power / 3)
+		local suffix = STANDARD_SUFFIXES[index]
+		if suffix == nil then return nil end
+		local scaled = value / 10 ^ (index * 3)
+		local rounded = roundedPositive(scaled, precision)
+		if rounded >= 1000 then
+			local nextSuffix = STANDARD_SUFFIXES[index + 1]
+			if nextSuffix == nil then return nil end
+			rounded /= 1000
+			suffix = nextSuffix
+		end
+		return shortNumber(rounded, precision) .. suffix
+	end
 	local function groupedEFromLog(logExponent: number, precision: number): string
 		if logExponent ~= logExponent then return "NaN" end
 		if logExponent == huge then return "Einf" end
 		if logExponent == -huge then return "0" end
-		local integerExponent = floor(logExponent)
+		local integerExponent: number = floor(logExponent)
 		local mantissa = 10 ^ (logExponent - integerExponent)
 		local roundedMantissa = roundedPositive(mantissa, precision)
 		if roundedMantissa >= 10 then
@@ -8894,17 +7151,19 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 		-- Preserve the part lost by rounding the mantissa as a small fractional
 		-- correction on the E exponent. Exact powers of ten therefore stay clean
 		-- (1E3,126), while other values can render like 1.23E3,000.03.
-		local exponentCorrection = 0
+		local exponentCorrection: number = 0
 		if roundedMantissa > 0 then exponentCorrection = logExponent - integerExponent - log10(roundedMantissa) end
 		local displayExponent = integerExponent + exponentCorrection
-		local groupedExponent = groupedFiniteText(displayExponent, precision)
-		return shortNumber(roundedMantissa, precision) .. "E" .. groupedExponent
+		-- Standard E retains readable suffixes in the INNER exponent: 2E3k,
+		-- 1E10M, etc. When a correction is material, keep its decimal form.
+		local inner = standardInnerScale(displayExponent, precision)
+		return shortNumber(roundedMantissa, precision) .. "E" .. (inner or groupedFiniteText(displayExponent, precision))
 	end
 	local function plainFiniteText(value: number, decimalPlaces: number): string
 		if value == 0 then return "0" end
-		local magnitude = abs(value)
+		local magnitude: number = abs(value)
 		if magnitude >= 1 then return shortNumber(value, decimalPlaces) end
-		local exponent = floor(log10(magnitude))
+		local exponent: number = floor(log10(magnitude))
 		if exponent < -12 then
 			local mantissa = magnitude / 10 ^ exponent
 			local rounded = roundedPositive(mantissa, decimalPlaces)
@@ -8912,7 +7171,7 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 			local text = shortNumber(rounded, decimalPlaces) .. "e" .. toString(exponent)
 			return value < 0 and "-" .. text or text
 		end
-		local decimals = max(decimalPlaces, -exponent + decimalPlaces)
+		local decimals: number = max(decimalPlaces, -exponent + decimalPlaces)
 		return shortNumber(value, min(decimals, 12))
 	end
 	local function scientificText(mantissa: number, exponent: number, decimalPlaces: number): string
@@ -8947,7 +7206,7 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 			return shortNumber(direct, precision)
 		end
 		if exponent >= 3 then
-			local index = floor(exponent / 3)
+			local index: number = floor(exponent / 3)
 			local scaled = mantissa * 10 ^ (exponent - index * 3)
 			scaled = roundedPositive(scaled, precision)
 			if scaled >= 1000 then scaled /= 1000; index += 1 end
@@ -8972,9 +7231,10 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 		if magnitude < 1 then
 			text = plainFiniteText(magnitude, precision)
 		else
-			local exponent = floor(log10(magnitude))
+			local exponent: number = floor(log10(magnitude))
 			local mantissa = magnitude / 10 ^ exponent
 			text = formatNormalParts(mantissa, exponent, precision, "standard")
+			if exponent >= NanoNum.E_NOTATION_START then text = groupedEFromLog(log10(magnitude), precision) end
 		end
 		return negative and "-" .. text or text
 	end
@@ -8992,14 +7252,14 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 		-- while the exponent 10^top still fits the configured standard suffix
 		-- range. Only after that ceiling do we expose L2.
 		if top < 0 or top > NanoNum.E_LAYER_TOP_MAX then return nil end
-		local exponentInteger = floor(top)
+		local exponentInteger: number = floor(top)
 		local exponentMantissa = 10 ^ (top - exponentInteger)
 		local descriptor = formatNormalParts(exponentMantissa, exponentInteger, precision, "standard")
 		return "1E" .. (reciprocal and "-" or "") .. descriptor
 	end
 	local function romanClassical(value: number): string
 		local out = tableCreate(16)
-		local count = 0
+		local count: number = 0
 		for i = 1, #ROMAN_VALUES do
 			while value >= ROMAN_VALUES[i] do
 				value -= ROMAN_VALUES[i]
@@ -9012,9 +7272,9 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 	local function romanExtended(value: number): string
 		if value <= 3999 then return romanClassical(value) end
 		local groups = {}
-		local depth = 0
+		local depth: number = 0
 		while value > 0 do
-			local nextValue = floor(value / 1000)
+			local nextValue: number = floor(value / 1000)
 			local group = value - nextValue * 1000
 			if group > 0 then
 				local text = romanClassical(group)
@@ -9030,15 +7290,130 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 		if value ~= floor(value) or abs(value) > SAFE_INTEGER then return nil end
 		if value == 0 then return "N" end
 		local negative = value < 0
-		local magnitude = abs(value)
+		local magnitude: number = abs(value)
 		if not extended and magnitude > 3999 then return nil end
 		local text = extended and romanExtended(magnitude) or romanClassical(magnitude)
 		return negative and "-" .. text or text
 	end
+	-- Approximate compact exponent presentation. Exponent decimal text is
+	-- retained only for original parsed buffers; computed results cannot recover
+	-- digits discarded by floating-point logarithmic arithmetic.
+	local function compactExponentText(exponent: string, precision: number): string
+		local negative = string.byte(exponent, 1) == 45
+		local digits = (negative or string.byte(exponent, 1) == 43) and string.sub(exponent, 2) or exponent
+		local embedded = string.match(digits, "^[%d%.]+[eE][+%-]?%d+$")
+		if embedded ~= nil then return (negative and "-" or "") .. digits end
+		digits = string.gsub(digits, "^0+", "")
+		if digits == "" then return "0" end
+		if #digits <= 15 then return (negative and "-" or "") .. digits end
+		local leading = tonumber(string.sub(digits, 1, math.min(#digits, 15)))
+		if leading == nil then return "NaN" end
+		local leadingDigits = math.min(#digits, 15)
+		local descriptor = leading / 10 ^ (leadingDigits - 1)
+		local rounded = tonumber(format(FIXED_FORMATS[precision + 1], descriptor)) or descriptor
+		local power = #digits - 1
+		if rounded >= 10 then rounded = 1; power += 1 end
+		return (negative and "-" or "") .. shortNumber(rounded, precision) .. "e" .. toString(power)
+	end
+	local function compactOriginal(value: buffer, precision: number, kind: string): string?
+		local original = COMPACT_DISPLAY[value]
+		if original == nil then return nil end
+		local m = tonumber(original.mantissa)
+		if m == nil or m == 0 then return nil end
+		local sign = m < 0 and "-" or ""
+		local absolute = math.abs(m)
+		local exponent = original.exponent
+		-- Already compressed input retains its exponent expression as supplied.
+		local exponentText = compactExponentText(exponent, precision)
+		if kind == "standard" then
+			-- Keep using standard suffixes regardless of exponent size, including
+			-- exponents too large to convert to an IEEE-754 finite number.
+			local digits = exponent
+			local negativeExponent = byte(digits, 1) == 45
+			if negativeExponent or byte(digits, 1) == 43 then digits = sub(digits, 2) end
+			local descriptor: string? = nil
+			if #digits > 0 then
+				local isIntegerDigits = true
+				for i = 1, #digits do
+					local digit = byte(digits, i)
+					if digit < 48 or digit > 57 then isIntegerDigits = false; break end
+				end
+				if isIntegerDigits then
+					local first = 1
+					while first < #digits and byte(digits, first) == 48 do first += 1 end
+					local count = #digits - first + 1
+					if count < 309 then
+						local numeric = toNumber(sub(digits, first))
+						if numeric ~= nil then descriptor = standardInnerScale(numeric, precision) end
+					elseif count <= 2998 then
+						-- Build the standard suffix directly from decimal leading digits;
+						-- never convert a thousand-digit exponent through tonumber.
+						local power = count - 1
+						local index = floor(power / 3)
+						local suffix = STANDARD_SUFFIXES[index]
+						if suffix ~= nil then
+							local leadCount = math.min(count, 15)
+							local lead = toNumber(sub(digits, first, first + leadCount - 1))
+							if lead ~= nil then
+								local scaled = lead / 10 ^ (leadCount - 1 - power % 3)
+								local rounded = roundedPositive(scaled, precision)
+								if rounded >= 1000 and STANDARD_SUFFIXES[index + 1] ~= nil then
+									rounded /= 1000; suffix = STANDARD_SUFFIXES[index + 1]
+								end
+								descriptor = shortNumber(rounded, precision) .. suffix
+							end
+						end
+					end
+				else
+					local numeric = toNumber(exponent)
+					if numeric ~= nil then descriptor = standardInnerScale(math.abs(numeric), precision) end
+				end
+			end
+			if descriptor ~= nil then exponentText = (negativeExponent and "-" or "") .. descriptor end
+		end
+		-- Standard's scale is intentional: commas/suffixes first, uppercase
+		-- E beginning at e3000, and L when the exponent itself outgrows
+		-- the layer-2 E display window. Do not apply these thresholds to
+		-- explicitly selected notation families.
+		if kind == "standard" or kind == "extended" then
+			local numericExponent = toNumber(exponent)
+			if numericExponent ~= nil and numericExponent == numericExponent and numericExponent >= 0 and numericExponent < NanoNum.E_NOTATION_START then
+				-- A metadata-bearing input may contain many leading zeroes.
+				-- Preserve its coefficient while using the correct suffix family.
+				local normalExponent = floor(numericExponent)
+				if normalExponent == numericExponent and absolute >= 1 and absolute < 10 then
+					return sign .. formatNormalParts(absolute, normalExponent, precision, kind)
+				end
+			end
+			-- Decimal strings longer than ~2998 significant digits describe
+			-- an exponent outside the configured E -> L boundary. Its exact
+			-- coefficient cannot be encoded into legacy K_LAYER2; the layer
+			-- display is necessarily approximate.
+			if #exponent >= 2999 and byte(exponent, 1) ~= 45 then
+				local leadingText = sub(exponent, 1, 15)
+				local leading = toNumber(leadingText)
+				if leading ~= nil and leading > 0 then
+					local top = #exponent - 1 + log10(leading / (10 ^ (#leadingText - 1)))
+					return sign .. formatLayerDisplay(2, top, precision)
+				end
+			end
+		end
+		-- Format selection is intentional: nil selects DEFAULT_SUFFIX_TYPE
+		-- (standard), which retains its uppercase E fallback; only the
+		-- explicit scientific/hybrid forms use lowercase e here.
+		-- Suffix families have a finite useful range. For these huge inputs
+		-- use that FAMILY's documented overflow fallback rather than
+		-- manufacturing a nonexistent suffix or overriding the user's choice.
+		local marker = (kind == "standard" or kind == "extended" or kind == "metric"
+			or kind == "exponent" or kind == "roman" or kind == "romanextended") and "E" or "e"
+		return sign .. shortNumber(absolute, precision) .. marker .. exponentText
+	end
 	local function formatCore(value: buffer, precision: number, kind: string): string
+		local preserved = compactOriginal(value, precision, kind)
+		if preserved ~= nil then return preserved end
 		local k, a, b = decodeRegBuffer(value)
 		if k == 0 then return "0" end
-		local absoluteKind = abs(k)
+		local absoluteKind: number = abs(k)
 		local negative = k < 0
 		if absoluteKind == K_NAN then return "NaN" end
 		if absoluteKind == K_INF then return negative and "-Inf" or "Inf" end
@@ -9049,9 +7424,9 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 				if roman ~= nil then return roman end
 				kind = "standard"
 			end
-			local magnitude = abs(n)
+			local magnitude: number = abs(n)
 			if magnitude == 0 then return "0" end
-			local exponent = floor(log10(magnitude))
+			local exponent: number = floor(log10(magnitude))
 			local mantissa = magnitude / 10 ^ exponent
 			local text
 			if kind == "scientific" then text = scientificText(mantissa, exponent, precision)
@@ -9073,8 +7448,23 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 			local scalarKind = kind
 			if scalarKind == "roman" or scalarKind == "romanextended" then scalarKind = "standard" end
 			local text
+			if abs(a) > SAFE_INTEGER and abs(a) < huge then
+				-- Computed K_LOG values have no exact decimal mantissa metadata.
+				-- Compact their approximate exponent without implying restored precision.
+				local exponentSign = a < 0 and "-" or ""
+				local magnitude = abs(a)
+				local power = floor(log10(magnitude))
+				local descriptor = magnitude / 10 ^ power
+				local rounded = roundedPositive(descriptor, precision)
+				if rounded >= 10 then rounded = 1; power += 1 end
+				local symbol = (kind == "standard" or kind == "extended" or kind == "metric"
+					or kind == "exponent" or kind == "roman" or kind == "romanextended") and "E" or "e"
+				local inner = kind == "standard" and standardInnerScale(magnitude, precision) or nil
+				local body = "1" .. symbol .. exponentSign .. (inner or (shortNumber(rounded, precision) .. "e" .. toString(power)))
+				return negative and "-" .. body or body
+			end
 			if explicit and abs(a) <= SAFE_INTEGER then
-				local integerExponent = floor(a)
+				local integerExponent: number = floor(a)
 				local mantissa = 10 ^ (a - integerExponent)
 				text = formatNormalParts(mantissa, integerExponent, precision, kind)
 			elseif (scalarKind == "standard" or scalarKind == "extended" or scalarKind == "metric") and abs(a) >= NanoNum.E_NOTATION_START then
@@ -9082,17 +7472,19 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 				-- L2 is reserved for actual K_LAYER values.
 				text = groupedEFromLog(a, precision)
 			else
-				local integerExponent = floor(a)
+				local integerExponent: number = floor(a)
 				local mantissa = 10 ^ (a - integerExponent)
 				text = formatNormalParts(mantissa, integerExponent, precision, scalarKind)
 			end
 			return negative and "-" .. text or text
 		end
 		local reciprocal = a < 0
-		local layer = abs(a)
+		local layer: number = abs(a)
 		local text
 		if absoluteKind == K_LAYER and layer == 2 then
-			text = formatLayer2AsE(b, precision, reciprocal)
+			-- Standard notation alone owns the E -> L transition.
+			-- Other selected styles retain their existing layer rendering.
+			if kind == "standard" then text = formatLayer2AsE(b, precision, reciprocal) end
 			if text == nil then
 				text = formatLayerDisplay(layer, b, precision)
 				if reciprocal then text = "1/" .. text end
@@ -9171,7 +7563,7 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 			local result = mode == "long" and amount .. " years" or amount .. "y"
 			return negative and "-" .. result or result
 		end
-		local total = abs(n)
+		local total: number = abs(n)
 		if total == 0 then
 			if mode == "clock" then
 				local secondsText = p > 0 and "00." .. rep("0", p) or "00"
@@ -9199,20 +7591,20 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 		end
 		local scale = 10 ^ p
 		local whole
-		local fractionTicks = 0
+		local fractionTicks: number = 0
 		if total <= SAFE_INTEGER / scale then
-			local ticks = floor(total * scale + 0.001)
+			local ticks = math.round(total * scale)
 			whole = floor(ticks / scale)
 			fractionTicks = ticks - whole * scale
 		else
 			whole = floor(total)
 		end
 		if mode == "clock" then
-			local days = floor(whole / 86400)
+			local days: number = floor(whole / 86400)
 			local rem = whole - days * 86400
-			local hours = floor(rem / 3600)
+			local hours: number = floor(rem / 3600)
 			rem -= hours * 3600
-			local minutes = floor(rem / 60)
+			local minutes: number = floor(rem / 60)
 			local seconds = rem - minutes * 60
 			local secondsText
 			if p > 0 then
@@ -9226,15 +7618,15 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 			return negative and "-" .. result or result
 		end
 		local rem = whole
-		local years = floor(rem / 31557600)
+		local years: number = floor(rem / 31557600)
 		rem -= years * 31557600
-		local weeks = floor(rem / 604800)
+		local weeks: number = floor(rem / 604800)
 		rem -= weeks * 604800
-		local days = floor(rem / 86400)
+		local days: number = floor(rem / 86400)
 		rem -= days * 86400
-		local hours = floor(rem / 3600)
+		local hours: number = floor(rem / 3600)
 		rem -= hours * 3600
-		local minutes = floor(rem / 60)
+		local minutes: number = floor(rem / 60)
 		rem -= minutes * 60
 		local seconds = rem + (p > 0 and fractionTicks / scale or 0)
 		local result = {}
@@ -9265,14 +7657,14 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 	function NanoNum.parseTime(text: string): buffer
 		local clean = trimText(text)
 		if clean == "" then return makeSpecial(SPECIAL_NAN) end
-		local negative = false
+		local negative: boolean = false
 		local first = sub(clean, 1, 1)
 		if first == "-" then negative = true; clean = trimText(sub(clean, 2))
 		elseif first == "+" then clean = trimText(sub(clean, 2)) end
 		if clean == "" then return makeSpecial(SPECIAL_NAN) end
 		if find(clean, ":", 1, true) then
-			local daySeconds = 0
-			local hasDayPrefix = false
+			local daySeconds: number = 0
+			local hasDayPrefix: boolean = false
 			local dayText, clockText = match(clean, "^(%d+)%s*[dD]%s+(.+)$")
 			if dayText ~= nil then
 				local days = toNumber(dayText)
@@ -9313,9 +7705,9 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 			w = 604800, week = 604800, weeks = 604800,
 			y = 31557600, yr = 31557600, yrs = 31557600, year = 31557600, years = 31557600,
 		}
-		local total = 0
-		local matched = 0
-		local invalid = false
+		local total: number = 0
+		local matched: number = 0
+		local invalid: boolean = false
 		local residue = gsub(lower(clean), "([%d]*%.?[%d]+)%s*([%a]+)", function(numberText, unitText)
 			local amount = toNumber(numberText)
 			local multiplier = units[unitText]
@@ -9346,8 +7738,8 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 			local text = NanoNum.format(scaled, p) .. " " .. units[#units]
 			return negative and "-" .. text or text
 		end
-		local magnitude = abs(n)
-		local index = 1
+		local magnitude: number = abs(n)
+		local index: number = 1
 		while magnitude >= base and index < #units do magnitude /= base; index += 1 end
 		local displayMagnitude = roundedPositive(magnitude, p)
 		if displayMagnitude >= base and index < #units then displayMagnitude /= base; index += 1 end
@@ -9363,9 +7755,9 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 			return NanoNum.format(compiled)
 		end
 		if n ~= floor(n) then return NanoNum.format(compiled) end
-		local magnitude = abs(n)
+		local magnitude: number = abs(n)
 		local mod100 = magnitude % 100
-		local suffix = "th"
+		local suffix: string = "th"
 		if mod100 < 11 or mod100 > 13 then
 			local mod10 = magnitude % 10
 			if mod10 == 1 then suffix = "st" elseif mod10 == 2 then suffix = "nd" elseif mod10 == 3 then suffix = "rd" end
@@ -9382,7 +7774,7 @@ end)()
 local function copyBits(target: buffer, targetBit: number, source: buffer, sourceBit: number, count: number)
 	if count <= 0 then return end
 	if band(targetBit, 7) == 0 and band(sourceBit, 7) == 0 and count >= 8 then
-		local bytes = floor(count / 8)
+		local bytes: number = floor(count / 8)
 		if bytes > 0 then
 			bufferCopy(target, targetBit / 8, source, sourceBit / 8, bytes)
 			local copied = bytes * 8
@@ -9400,10 +7792,10 @@ local function copyBits(target: buffer, targetBit: number, source: buffer, sourc
 	if count > 0 then bufferWriteBits(target, targetBit, count, bufferReadBits(source, sourceBit, count)) end
 end
 function NanoNum.packMany(values: {buffer}): (buffer, number)
-	local totalBits = 0
+	local totalBits: number = 0
 	for i = 1, #values do totalBits += NanoNum.bitLength(values[i]) end
-	local packed = bufferCreate(ceilBytes(totalBits))
-	local offset = 0
+	local packed: buffer = bufferCreate(ceilBytes(totalBits))
+	local offset: number = 0
 	for i = 1, #values do
 		local bits = NanoNum.bitLength(values[i])
 		copyBits(packed, offset, values[i], 0, bits)
@@ -9413,13 +7805,14 @@ function NanoNum.packMany(values: {buffer}): (buffer, number)
 end
 function NanoNum.unpackMany(packed: buffer, count: number, totalBits: number?): {buffer}
 	local limit = totalBits or bufferLen(packed) * 8
+	if count ~= count or count ~= floor(count) or count < 0 or limit ~= limit or limit ~= floor(limit) or limit < 0 or limit > bufferLen(packed) * 8 or count > floor(limit / 8) then error("NanoNum: invalid packed count/limit") end
 	local result = tableCreate(count)
-	local offset = 0
+	local offset: number = 0
 	for i = 1, count do
 		local nextBit = recordEndChecked(packed, offset, limit)
 		if nextBit == nil then error("NanoNum: invalid packed stream") end
 		local bits = nextBit - offset
-		local out = bufferCreate(ceilBytes(bits))
+		local out: buffer = bufferCreate(ceilBytes(bits))
 		copyBits(out, 0, packed, offset, bits)
 		result[i] = out
 		offset = nextBit
@@ -9429,7 +7822,7 @@ end
 function NanoNum.tryUnpackMany(packed: buffer, count: number, totalBits: number?): (boolean, {buffer}?)
 	if typeof(packed) ~= "buffer" or typeof(count) ~= "number" or count < 0 or count ~= floor(count) then return false, nil end
 	local limit = totalBits or bufferLen(packed) * 8
-	if limit < 0 or limit > bufferLen(packed) * 8 then return false, nil end
+	if typeof(limit) ~= "number" or limit ~= limit or limit ~= floor(limit) or limit < 0 or limit > bufferLen(packed) * 8 or count > floor(limit / 8) then return false, nil end
 	local ok, result = fastPcall(NanoNum.unpackMany, packed, count, limit)
 	if not ok then return false, nil end
 	return true, result
@@ -9452,694 +7845,1024 @@ NanoNum.LB_SCOPE_VERSION = 2
 -- A plain `do ... end` block is not sufficient because it shares the same
 -- function register frame; this IIFE creates an actual register boundary.
 (function()
-	local LB_VERSION = 2
-	local LB_APPROX_BITS = 31
-	local LB_MANT_MAX = 65535
-	local LB_MAX = 9007199254740991
-	local LB_FINITE_MAX = LB_MAX - 1
-	local LB_ONE = 4503599627370496
-	local LB_POSITIVE_SPAN = min(LB_ONE - 1, LB_FINITE_MAX - LB_ONE)
-	NanoNum.LB_VERSION = LB_VERSION
-	NanoNum.LB_MAX = LB_MAX
-	NanoNum.LB_FINITE_MAX = LB_FINITE_MAX
-	NanoNum.LB_ONE = LB_ONE
-	NanoNum.LB_POSITIVE_SPAN = LB_POSITIVE_SPAN
-	NanoNum.LB_ORDINARY_EXACT_MAX = 10000000000000
-	NanoNum.LB_ORDINARY_SUBSLOTS = 16
-	NanoNum.LB_ORDINARY_LOG_SHARE = 0.05
-	NanoNum.LB_HUGE_LOG_SHARE = 0.15
-	NanoNum.LB_LOW_LAYER_MAX = 1000000000000
-	NanoNum.LB_LAYER_TOP_BUCKETS = 256
-	NanoNum.LB_HIGH_LAYER_SHARE = 0.25
-	local LB_ORDINARY_EXACT_LOG10 = log10(NanoNum.LB_ORDINARY_EXACT_MAX)
-	local LB_ORDINARY_EXACT_SPAN = floor((NanoNum.LB_ORDINARY_EXACT_MAX - 1) * NanoNum.LB_ORDINARY_SUBSLOTS)
-	local LB_ORDINARY_LOG_SPAN = max(1, floor(NanoNum.LB_POSITIVE_SPAN * NanoNum.LB_ORDINARY_LOG_SHARE))
-	local LB_HUGE_LOG_SPAN = max(1, floor(NanoNum.LB_POSITIVE_SPAN * NanoNum.LB_HUGE_LOG_SHARE))
-	local LB_LOW_LAYER_COUNT = NanoNum.LB_LOW_LAYER_MAX - 1
-	local LB_LOW_LAYER_SPAN = LB_LOW_LAYER_COUNT * NanoNum.LB_LAYER_TOP_BUCKETS
-	local LB_HIGH_LAYER_RESERVED_SPAN = max(1, floor(NanoNum.LB_POSITIVE_SPAN * NanoNum.LB_HIGH_LAYER_SHARE))
-	local LB_HIGH_LAYER_BUCKET_COUNT = max(1, floor(LB_HIGH_LAYER_RESERVED_SPAN / NanoNum.LB_LAYER_TOP_BUCKETS))
-	local LB_HIGH_LAYER_SPAN = LB_HIGH_LAYER_BUCKET_COUNT * NanoNum.LB_LAYER_TOP_BUCKETS
-	local LB_ORDINARY_EXACT_START = 1
-	local LB_ORDINARY_EXACT_END = LB_ORDINARY_EXACT_SPAN
-	local LB_ORDINARY_LOG_START = LB_ORDINARY_EXACT_END + 1
-	local LB_ORDINARY_LOG_END = LB_ORDINARY_LOG_START + LB_ORDINARY_LOG_SPAN - 1
-	local LB_HUGE_LOG_START = LB_ORDINARY_LOG_END + 1
-	local LB_HUGE_LOG_END = LB_HUGE_LOG_START + LB_HUGE_LOG_SPAN - 1
-	local LB_LOW_LAYER_START = LB_HUGE_LOG_END + 1
-	local LB_LOW_LAYER_END = LB_LOW_LAYER_START + LB_LOW_LAYER_SPAN - 1
-	local LB_HIGH_LAYER_START = LB_LOW_LAYER_END + 1
-	local LB_HIGH_LAYER_END = LB_HIGH_LAYER_START + LB_HIGH_LAYER_SPAN - 1
-	local LB_LOG_LAYER_START = LB_HIGH_LAYER_END + 1
-	local LB_LAYER_REMAINDER = max(2 * NanoNum.LB_LAYER_TOP_BUCKETS, NanoNum.LB_POSITIVE_SPAN - LB_LOG_LAYER_START + 1)
-	local LB_HYPER_RESERVED = max(NanoNum.LB_LAYER_TOP_BUCKETS, floor(LB_LAYER_REMAINDER * 0.25))
-	local LB_LOG_LAYER_SPAN = max(NanoNum.LB_LAYER_TOP_BUCKETS, LB_LAYER_REMAINDER - LB_HYPER_RESERVED)
-	local LB_LOG_LAYER_BUCKET_COUNT = max(1, floor(LB_LOG_LAYER_SPAN / NanoNum.LB_LAYER_TOP_BUCKETS))
-	local LB_LOG_LAYER_USED_SPAN = LB_LOG_LAYER_BUCKET_COUNT * NanoNum.LB_LAYER_TOP_BUCKETS
-	local LB_LOG_LAYER_END = LB_LOG_LAYER_START + LB_LOG_LAYER_USED_SPAN - 1
-	local LB_HYPER_LAYER_START = LB_LOG_LAYER_END + 1
-	local LB_HYPER_LAYER_SPAN = max(NanoNum.LB_LAYER_TOP_BUCKETS, NanoNum.LB_POSITIVE_SPAN - LB_HYPER_LAYER_START + 1)
-	local LB_HYPER_LAYER_BUCKET_COUNT = max(1, floor(LB_HYPER_LAYER_SPAN / NanoNum.LB_LAYER_TOP_BUCKETS))
-	local LB_HYPER_LAYER_USED_SPAN = LB_HYPER_LAYER_BUCKET_COUNT * NanoNum.LB_LAYER_TOP_BUCKETS
-	local LB_HYPER_LAYER_END = LB_HYPER_LAYER_START + LB_HYPER_LAYER_USED_SPAN - 1
-	local LB_ORDINARY_LOG_MIN = LB_ORDINARY_EXACT_LOG10 + 1
-	local LB_ORDINARY_LOG_DENOM = 308 - LB_ORDINARY_LOG_MIN
-	local LB_HUGE_LOG_MIN = 309
-	local LB_HUGE_LOG_DENOM = log10(1e308 / LB_HUGE_LOG_MIN)
-	local LB_HIGH_LAYER_LOG_MIN = log10(NanoNum.LB_LOW_LAYER_MAX) + 1
-	local LB_HIGH_LAYER_LOG_DENOM = 308 - LB_HIGH_LAYER_LOG_MIN
-	local LB_LOG_LAYER_MIN = 309
-	local LB_LOG_LAYER_DENOM = log10(1e308 / LB_LOG_LAYER_MIN)
-	local LB_HYPER_LAYER_MIN = 309
-	local LB_HYPER_LAYER_DENOM = log10(1e308 / LB_HYPER_LAYER_MIN)
-	local LB_TOP_LOG_DENOM = 308
-	local LB_DIRECT_TOP_MIN = 309
-	local LB_DIRECT_TOP_LOG_MIN = log10(LB_DIRECT_TOP_MIN)
-	local LB_DIRECT_TOP_LOG_DENOM = 308 - LB_DIRECT_TOP_LOG_MIN
-	local function lbClampUnit(value: number): number
-		if value < 0 then
-			return 0
-		elseif value > 1 then
-			return 1
-		end
-		return value
-	end
-	local function lbQuantizeUnit(unit: number, slots: number): number
-		if slots <= 1 then
-			return 0
-		end
-		return clamp(floor(lbClampUnit(unit) * (slots - 1) + 0.001), 0, slots - 1)
-	end
-	local function lbUnitFromSlot(slot: number, slots: number): number
-		if slots <= 1 then
-			return 0
-		end
-		return clamp(slot, 0, slots - 1) / (slots - 1)
-	end
-	local function lbDirectTopBucket(top: number): number
-		if top <= LB_DIRECT_TOP_MIN then
-			return 0
-		end
-		local unit = (log10(min(top, 1e308)) - LB_DIRECT_TOP_LOG_MIN) / LB_DIRECT_TOP_LOG_DENOM
-		return lbQuantizeUnit(unit, NanoNum.LB_LAYER_TOP_BUCKETS)
-	end
-	local function lbDirectTopFromBucket(bucket: number): number
-		local unit = lbUnitFromSlot(bucket, NanoNum.LB_LAYER_TOP_BUCKETS)
-		if unit >= 1 then
-			return 1e308
-		end
-		return 10 ^ (LB_DIRECT_TOP_LOG_MIN + unit * LB_DIRECT_TOP_LOG_DENOM)
-	end
-	local function lbLogLayerTopBucket(top: number): number
-		if top <= 0 then
-			return 0
-		end
-		local unit = log10(1 + min(top, 1e308)) / LB_TOP_LOG_DENOM
-		return lbQuantizeUnit(unit, NanoNum.LB_LAYER_TOP_BUCKETS)
-	end
-	local function lbLogLayerTopFromBucket(bucket: number): number
-		local unit = lbUnitFromSlot(bucket, NanoNum.LB_LAYER_TOP_BUCKETS)
-		if unit >= 1 then
-			return 1e308
-		end
-		return (10 ^ (unit * LB_TOP_LOG_DENOM)) - 1
-	end
-	local function lbCoerce(value: any): buffer
-		local t = typeof(value)
-		if t == "buffer" then
+	local function installLB(LB_VERSION: number)
+		local LB_APPROX_BITS: number = 31
+		local LB_MANT_MAX: number = 65535
+		local LB_MAX: number = 9007199254740991
+		local LB_FINITE_MAX = LB_MAX - 1
+		local LB_ONE: number = 4503599627370496
+		local LB_POSITIVE_SPAN: number = min(LB_ONE - 1, LB_FINITE_MAX - LB_ONE)
+		NanoNum.LB_VERSION = LB_VERSION
+		NanoNum.LB_MAX = LB_MAX
+		NanoNum.LB_FINITE_MAX = LB_FINITE_MAX
+		NanoNum.LB_ONE = LB_ONE
+		NanoNum.LB_POSITIVE_SPAN = LB_POSITIVE_SPAN
+		NanoNum.LB_ORDINARY_EXACT_MAX = 10000000000000
+		NanoNum.LB_ORDINARY_SUBSLOTS = 16
+		NanoNum.LB_ORDINARY_LOG_SHARE = 0.05
+		NanoNum.LB_HUGE_LOG_SHARE = 0.15
+		NanoNum.LB_LOW_LAYER_MAX = 1000000000000
+		NanoNum.LB_LAYER_TOP_BUCKETS = 256
+		NanoNum.LB_HIGH_LAYER_SHARE = 0.25
+		local LB_ORDINARY_EXACT_LOG10: number = log10(NanoNum.LB_ORDINARY_EXACT_MAX)
+		local LB_ORDINARY_EXACT_SPAN: number = floor((NanoNum.LB_ORDINARY_EXACT_MAX - 1) * NanoNum.LB_ORDINARY_SUBSLOTS)
+		local LB_ORDINARY_LOG_SPAN: number = max(1, floor(NanoNum.LB_POSITIVE_SPAN * NanoNum.LB_ORDINARY_LOG_SHARE))
+		local LB_HUGE_LOG_SPAN: number = max(1, floor(NanoNum.LB_POSITIVE_SPAN * NanoNum.LB_HUGE_LOG_SHARE))
+		local LB_LOW_LAYER_COUNT = NanoNum.LB_LOW_LAYER_MAX - 1
+		local LB_LOW_LAYER_SPAN = LB_LOW_LAYER_COUNT * NanoNum.LB_LAYER_TOP_BUCKETS
+		local LB_HIGH_LAYER_RESERVED_SPAN: number = max(1, floor(NanoNum.LB_POSITIVE_SPAN * NanoNum.LB_HIGH_LAYER_SHARE))
+		local LB_HIGH_LAYER_BUCKET_COUNT: number = max(1, floor(LB_HIGH_LAYER_RESERVED_SPAN / NanoNum.LB_LAYER_TOP_BUCKETS))
+		local LB_HIGH_LAYER_SPAN = LB_HIGH_LAYER_BUCKET_COUNT * NanoNum.LB_LAYER_TOP_BUCKETS
+		local LB_ORDINARY_EXACT_END = LB_ORDINARY_EXACT_SPAN
+		local LB_ORDINARY_LOG_START = LB_ORDINARY_EXACT_END + 1
+		local LB_ORDINARY_LOG_END = LB_ORDINARY_LOG_START + LB_ORDINARY_LOG_SPAN - 1
+		local LB_HUGE_LOG_START = LB_ORDINARY_LOG_END + 1
+		local LB_HUGE_LOG_END = LB_HUGE_LOG_START + LB_HUGE_LOG_SPAN - 1
+		local LB_LOW_LAYER_START = LB_HUGE_LOG_END + 1
+		local LB_LOW_LAYER_END = LB_LOW_LAYER_START + LB_LOW_LAYER_SPAN - 1
+		local LB_HIGH_LAYER_START = LB_LOW_LAYER_END + 1
+		local LB_HIGH_LAYER_END = LB_HIGH_LAYER_START + LB_HIGH_LAYER_SPAN - 1
+		local LB_LOG_LAYER_START = LB_HIGH_LAYER_END + 1
+		local LB_LAYER_REMAINDER: number = max(2 * NanoNum.LB_LAYER_TOP_BUCKETS, NanoNum.LB_POSITIVE_SPAN - LB_LOG_LAYER_START + 1)
+		local LB_HYPER_RESERVED: number = max(NanoNum.LB_LAYER_TOP_BUCKETS, floor(LB_LAYER_REMAINDER * 0.25))
+		local LB_LOG_LAYER_SPAN: number = max(NanoNum.LB_LAYER_TOP_BUCKETS, LB_LAYER_REMAINDER - LB_HYPER_RESERVED)
+		local LB_LOG_LAYER_BUCKET_COUNT: number = max(1, floor(LB_LOG_LAYER_SPAN / NanoNum.LB_LAYER_TOP_BUCKETS))
+		local LB_LOG_LAYER_USED_SPAN = LB_LOG_LAYER_BUCKET_COUNT * NanoNum.LB_LAYER_TOP_BUCKETS
+		local LB_LOG_LAYER_END = LB_LOG_LAYER_START + LB_LOG_LAYER_USED_SPAN - 1
+		local LB_HYPER_LAYER_START = LB_LOG_LAYER_END + 1
+		local LB_HYPER_LAYER_SPAN: number = max(NanoNum.LB_LAYER_TOP_BUCKETS, NanoNum.LB_POSITIVE_SPAN - LB_HYPER_LAYER_START + 1)
+		local LB_HYPER_LAYER_BUCKET_COUNT: number = max(1, floor(LB_HYPER_LAYER_SPAN / NanoNum.LB_LAYER_TOP_BUCKETS))
+		local LB_HYPER_LAYER_USED_SPAN = LB_HYPER_LAYER_BUCKET_COUNT * NanoNum.LB_LAYER_TOP_BUCKETS
+		local LB_HYPER_LAYER_END = LB_HYPER_LAYER_START + LB_HYPER_LAYER_USED_SPAN - 1
+		local LB_ORDINARY_LOG_MIN = LB_ORDINARY_EXACT_LOG10 + (LB_VERSION == 2 and 1 or 0)
+		local LB_ORDINARY_LOG_DENOM = 308 - LB_ORDINARY_LOG_MIN
+		local LB_HUGE_LOG_MIN = LB_VERSION == 2 and 309 or 308
+		local LB_HUGE_LOG_DENOM: number = log10(1e308 / LB_HUGE_LOG_MIN)
+		local LB_HIGH_LAYER_LOG_MIN: number = log10(NanoNum.LB_LOW_LAYER_MAX) + (LB_VERSION == 2 and 1 or 0)
+		local LB_HIGH_LAYER_LOG_DENOM = 308 - LB_HIGH_LAYER_LOG_MIN
+		local LB_LOG_LAYER_MIN = LB_VERSION == 2 and 309 or 308
+		local LB_LOG_LAYER_DENOM: number = log10(1e308 / LB_LOG_LAYER_MIN)
+		local LB_HYPER_LAYER_MIN = LB_VERSION == 2 and 309 or 308
+		local LB_HYPER_LAYER_DENOM: number = log10(1e308 / LB_HYPER_LAYER_MIN)
+		local LB_TOP_LOG_DENOM: number = 308
+		local LB_DIRECT_TOP_MIN = LB_VERSION == 2 and 309 or DIRECT_LOG_MAX
+		local LB_DIRECT_TOP_LOG_MIN: number = log10(LB_DIRECT_TOP_MIN)
+		local LB_DIRECT_TOP_LOG_DENOM = 308 - LB_DIRECT_TOP_LOG_MIN
+		local function lbClampUnit(value: number): number
+			if value < 0 then
+				return 0
+			elseif value > 1 then
+				return 1
+			end
 			return value
-		elseif t == "number" then
-			return NanoNum.fromNumber(value)
-		elseif t == "string" then
-			return NanoNum.fromString(value)
 		end
-		return makeSpecial(SPECIAL_NAN)
-	end
-	local function lbDescriptor(value: buffer)
-		local data = decodeAt(value, 0)
-		if data.Kind == "NaN" or data.Kind == "Reserved" then
-			return {Kind = "NaN"}
-		end
-		if data.Kind == "Infinity" then
-			return {Kind = "Infinity", Negative = data.Negative}
-		end
-		if data.Kind == "Integer" then
-			if data.Value == 0 then
-				return {Kind = "Zero", Negative = false}
+		local function lbQuantizeUnit(unit: number, slots: number): number
+			if slots <= 1 then
+				return 0
 			end
-			local magnitude = abs(data.Value)
-			local logMagnitude
-			if exactIntegerRecordBits(data.Value) <= LB_APPROX_BITS then
-				logMagnitude = log10(magnitude)
-			else
-				local lg = log10(magnitude)
-				local exponent = floor(lg)
-				local mantissa = 10 ^ (lg - exponent)
-				local mantCode = quantizeMantissa(mantissa, LB_MANT_MAX)
-				logMagnitude = exponent + log10(decodeMantissa(mantCode, LB_MANT_MAX))
+			return clamp(floor(lbClampUnit(unit) * (slots - 1) + (LB_VERSION == 2 and 0.001 or 0.5)), 0, slots - 1)
+		end
+		local function lbUnitFromSlot(slot: number, slots: number): number
+			if slots <= 1 then
+				return 0
 			end
-			return {
-				Kind = "Magnitude",
-				Negative = data.Value < 0,
-				Reciprocal = false,
-				Layer = 0,
-				LogScale = logMagnitude,
-			}
+			return clamp(slot, 0, slots - 1) / (slots - 1)
 		end
-		if data.Kind == "Exact" then
-			local value = data.Value
-			if value == 0 then return {Kind = "Zero", Negative = false} end
-			local magnitude = abs(value)
-			local lg = log10(magnitude)
-			local exponent = floor(lg)
-			local mantissa = 10 ^ (lg - exponent)
-			local mantCode = quantizeMantissa(mantissa, LB_MANT_MAX)
-			local legacyLog = exponent + log10(decodeMantissa(mantCode, LB_MANT_MAX))
-			return {Kind = "Magnitude", Negative = value < 0, Reciprocal = legacyLog < 0, Layer = 0, LogScale = abs(legacyLog)}
+		local function lbDirectTopBucket(top: number): number
+			if top <= LB_DIRECT_TOP_MIN then
+				return 0
+			end
+			local unit = (log10(min(top, 1e308)) - LB_DIRECT_TOP_LOG_MIN) / LB_DIRECT_TOP_LOG_DENOM
+			return lbQuantizeUnit(unit, NanoNum.LB_LAYER_TOP_BUCKETS)
 		end
-		if data.Kind == "Log" then
-			return {
-				Kind = "Magnitude",
-				Negative = data.Negative,
-				Reciprocal = data.Reciprocal,
-				Layer = 1,
-				LogScale = data.Top,
-			}
+		local function lbDirectTopFromBucket(bucket: number): number
+			local unit = lbUnitFromSlot(bucket, NanoNum.LB_LAYER_TOP_BUCKETS)
+			if unit >= 1 then
+				return 1e308
+			end
+			local top = 10 ^ (LB_DIRECT_TOP_LOG_MIN + unit * LB_DIRECT_TOP_LOG_DENOM)
+			return LB_VERSION == 3 and max(top, 308.2547155599168) or top
 		end
-		if data.LayerIsHyper then
-			local layerLog10Log10 = data.LayerLog10Log10
-			if layerLog10Log10 == nil then return {Kind = "NaN"} end
-			return {
-				Kind = "Layer",
-				Negative = data.Negative,
-				Reciprocal = data.Reciprocal,
-				LayerLog10Log10 = layerLog10Log10,
-				LayerIsHyper = true,
-				LayerIsLog = false,
-				Top = data.Top,
-			}
+		local function lbLogLayerTopBucket(top: number): number
+			if top <= 0 then
+				return 0
+			end
+			local unit = log10(1 + min(top, 1e308)) / LB_TOP_LOG_DENOM
+			return lbQuantizeUnit(unit, NanoNum.LB_LAYER_TOP_BUCKETS)
 		end
-		if data.LayerIsLog then
-			local layerLog10 = data.LayerLog10
-			if layerLog10 == nil then
+		local function lbLogLayerTopFromBucket(bucket: number): number
+			local unit = lbUnitFromSlot(bucket, NanoNum.LB_LAYER_TOP_BUCKETS)
+			if unit >= 1 then
+				return 1e308
+			end
+			return (10 ^ (unit * LB_TOP_LOG_DENOM)) - 1
+		end
+		local function lbCoerce(value: any): buffer
+			local t = typeof(value)
+			if t == "buffer" then
+				return value
+			elseif t == "number" then
+				return NanoNum.fromNumber(value)
+			elseif t == "string" then
+				return NanoNum.fromString(value)
+			end
+			return makeSpecial(SPECIAL_NAN)
+		end
+		local function lbDescriptor(encodedValue: buffer)
+			local data = decodeAt(encodedValue, 0)
+			if data.Kind == "NaN" or data.Kind == "Reserved" then
 				return {Kind = "NaN"}
 			end
+			if data.Kind == "Infinity" then
+				return {Kind = "Infinity", Negative = data.Negative}
+			end
+			if data.Kind == "Integer" then
+				if data.Value == 0 then
+					return {Kind = "Zero", Negative = false}
+				end
+				local magnitude: number = abs(data.Value)
+				local logMagnitude
+				if exactIntegerRecordBits(data.Value) <= LB_APPROX_BITS then
+					logMagnitude = log10(magnitude)
+				else
+					local lg: number = log10(magnitude)
+					local exponent: number = floor(lg)
+					local mantissa = 10 ^ (lg - exponent)
+					local mantCode = quantizeMantissa(mantissa, LB_MANT_MAX)
+					logMagnitude = exponent + log10(decodeMantissa(mantCode, LB_MANT_MAX))
+				end
+				return {
+					Kind = "Magnitude",
+					Negative = data.Value < 0,
+					Reciprocal = false,
+					Layer = 0,
+					LogScale = logMagnitude,
+				}
+			end
+			if data.Kind == "Exact" then
+				local value = data.Value
+				if value == 0 then return {Kind = "Zero", Negative = false} end
+				local magnitude: number = abs(value)
+				local lg: number = log10(magnitude)
+				local exponent: number = floor(lg)
+				local mantissa = 10 ^ (lg - exponent)
+				local mantCode = quantizeMantissa(mantissa, LB_MANT_MAX)
+				local legacyLog = exponent + log10(decodeMantissa(mantCode, LB_MANT_MAX))
+				return {Kind = "Magnitude", Negative = value < 0, Reciprocal = legacyLog < 0, Layer = 0, LogScale = abs(legacyLog)}
+			end
+			if data.Kind == "Log" then
+				return {
+					Kind = "Magnitude",
+					Negative = data.Negative,
+					Reciprocal = data.Reciprocal,
+					Layer = 1,
+					LogScale = data.Top,
+				}
+			end
+			if data.LayerIsHyper then
+				local layerLog10Log10 = data.LayerLog10Log10
+				if layerLog10Log10 == nil then return {Kind = "NaN"} end
+				return {
+					Kind = "Layer",
+					Negative = data.Negative,
+					Reciprocal = data.Reciprocal,
+					LayerLog10Log10 = layerLog10Log10,
+					LayerIsHyper = true,
+					LayerIsLog = false,
+					Top = data.Top,
+				}
+			end
+			if data.LayerIsLog then
+				local layerLog10 = data.LayerLog10
+				if layerLog10 == nil then
+					return {Kind = "NaN"}
+				end
+				return {
+					Kind = "Layer",
+					Negative = data.Negative,
+					Reciprocal = data.Reciprocal,
+					LayerLog10 = layerLog10,
+					LayerIsLog = true,
+					Top = data.Top,
+				}
+			end
+			local layer, top = normalizeLayerInput(data.Layer, data.Top, false)
+			if layer < 2 then
+				return {
+					Kind = "Magnitude",
+					Negative = data.Negative,
+					Reciprocal = data.Reciprocal,
+					Layer = 1,
+					LogScale = top,
+				}
+			end
 			return {
 				Kind = "Layer",
 				Negative = data.Negative,
 				Reciprocal = data.Reciprocal,
-				LayerLog10 = layerLog10,
-				LayerIsLog = true,
-				Top = data.Top,
+				Layer = layer,
+				LayerIsLog = false,
+				Top = top,
 			}
 		end
-		local layer, top = normalizeLayerInput(data.Layer, data.Top, false)
-		if layer < 2 then
-			return {
-				Kind = "Magnitude",
-				Negative = data.Negative,
-				Reciprocal = data.Reciprocal,
-				Layer = 1,
-				LogScale = top,
-			}
-		end
-		return {
-			Kind = "Layer",
-			Negative = data.Negative,
-			Reciprocal = data.Reciprocal,
-			Layer = layer,
-			LayerIsLog = false,
-			Top = top,
-		}
-	end
-	local function lbEncodeOrdinaryLog(logScale: number): number
-		if logScale <= LB_ORDINARY_EXACT_LOG10 then
-			local magnitude = 10 ^ logScale
-			local slot = floor((magnitude - 1) * NanoNum.LB_ORDINARY_SUBSLOTS + 0.001)
-			return clamp(slot, 0, LB_ORDINARY_EXACT_END)
-		end
-		if logScale <= 308 then
-			local unit = (logScale - LB_ORDINARY_LOG_MIN) / LB_ORDINARY_LOG_DENOM
-			return LB_ORDINARY_LOG_START + lbQuantizeUnit(unit, LB_ORDINARY_LOG_SPAN)
-		end
-		local capped = min(logScale, 1e308)
-		local unit = log10(capped / LB_HUGE_LOG_MIN) / LB_HUGE_LOG_DENOM
-		return LB_HUGE_LOG_START + lbQuantizeUnit(unit, LB_HUGE_LOG_SPAN)
-	end
-	local function lbEncodeLayer(layer: number, top: number): number
-		if layer <= NanoNum.LB_LOW_LAYER_MAX then
-			local layerIndex = max(0, floor(layer + 0.001) - 2)
-			local topBucket = lbDirectTopBucket(top)
-			return LB_LOW_LAYER_START + layerIndex * NanoNum.LB_LAYER_TOP_BUCKETS + topBucket
-		end
-		local unit = (log10(min(layer, 1e308)) - LB_HIGH_LAYER_LOG_MIN) / LB_HIGH_LAYER_LOG_DENOM
-		local layerSlot = lbQuantizeUnit(unit, LB_HIGH_LAYER_BUCKET_COUNT)
-		local topBucket = lbDirectTopBucket(top)
-		return LB_HIGH_LAYER_START + layerSlot * NanoNum.LB_LAYER_TOP_BUCKETS + topBucket
-	end
-	local function lbEncodeLogLayer(layerLog10: number, top: number): number
-		local capped = min(max(layerLog10, LB_LOG_LAYER_MIN), 1e308)
-		local unit = log10(capped / LB_LOG_LAYER_MIN) / LB_LOG_LAYER_DENOM
-		local layerSlot = lbQuantizeUnit(unit, LB_LOG_LAYER_BUCKET_COUNT)
-		local topBucket = lbLogLayerTopBucket(top)
-		return LB_LOG_LAYER_START + layerSlot * NanoNum.LB_LAYER_TOP_BUCKETS + topBucket
-	end
-	local function lbEncodeHyperLayer(layerLog10Log10: number, top: number): number
-		local capped = min(max(layerLog10Log10, LB_HYPER_LAYER_MIN), 1e308)
-		local unit = log10(capped / LB_HYPER_LAYER_MIN) / LB_HYPER_LAYER_DENOM
-		local layerSlot = lbQuantizeUnit(unit, LB_HYPER_LAYER_BUCKET_COUNT)
-		local topBucket = lbLogLayerTopBucket(top)
-		return LB_HYPER_LAYER_START + layerSlot * NanoNum.LB_LAYER_TOP_BUCKETS + topBucket
-	end
-	local function lbPositiveDeltaDescriptor(descriptor): (number?, boolean?, boolean?)
-		if descriptor.Kind == "NaN" then
-			return nil, nil, nil
-		end
-		if descriptor.Kind == "Zero" then
-			return 0, false, false
-		end
-		if descriptor.Kind == "Infinity" then
-			return LB_POSITIVE_SPAN + 1, descriptor.Negative, false
-		end
-		local delta
-		if descriptor.Kind == "Magnitude" then
-			delta = lbEncodeOrdinaryLog(descriptor.LogScale)
-		elseif descriptor.LayerIsHyper then
-			delta = lbEncodeHyperLayer(descriptor.LayerLog10Log10, descriptor.Top)
-		elseif descriptor.LayerIsLog then
-			delta = lbEncodeLogLayer(descriptor.LayerLog10, descriptor.Top)
-		else
-			delta = lbEncodeLayer(descriptor.Layer, descriptor.Top)
-		end
-		if delta < 0 then
-			delta = 0
-		elseif delta > LB_POSITIVE_SPAN then
-			delta = LB_POSITIVE_SPAN
-		end
-		return floor(delta), descriptor.Negative, descriptor.Reciprocal
-	end
-	local function lbFinalizeFiniteCode(delta: number, negative: boolean, reciprocal: boolean): number
-		if delta <= 0 then
-			return negative and -LB_ONE or LB_ONE
-		end
-		if delta > LB_POSITIVE_SPAN then
-			return negative and -LB_MAX or LB_MAX
-		end
-		local positiveCode = reciprocal and (LB_ONE - delta) or (LB_ONE + delta)
-		if positiveCode < 1 then
-			positiveCode = 1
-		elseif positiveCode > LB_FINITE_MAX then
-			positiveCode = LB_FINITE_MAX
-		end
-		positiveCode = floor(positiveCode)
-		return negative and -positiveCode or positiveCode
-	end
-	local function lbCodeFromDescriptor(descriptor): number
-		local delta, negative, reciprocal = lbPositiveDeltaDescriptor(descriptor)
-		if delta == nil then
-			return 0
-		end
-		if descriptor.Kind == "Zero" then
-			return 0
-		end
-		return lbFinalizeFiniteCode(delta, negative == true, reciprocal == true)
-	end
-	local function lbCodeFromBufferFast(value: buffer): (number, boolean)
-		-- Direct prefix dispatch avoids allocating the Reader table and decoded-data
-		-- table used by the public decodeAt()/components() API.
-		local raw = bufferReadBits(value, 0, 6)
-		if band(raw, 1) == 0 then
-			local integer = bufferReadBits(value, 1, 7)
-			if integer == 0 then
-				return 0, true
+		local function lbEncodeOrdinaryLog(logScale: number): number
+			if logScale <= LB_ORDINARY_EXACT_LOG10 then
+				local magnitude = 10 ^ logScale
+				local slot: number = floor((magnitude - 1) * NanoNum.LB_ORDINARY_SUBSLOTS + (LB_VERSION == 2 and 0.001 or 0.5))
+				return clamp(slot, 0, LB_ORDINARY_EXACT_END)
 			end
-			local delta = lbEncodeOrdinaryLog(log10(integer))
-			return lbFinalizeFiniteCode(delta, false, false), true
-		end
-		if band(raw, 3) == 1 then
-			local magnitude = bufferReadBits(value, 2, 6) + 1
-			local delta = lbEncodeOrdinaryLog(log10(magnitude))
-			return lbFinalizeFiniteCode(delta, true, false), true
-		end
-		if band(raw, 7) == 3 then
-			local negative = bufferReadBits(value, 3, 1) == 1
-			local n = bufferReadBits(value, 4, INTEGER_LEN_BITS)
-			local payloadOffset = 4 + INTEGER_LEN_BITS
-			if n == 0 then
-				n = 32 + bufferReadBits(value, payloadOffset, 5)
-				payloadOffset += 5
-				if n > MAX_INTEGER_MODE_BITS then
-					error("NanoNum: invalid extended integer bit length")
-				end
+			if logScale <= 308 then
+				local unit = (logScale - LB_ORDINARY_LOG_MIN) / LB_ORDINARY_LOG_DENOM
+				return LB_ORDINARY_LOG_START + lbQuantizeUnit(unit, LB_ORDINARY_LOG_SPAN)
 			end
-			local magnitude = readUIntExactAtFast(value, payloadOffset, n)
-			if magnitude == 0 then return 0, true end
-			local logMagnitude
-			local signed = negative and -magnitude or magnitude
-			if exactIntegerRecordBits(signed) <= LB_APPROX_BITS then
-				logMagnitude = log10(magnitude)
+			local capped: number = min(logScale, 1e308)
+			local unit = log10(capped / LB_HUGE_LOG_MIN) / LB_HUGE_LOG_DENOM
+			return LB_HUGE_LOG_START + lbQuantizeUnit(unit, LB_HUGE_LOG_SPAN)
+		end
+		local function lbEncodeLayer(layer: number, top: number): number
+			if layer <= NanoNum.LB_LOW_LAYER_MAX then
+				local layerIndex: number = max(0, floor(layer + 0.001) - 2)
+				local topBucket = lbDirectTopBucket(top)
+				return LB_LOW_LAYER_START + layerIndex * NanoNum.LB_LAYER_TOP_BUCKETS + topBucket
+			end
+			local unit = (log10(min(layer, 1e308)) - LB_HIGH_LAYER_LOG_MIN) / LB_HIGH_LAYER_LOG_DENOM
+			local layerSlot = lbQuantizeUnit(unit, LB_HIGH_LAYER_BUCKET_COUNT)
+			local topBucket = LB_VERSION == 2 and lbDirectTopBucket(top) or 0
+			return LB_HIGH_LAYER_START + layerSlot * NanoNum.LB_LAYER_TOP_BUCKETS + topBucket
+		end
+		local function lbEncodeLogLayer(layerLog10: number, top: number): number
+			local capped: number = min(max(layerLog10, LB_LOG_LAYER_MIN), 1e308)
+			local unit = log10(capped / LB_LOG_LAYER_MIN) / LB_LOG_LAYER_DENOM
+			local layerSlot = lbQuantizeUnit(unit, LB_LOG_LAYER_BUCKET_COUNT)
+			local topBucket = LB_VERSION == 2 and lbLogLayerTopBucket(top) or 0
+			return LB_LOG_LAYER_START + layerSlot * NanoNum.LB_LAYER_TOP_BUCKETS + topBucket
+		end
+		local function lbEncodeHyperLayer(layerLog10Log10: number, top: number): number
+			local capped: number = min(max(layerLog10Log10, LB_HYPER_LAYER_MIN), 1e308)
+			local unit = log10(capped / LB_HYPER_LAYER_MIN) / LB_HYPER_LAYER_DENOM
+			local layerSlot = lbQuantizeUnit(unit, LB_HYPER_LAYER_BUCKET_COUNT)
+			local topBucket = LB_VERSION == 2 and lbLogLayerTopBucket(top) or 0
+			return LB_HYPER_LAYER_START + layerSlot * NanoNum.LB_LAYER_TOP_BUCKETS + topBucket
+		end
+		local function lbPositiveDeltaDescriptor(descriptor): (number?, boolean?, boolean?)
+			if descriptor.Kind == "NaN" then
+				return nil, nil, nil
+			end
+			if descriptor.Kind == "Zero" then
+				return 0, false, false
+			end
+			if descriptor.Kind == "Infinity" then
+				return LB_POSITIVE_SPAN + 1, descriptor.Negative, false
+			end
+			local delta
+			if descriptor.Kind == "Magnitude" then
+				delta = lbEncodeOrdinaryLog(descriptor.LogScale)
+			elseif descriptor.LayerIsHyper then
+				delta = lbEncodeHyperLayer(descriptor.LayerLog10Log10, descriptor.Top)
+			elseif descriptor.LayerIsLog then
+				delta = lbEncodeLogLayer(descriptor.LayerLog10, descriptor.Top)
 			else
-				local lg = log10(magnitude)
-				local exponent = floor(lg)
-				local mantissa = 10 ^ (lg - exponent)
-				local mantCode = quantizeMantissa(mantissa, LB_MANT_MAX)
-				logMagnitude = exponent + log10(decodeMantissa(mantCode, LB_MANT_MAX))
+				delta = lbEncodeLayer(descriptor.Layer, descriptor.Top)
 			end
-			local delta = lbEncodeOrdinaryLog(logMagnitude)
-			return lbFinalizeFiniteCode(delta, negative, false), true
+			if delta < 0 then
+				delta = 0
+			elseif delta > LB_POSITIVE_SPAN then
+				delta = LB_POSITIVE_SPAN
+			end
+			return floor(delta), descriptor.Negative, descriptor.Reciprocal
 		end
-		local firstByte = bufferReadU8(value, 0)
-		if band(firstByte, 31) == HYPER_LAYER_PREFIX and band(firstByte, 128) == 0 then
-			local negative = band(firstByte, 32) ~= 0
-			local reciprocal = band(firstByte, 64) ~= 0
-			local hyper, nextBit = readScalarAtFast(value, 8)
-			local top = readScalarAtFast(value, nextBit)
-			local delta = lbEncodeHyperLayer(hyper, top)
-			return lbFinalizeFiniteCode(delta, negative, reciprocal), true
+		local function lbFinalizeFiniteCode(delta: number, negative: boolean, reciprocal: boolean): number
+			if delta <= 0 then
+				return negative and -LB_ONE or LB_ONE
+			end
+			if delta > LB_POSITIVE_SPAN then
+				return negative and -LB_MAX or LB_MAX
+			end
+			local positiveCode = reciprocal and (LB_ONE - delta) or (LB_ONE + delta)
+			if positiveCode < 1 then
+				positiveCode = 1
+			elseif positiveCode > LB_FINITE_MAX then
+				positiveCode = LB_FINITE_MAX
+			end
+			positiveCode = floor(positiveCode)
+			return negative and -positiveCode or positiveCode
 		end
-		if band(raw, 15) == 7 then return 0, false end
-		if band(raw, 31) == 15 then
-			local negative = bufferReadBits(value, 5, 1) == 1
-			local reciprocal = bufferReadBits(value, 6, 1) == 1
-			local top
-			if isExactLogAt(value, 0) then top = readExactLogMagnitudeAt(value, 0)
-			else top = readScalarAtFast(value, 7) end
-			local delta = lbEncodeOrdinaryLog(top)
-			return lbFinalizeFiniteCode(delta, negative, reciprocal), true
+		local function lbCodeFromDescriptor(descriptor): number
+			local delta, negative, reciprocal = lbPositiveDeltaDescriptor(descriptor)
+			if delta == nil then
+				return 0
+			end
+			if descriptor.Kind == "Zero" then
+				return 0
+			end
+			return lbFinalizeFiniteCode(delta, negative == true, reciprocal == true)
 		end
-		if band(raw, 63) == 31 then
-			local negative = bufferReadBits(value, 6, 1) == 1
-			local reciprocal = bufferReadBits(value, 7, 1) == 1
-			local layer, layerIsLog, nextBit = readLayerFieldAtFast(value, 8)
-			local top = readScalarAtFast(value, nextBit)
-			if layerIsLog then
-				if layer <= 308 then
-					layer, top = normalizeLayerInput(10 ^ layer, top, false)
-					if layer < 2 then
-						local delta = lbEncodeOrdinaryLog(top)
-						return lbFinalizeFiniteCode(delta, negative, reciprocal), true
+		local function lbCodeFromBufferFast(value: buffer): (number, boolean)
+			if LB_VERSION == 3 then
+				local finite = directFiniteNumber(value)
+				if finite ~= nil then
+					if finite == 0 then return 0, true end
+					local magnitude: number = abs(finite)
+					local reciprocal = magnitude < 1
+					local distance = reciprocal and 1 / magnitude or magnitude
+					local delta
+					if distance <= NanoNum.LB_ORDINARY_EXACT_MAX then
+						delta = math.round((distance - 1) * NanoNum.LB_ORDINARY_SUBSLOTS)
+					else
+						delta = lbEncodeOrdinaryLog(abs(log10(magnitude)))
 					end
-					local delta = lbEncodeLayer(layer, top)
-					return lbFinalizeFiniteCode(delta, negative, reciprocal), true
+					return lbFinalizeFiniteCode(delta, finite < 0, reciprocal), true
 				end
-				local delta = lbEncodeLogLayer(layer, top)
+			end
+			-- Direct prefix dispatch avoids allocating the Reader table and decoded-data
+			-- table used by the public decodeAt()/components() API.
+			local raw: number = bufferReadBits(value, 0, 6)
+			if band(raw, 1) == 0 then
+				local integer: number = bufferReadBits(value, 1, 7)
+				if integer == 0 then
+					return 0, true
+				end
+				local delta = lbEncodeOrdinaryLog(log10(integer))
+				return lbFinalizeFiniteCode(delta, false, false), true
+			end
+			if band(raw, 3) == 1 then
+				local magnitude = bufferReadBits(value, 2, 6) + 1
+				local delta = lbEncodeOrdinaryLog(log10(magnitude))
+				return lbFinalizeFiniteCode(delta, true, false), true
+			end
+			if band(raw, 7) == 3 then
+				local negative = bufferReadBits(value, 3, 1) == 1
+				local n: number = bufferReadBits(value, 4, INTEGER_LEN_BITS)
+				local payloadOffset = 4 + INTEGER_LEN_BITS
+				if n == 0 then
+					n = 32 + bufferReadBits(value, payloadOffset, 5)
+					payloadOffset += 5
+					if n > MAX_INTEGER_MODE_BITS then
+						error("NanoNum: invalid extended integer bit length")
+					end
+				end
+				local magnitude = readUIntExactAtFast(value, payloadOffset, n)
+				if magnitude == 0 then return 0, true end
+				local logMagnitude
+				local signed = negative and -magnitude or magnitude
+				if exactIntegerRecordBits(signed) <= LB_APPROX_BITS then
+					logMagnitude = log10(magnitude)
+				else
+					local lg: number = log10(magnitude)
+					local exponent: number = floor(lg)
+					local mantissa = 10 ^ (lg - exponent)
+					local mantCode = quantizeMantissa(mantissa, LB_MANT_MAX)
+					logMagnitude = exponent + log10(decodeMantissa(mantCode, LB_MANT_MAX))
+				end
+				local delta = lbEncodeOrdinaryLog(logMagnitude)
+				return lbFinalizeFiniteCode(delta, negative, false), true
+			end
+			local firstByte: number = bufferReadU8(value, 0)
+			if band(firstByte, 31) == HYPER_LAYER_PREFIX and band(firstByte, 128) == 0 then
+				local negative = band(firstByte, 32) ~= 0
+				local reciprocal = band(firstByte, 64) ~= 0
+				local hyper, nextBit = readScalarAtFast(value, 8)
+				local top = readScalarAtFast(value, nextBit)
+				local delta = lbEncodeHyperLayer(hyper, top)
 				return lbFinalizeFiniteCode(delta, negative, reciprocal), true
 			end
-			layer, top = normalizeLayerInput(layer, top, false)
-			if layer < 2 then
+			if band(raw, 15) == 7 then return 0, false end
+			if band(raw, 31) == 15 then
+				local negative = bufferReadBits(value, 5, 1) == 1
+				local reciprocal = bufferReadBits(value, 6, 1) == 1
+				local top
+				if isExactLogAt(value, 0) then top = readExactLogMagnitudeAt(value, 0)
+				else top = readScalarAtFast(value, 7) end
 				local delta = lbEncodeOrdinaryLog(top)
 				return lbFinalizeFiniteCode(delta, negative, reciprocal), true
 			end
-			local delta = lbEncodeLayer(layer, top)
-			return lbFinalizeFiniteCode(delta, negative, reciprocal), true
+			if band(raw, 63) == 31 then
+				local negative = bufferReadBits(value, 6, 1) == 1
+				local reciprocal = bufferReadBits(value, 7, 1) == 1
+				local layer, layerIsLog, nextBit = readLayerFieldAtFast(value, 8)
+				local top = readScalarAtFast(value, nextBit)
+				if layerIsLog then
+					if layer <= 308 then
+						layer, top = normalizeLayerInput(10 ^ layer, top, false)
+						if layer < 2 then
+							local delta = lbEncodeOrdinaryLog(top)
+							return lbFinalizeFiniteCode(delta, negative, reciprocal), true
+						end
+						local delta = lbEncodeLayer(layer, top)
+						return lbFinalizeFiniteCode(delta, negative, reciprocal), true
+					end
+					local delta = lbEncodeLogLayer(layer, top)
+					return lbFinalizeFiniteCode(delta, negative, reciprocal), true
+				end
+				layer, top = normalizeLayerInput(layer, top, false)
+				if layer < 2 then
+					local delta = lbEncodeOrdinaryLog(top)
+					return lbFinalizeFiniteCode(delta, negative, reciprocal), true
+				end
+				local delta = lbEncodeLayer(layer, top)
+				return lbFinalizeFiniteCode(delta, negative, reciprocal), true
+			end
+			local special: number = bufferReadBits(value, 6, 2)
+			if special == SPECIAL_RESERVED then
+				local exact: number = bufferReadF64(value, 1)
+				if exact ~= exact or exact == huge or exact == -huge then return 0, false end
+				if exact == 0 then return 0, true end
+				local negative = exact < 0
+				local magnitude = negative and -exact or exact
+				local lg: number = log10(magnitude)
+				local exponent: number = floor(lg)
+				local mantissa = 10 ^ (lg - exponent)
+				local mantCode = quantizeMantissa(mantissa, LB_MANT_MAX)
+				local legacyLog = exponent + log10(decodeMantissa(mantCode, LB_MANT_MAX))
+				local reciprocal = legacyLog < 0
+				local delta = lbEncodeOrdinaryLog(abs(legacyLog))
+				return lbFinalizeFiniteCode(delta, negative, reciprocal), true
+			end
+			if special == SPECIAL_POS_INF then
+				return LB_MAX, true
+			elseif special == SPECIAL_NEG_INF then
+				return -LB_MAX, true
+			end
+			return 0, false
 		end
-		local special = bufferReadBits(value, 6, 2)
-		if special == SPECIAL_RESERVED then
-			local exact = bufferReadF64(value, 1)
-			if exact ~= exact or exact == huge or exact == -huge then return 0, false end
-			if exact == 0 then return 0, true end
-			local negative = exact < 0
-			local magnitude = negative and -exact or exact
-			local lg = log10(magnitude)
-			local exponent = floor(lg)
-			local mantissa = 10 ^ (lg - exponent)
-			local mantCode = quantizeMantissa(mantissa, LB_MANT_MAX)
-			local legacyLog = exponent + log10(decodeMantissa(mantCode, LB_MANT_MAX))
-			local reciprocal = legacyLog < 0
-			local delta = lbEncodeOrdinaryLog(abs(legacyLog))
-			return lbFinalizeFiniteCode(delta, negative, reciprocal), true
+		local function isLBCodeFast(encoded: number): boolean
+			-- Order the guards so NaN/Inf/out-of-range values return before floor().
+			if encoded ~= encoded or encoded > LB_MAX or encoded < -LB_MAX then
+				return false
+			end
+			if encoded ~= floor(encoded) then
+				return false
+			end
+			local code = encoded < 0 and -encoded or encoded
+			if code == 0 or code == LB_MAX then
+				return true
+			end
+			if code > LB_FINITE_MAX then
+				return false
+			end
+			local delta = code - LB_ONE
+			if delta < 0 then
+				delta = -delta
+			end
+			return delta <= LB_HYPER_LAYER_END
 		end
-		if special == SPECIAL_POS_INF then
-			return LB_MAX, true
-		elseif special == SPECIAL_NEG_INF then
-			return -LB_MAX, true
+		NanoNum.isLBCode = isLBCodeFast
+		function NanoNum.tryLBEncode(value: any): (boolean, number)
+			if typeof(value) == "buffer" and not NanoNum.isValid(value) then return false, 0 end
+			if typeof(value) ~= "buffer" and typeof(value) ~= "number" and typeof(value) ~= "string" then return false, 0 end
+			local ok, code, valid = fastPcall(lbCodeFromBufferFast, lbCoerce(value))
+			if not ok or not valid then return false, 0 end
+			return true, code
 		end
-		return 0, false
-	end
-	local function isLBCodeFast(encoded: number): boolean
-		-- Order the guards so NaN/Inf/out-of-range values return before floor().
-		if encoded ~= encoded or encoded > LB_MAX or encoded < -LB_MAX then
-			return false
-		end
-		if encoded ~= floor(encoded) then
-			return false
-		end
-		local code = encoded < 0 and -encoded or encoded
-		if code == 0 or code == LB_MAX then
-			return true
-		end
-		if code > LB_FINITE_MAX then
-			return false
-		end
-		local delta = code - LB_ONE
-		if delta < 0 then
-			delta = -delta
-		end
-		return delta <= LB_HYPER_LAYER_END
-	end
-	NanoNum.isLBCode = isLBCodeFast
-	function NanoNum.tryLBEncode(value: any): (boolean, number)
-		-- Direct: leaderboard hot paths overwhelmingly receive NanoNum buffers.
-		if typeof(value) == "buffer" then
-			local code, valid = lbCodeFromBufferFast(value)
-			return valid, code
-		end
-		local code, valid = lbCodeFromBufferFast(lbCoerce(value))
-		return valid, code
-	end
-	function NanoNum.lbencode(value: MathValue): number
-		if typeof(value) == "buffer" then
-			local code = lbCodeFromBufferFast(value)
+		function NanoNum.lbencode(value: MathValue): number
+			if typeof(value) == "buffer" then
+				local code = lbCodeFromBufferFast(value)
+				return code
+			end
+			local code = lbCodeFromBufferFast(lbCoerce(value))
 			return code
 		end
-		local code = lbCodeFromBufferFast(lbCoerce(value))
-		return code
-	end
-	local function lbDecodePositiveDelta(delta: number): (number, number, number)
-		delta = clamp(floor(delta), 1, NanoNum.LB_POSITIVE_SPAN)
-		if delta <= LB_ORDINARY_EXACT_END then
-			local magnitude = 1 + delta / NanoNum.LB_ORDINARY_SUBSLOTS
-			return 0, log10(magnitude), 0
-		end
-		if delta <= LB_ORDINARY_LOG_END then
-			local slot = delta - LB_ORDINARY_LOG_START
-			local unit = lbUnitFromSlot(slot, LB_ORDINARY_LOG_SPAN)
-			return 0, LB_ORDINARY_LOG_MIN + unit * LB_ORDINARY_LOG_DENOM, 0
-		end
-		if delta <= LB_HUGE_LOG_END then
-			local slot = delta - LB_HUGE_LOG_START
-			local unit = lbUnitFromSlot(slot, LB_HUGE_LOG_SPAN)
-			local logScale = LB_HUGE_LOG_MIN * (10 ^ (unit * LB_HUGE_LOG_DENOM))
-			if logScale > 1e308 then
-				logScale = 1e308
+		local function lbDecodePositiveDelta(delta: number): (number, number, number)
+			delta = clamp(floor(delta), 1, NanoNum.LB_POSITIVE_SPAN)
+			if delta <= LB_ORDINARY_EXACT_END then
+				local magnitude = 1 + delta / NanoNum.LB_ORDINARY_SUBSLOTS
+				return 0, log10(magnitude), 0
 			end
-			return 0, logScale, 0
-		end
-		if delta <= LB_LOW_LAYER_END then
-			local offset = delta - LB_LOW_LAYER_START
-			local layerIndex = floor(offset / NanoNum.LB_LAYER_TOP_BUCKETS)
-			local topBucket = offset - layerIndex * NanoNum.LB_LAYER_TOP_BUCKETS
-			return 1, layerIndex + 2, lbDirectTopFromBucket(topBucket)
-		end
-		if delta <= LB_HIGH_LAYER_END then
-			local offset = delta - LB_HIGH_LAYER_START
-			local layerSlot = floor(offset / NanoNum.LB_LAYER_TOP_BUCKETS)
-			local topBucket = offset - layerSlot * NanoNum.LB_LAYER_TOP_BUCKETS
-			local unit = lbUnitFromSlot(layerSlot, LB_HIGH_LAYER_BUCKET_COUNT)
-			local layerLog10 = LB_HIGH_LAYER_LOG_MIN + unit * LB_HIGH_LAYER_LOG_DENOM
-			local layer = 10 ^ layerLog10
-			if layer > 1e308 then
-				layer = 1e308
+			if delta <= LB_ORDINARY_LOG_END then
+				local slot = delta - LB_ORDINARY_LOG_START
+				local unit = lbUnitFromSlot(slot, LB_ORDINARY_LOG_SPAN)
+				return 0, LB_ORDINARY_LOG_MIN + unit * LB_ORDINARY_LOG_DENOM, 0
 			end
-			return 1, layer, lbDirectTopFromBucket(topBucket)
-		end
-		if delta <= LB_LOG_LAYER_END then
-			local offset = clamp(delta - LB_LOG_LAYER_START, 0, LB_LOG_LAYER_USED_SPAN - 1)
-			local layerSlot = floor(offset / NanoNum.LB_LAYER_TOP_BUCKETS)
-			local topBucket = offset - layerSlot * NanoNum.LB_LAYER_TOP_BUCKETS
-			local unit = lbUnitFromSlot(layerSlot, LB_LOG_LAYER_BUCKET_COUNT)
-			local layerLog10 = LB_LOG_LAYER_MIN * (10 ^ (unit * LB_LOG_LAYER_DENOM))
-			if layerLog10 > 1e308 then layerLog10 = 1e308 end
-			return 2, layerLog10, lbLogLayerTopFromBucket(topBucket)
-		end
-		local offset = clamp(delta - LB_HYPER_LAYER_START, 0, LB_HYPER_LAYER_USED_SPAN - 1)
-		local layerSlot = floor(offset / NanoNum.LB_LAYER_TOP_BUCKETS)
-		local topBucket = offset - layerSlot * NanoNum.LB_LAYER_TOP_BUCKETS
-		local unit = lbUnitFromSlot(layerSlot, LB_HYPER_LAYER_BUCKET_COUNT)
-		local hyper = LB_HYPER_LAYER_MIN * (10 ^ (unit * LB_HYPER_LAYER_DENOM))
-		if hyper > 1e308 then hyper = 1e308 end
-		return 3, hyper, lbLogLayerTopFromBucket(topBucket)
-	end
-	function NanoNum.lbdecode(encoded: number): buffer
-		if not isLBCodeFast(encoded) then
-			return makeSpecial(SPECIAL_NAN)
-		end
-		if encoded == 0 then
-			return NanoNum.fromNumber(0)
-		end
-		if encoded == LB_MAX then
-			return makeSpecial(SPECIAL_POS_INF)
-		end
-		if encoded == -LB_MAX then
-			return makeSpecial(SPECIAL_NEG_INF)
-		end
-		local negative = encoded < 0
-		local code = negative and -encoded or encoded
-		if code == LB_ONE then
-			return NanoNum.fromNumber(negative and -1 or 1)
-		end
-		local reciprocal = code < LB_ONE
-		local delta = reciprocal and (LB_ONE - code) or (code - LB_ONE)
-		local decodedKind, decodedA, decodedB = lbDecodePositiveDelta(delta)
-		if decodedKind == 0 then
-			-- Stay in the ordinary buffer mode whenever the reconstructed value fits
-			-- in a Luau number. This preserves more NanoNum precision than routing
-			-- every LB ordinary bucket through the layer-1 scalar codec.
-			if decodedA <= 308 then
-				local magnitude = 10 ^ decodedA
-				if reciprocal then
-					magnitude = 1 / magnitude
+			if delta <= LB_HUGE_LOG_END then
+				local slot = delta - LB_HUGE_LOG_START
+				local unit = lbUnitFromSlot(slot, LB_HUGE_LOG_SPAN)
+				local logScale = LB_HUGE_LOG_MIN * (10 ^ (unit * LB_HUGE_LOG_DENOM))
+				if LB_VERSION == 3 and logScale <= 308 then logScale = 308.00000000000006 end
+				if logScale > 1e308 then
+					logScale = 1e308
 				end
-				if negative then
-					magnitude = -magnitude
-				end
-				return NanoNum.fromNumber(magnitude)
+				return 0, logScale, 0
 			end
-			local exponent = reciprocal and -decodedA or decodedA
-			return NanoNum.fromLog10(exponent, negative)
+			if delta <= LB_LOW_LAYER_END then
+				local offset = delta - LB_LOW_LAYER_START
+				local layerIndex: number = floor(offset / NanoNum.LB_LAYER_TOP_BUCKETS)
+				local topBucket = offset - layerIndex * NanoNum.LB_LAYER_TOP_BUCKETS
+				return 1, layerIndex + 2, lbDirectTopFromBucket(topBucket)
+			end
+			if delta <= LB_HIGH_LAYER_END then
+				local offset = delta - LB_HIGH_LAYER_START
+				local layerSlot: number = floor(offset / NanoNum.LB_LAYER_TOP_BUCKETS)
+				local topBucket = offset - layerSlot * NanoNum.LB_LAYER_TOP_BUCKETS
+				local unit = lbUnitFromSlot(layerSlot, LB_HIGH_LAYER_BUCKET_COUNT)
+				local layerLog10 = LB_HIGH_LAYER_LOG_MIN + unit * LB_HIGH_LAYER_LOG_DENOM
+				local layer = 10 ^ layerLog10
+				if LB_VERSION == 3 and layer <= NanoNum.LB_LOW_LAYER_MAX then layer = NanoNum.LB_LOW_LAYER_MAX + 1 end
+				if layer > 1e308 then
+					layer = 1e308
+				end
+				return 1, layer, lbDirectTopFromBucket(topBucket)
+			end
+			if delta <= LB_LOG_LAYER_END then
+				local offset: number = clamp(delta - LB_LOG_LAYER_START, 0, LB_LOG_LAYER_USED_SPAN - 1)
+				local layerSlot: number = floor(offset / NanoNum.LB_LAYER_TOP_BUCKETS)
+				local topBucket = offset - layerSlot * NanoNum.LB_LAYER_TOP_BUCKETS
+				local unit = lbUnitFromSlot(layerSlot, LB_LOG_LAYER_BUCKET_COUNT)
+				local layerLog10 = LB_LOG_LAYER_MIN * (10 ^ (unit * LB_LOG_LAYER_DENOM))
+				if layerLog10 > 1e308 then layerLog10 = 1e308 end
+				if LB_VERSION == 3 and layerLog10 <= 308 then layerLog10 = 308.00000000000006 end
+				return 2, layerLog10, lbLogLayerTopFromBucket(topBucket)
+			end
+			local offset: number = clamp(delta - LB_HYPER_LAYER_START, 0, LB_HYPER_LAYER_USED_SPAN - 1)
+			local layerSlot: number = floor(offset / NanoNum.LB_LAYER_TOP_BUCKETS)
+			local topBucket = offset - layerSlot * NanoNum.LB_LAYER_TOP_BUCKETS
+			local unit = lbUnitFromSlot(layerSlot, LB_HYPER_LAYER_BUCKET_COUNT)
+			local hyper = LB_HYPER_LAYER_MIN * (10 ^ (unit * LB_HYPER_LAYER_DENOM))
+			if hyper > 1e308 then hyper = 1e308 end
+			if LB_VERSION == 3 and hyper <= 308 then hyper = 308.00000000000006 end
+			return 3, hyper, lbLogLayerTopFromBucket(topBucket)
 		end
-		if decodedKind == 3 then return NanoNum.fromLayerLog10Log10(decodedA, decodedB, negative, reciprocal) end
-		if decodedKind == 2 then return NanoNum.fromLayerLog10(decodedA, decodedB, negative, reciprocal) end
-		return NanoNum.fromLayer(decodedA, decodedB, negative, reciprocal)
-	end
-	function NanoNum.lbcodecVersion(): number
-		return LB_VERSION
-	end
-	local function lbBandFromDelta(delta: number): string
-		if delta == 0 then
-			return "one"
-		elseif delta <= LB_ORDINARY_EXACT_END then
-			return "ordinary-exact"
-		elseif delta <= LB_ORDINARY_LOG_END then
-			return "ordinary-log"
-		elseif delta <= LB_HUGE_LOG_END then
-			return "huge-log"
-		elseif delta <= LB_LOW_LAYER_END then
-			return "low-layer-exact"
-		elseif delta <= LB_HIGH_LAYER_END then
-			return "high-layer"
-		elseif delta <= LB_LOG_LAYER_END then
-			return "log-layer"
+		function NanoNum.lbdecode(encoded: number): buffer
+			if not isLBCodeFast(encoded) then
+				return makeSpecial(SPECIAL_NAN)
+			end
+			if encoded == 0 then
+				return NanoNum.fromNumber(0)
+			end
+			if encoded == LB_MAX then
+				return makeSpecial(SPECIAL_POS_INF)
+			end
+			if encoded == -LB_MAX then
+				return makeSpecial(SPECIAL_NEG_INF)
+			end
+			local negative = encoded < 0
+			local code = negative and -encoded or encoded
+			if code == LB_ONE then
+				return NanoNum.fromNumber(negative and -1 or 1)
+			end
+			local reciprocal = code < LB_ONE
+			local delta = reciprocal and (LB_ONE - code) or (code - LB_ONE)
+			if LB_VERSION == 3 and delta <= LB_ORDINARY_EXACT_END then
+				local magnitude = 1 + delta / NanoNum.LB_ORDINARY_SUBSLOTS
+				if reciprocal then magnitude = 1 / magnitude end
+				return NanoNum.fromNumber(negative and -magnitude or magnitude)
+			end
+			local decodedKind, decodedA, decodedB = lbDecodePositiveDelta(delta)
+			if decodedKind == 0 then
+				-- Stay in the ordinary buffer mode whenever the reconstructed value fits
+				-- in a Luau number. This preserves more NanoNum precision than routing
+				-- every LB ordinary bucket through the layer-1 scalar codec.
+				if decodedA <= 308 then
+					local magnitude = 10 ^ decodedA
+					if reciprocal then
+						magnitude = 1 / magnitude
+					end
+					if negative then
+						magnitude = -magnitude
+					end
+					return NanoNum.fromNumber(magnitude)
+				end
+				local exponent = reciprocal and -decodedA or decodedA
+				return NanoNum.fromLog10(exponent, negative)
+			end
+			if decodedKind == 3 then return NanoNum.fromLayerLog10Log10(decodedA, decodedB, negative, reciprocal) end
+			if decodedKind == 2 then return NanoNum.fromLayerLog10(decodedA, decodedB, negative, reciprocal) end
+			return NanoNum.fromLayer(decodedA, decodedB, negative, reciprocal)
 		end
-		return "hyper-layer"
-	end
-	function NanoNum.lbinfo(value: MathValue): LBInfo
-		local v = if typeof(value) == "buffer" then value else lbCoerce(value)
-		local descriptor = lbDescriptor(v)
-		if descriptor.Kind == "NaN" then
-			return {
-				version = LB_VERSION,
-				code = 0,
-				band = "nan",
-				negative = false,
-				reciprocal = false,
-				distanceFromOne = 0,
-			}
+		function NanoNum.lbcodecVersion(): number
+			return LB_VERSION
 		end
-		if descriptor.Kind == "Zero" then
-			return {
-				version = LB_VERSION,
-				code = 0,
-				band = "zero",
-				negative = false,
-				reciprocal = false,
-				distanceFromOne = NanoNum.LB_ONE,
-			}
+		local function lbBandFromDelta(delta: number): string
+			if delta == 0 then
+				return "one"
+			elseif delta <= LB_ORDINARY_EXACT_END then
+				return "ordinary-exact"
+			elseif delta <= LB_ORDINARY_LOG_END then
+				return "ordinary-log"
+			elseif delta <= LB_HUGE_LOG_END then
+				return "huge-log"
+			elseif delta <= LB_LOW_LAYER_END then
+				return "low-layer-exact"
+			elseif delta <= LB_HIGH_LAYER_END then
+				return "high-layer"
+			elseif delta <= LB_LOG_LAYER_END then
+				return "log-layer"
+			end
+			return "hyper-layer"
 		end
-		if descriptor.Kind == "Infinity" then
-			local code = descriptor.Negative and -NanoNum.LB_MAX or NanoNum.LB_MAX
+		function NanoNum.lbinfo(value: MathValue): LBInfo
+			local v = if typeof(value) == "buffer" then value else lbCoerce(value)
+			if LB_VERSION == 3 then
+				local code, valid = lbCodeFromBufferFast(v)
+				local delta: number = abs(abs(code) - LB_ONE)
+				return {version=LB_VERSION, code=code, band=not valid and "nan" or (code==0 and "zero" or (abs(code)==LB_MAX and "infinity" or lbBandFromDelta(delta))), negative=code<0, reciprocal=code~=0 and abs(code)<LB_ONE, distanceFromOne=delta}
+			end
+			local descriptor = lbDescriptor(v)
+			if descriptor.Kind == "NaN" then
+				return {
+					version = LB_VERSION,
+					code = 0,
+					band = "nan",
+					negative = false,
+					reciprocal = false,
+					distanceFromOne = 0,
+				}
+			end
+			if descriptor.Kind == "Zero" then
+				return {
+					version = LB_VERSION,
+					code = 0,
+					band = "zero",
+					negative = false,
+					reciprocal = false,
+					distanceFromOne = NanoNum.LB_ONE,
+				}
+			end
+			if descriptor.Kind == "Infinity" then
+				local code = descriptor.Negative and -NanoNum.LB_MAX or NanoNum.LB_MAX
+				return {
+					version = LB_VERSION,
+					code = code,
+					band = "infinity",
+					negative = descriptor.Negative,
+					reciprocal = false,
+					distanceFromOne = LB_POSITIVE_SPAN,
+				}
+			end
+			local code = lbCodeFromDescriptor(descriptor)
+			local absCode: number = abs(code)
+			local delta: number = abs(absCode - LB_ONE)
 			return {
 				version = LB_VERSION,
 				code = code,
-				band = "infinity",
+				band = lbBandFromDelta(delta),
 				negative = descriptor.Negative,
-				reciprocal = false,
-				distanceFromOne = LB_POSITIVE_SPAN,
+				reciprocal = descriptor.Reciprocal,
+				distanceFromOne = delta,
 			}
 		end
-		local code = lbCodeFromDescriptor(descriptor)
-		local absCode = abs(code)
-		local delta = abs(absCode - LB_ONE)
-		return {
-			version = LB_VERSION,
-			code = code,
-			band = lbBandFromDelta(delta),
-			negative = descriptor.Negative,
-			reciprocal = descriptor.Reciprocal,
-			distanceFromOne = delta,
-		}
+		function NanoNum.lbquantize(value: MathValue): buffer
+			local code
+			if typeof(value) == "buffer" then
+				code = lbCodeFromBufferFast(value)
+			else
+				code = lbCodeFromBufferFast(lbCoerce(value))
+			end
+			if NanoNum.isNaN(value) then return makeSpecial(SPECIAL_NAN) end
+			return NanoNum.lbdecode(code)
+		end
+		function NanoNum.lbSameBucket(a: MathValue, b: MathValue): boolean
+			local ca
+			local cb
+			if typeof(a) == "buffer" then
+				ca = lbCodeFromBufferFast(a)
+			else
+				ca = lbCodeFromBufferFast(lbCoerce(a))
+			end
+			if typeof(b) == "buffer" then
+				cb = lbCodeFromBufferFast(b)
+			else
+				cb = lbCodeFromBufferFast(lbCoerce(b))
+			end
+			return not NanoNum.isNaN(a) and not NanoNum.isNaN(b) and ca == cb
+		end
+		function NanoNum.lbRoundTripStable(value: MathValue): boolean
+			local code, valid
+			if typeof(value) == "buffer" then
+				code, valid = lbCodeFromBufferFast(value)
+			else
+				code, valid = lbCodeFromBufferFast(lbCoerce(value))
+			end
+			if not valid then
+				return false
+			end
+			local decoded = NanoNum.lbdecode(code)
+			local roundTrip = lbCodeFromBufferFast(decoded)
+			return roundTrip == code
+		end
+		function NanoNum.lbCompare(a: MathValue, b: MathValue): number
+			local ca, validA
+			local cb, validB
+			if typeof(a) == "buffer" then
+				ca, validA = lbCodeFromBufferFast(a)
+			else
+				ca, validA = lbCodeFromBufferFast(lbCoerce(a))
+			end
+			if typeof(b) == "buffer" then
+				cb, validB = lbCodeFromBufferFast(b)
+			else
+				cb, validB = lbCodeFromBufferFast(lbCoerce(b))
+			end
+			if not validA or not validB then
+				return 0 / 0
+			end
+			if ca < cb then
+				return -1
+			elseif ca > cb then
+				return 1
+			end
+			return 0
+		end
 	end
-	function NanoNum.lbquantize(value: MathValue): buffer
-		local code
-		if typeof(value) == "buffer" then
-			code = lbCodeFromBufferFast(value)
-		else
-			code = lbCodeFromBufferFast(lbCoerce(value))
-		end
-		return NanoNum.lbdecode(code)
+	installLB(2)
+	local decodeV2 = NanoNum.lbdecode
+	local encodeV2 = NanoNum.lbencode
+	installLB(3)
+	NanoNum.lbdecodeV2 = decodeV2
+	NanoNum.lbencodeV2 = encodeV2
+end)()
+local TYPECHECKED_NANONUM = NanoNum;
+
+-- NanoNum exact-decimal math v2.4.0: opt-in arbitrary exponent and coefficient arithmetic.
+-- Binary format 6 is unchanged; LB3 has explicit LB2 migration functions. ExactDecimal is a
+-- separate representation; lossy operations report Approximate=true explicitly.
+(function()
+	local B: (string, number?, number?) -> ...number = string.byte
+	local S: (string, number, number?) -> string = string.sub
+	local C: (...number) -> string = string.char
+	local F: (number) -> number = math.floor
+	local function trim(a: string): string
+		local p: number = 1
+		while p < #a and B(a,p) == 48 do p += 1 end
+		return S(a,p)
 	end
-	function NanoNum.lbSameBucket(a: MathValue, b: MathValue): boolean
-		local ca
-		local cb
-		if typeof(a) == "buffer" then
-			ca = lbCodeFromBufferFast(a)
-		else
-			ca = lbCodeFromBufferFast(lbCoerce(a))
-		end
-		if typeof(b) == "buffer" then
-			cb = lbCodeFromBufferFast(b)
-		else
-			cb = lbCodeFromBufferFast(lbCoerce(b))
-		end
-		return ca == cb
+	local function magCmp(a: string,b: string): number
+		if #a ~= #b then return #a > #b and 1 or -1 end
+		if a == b then return 0 end
+		return a > b and 1 or -1
 	end
-	function NanoNum.lbRoundTripStable(value: MathValue): boolean
-		local code, valid
-		if typeof(value) == "buffer" then
-			code, valid = lbCodeFromBufferFast(value)
-		else
-			code, valid = lbCodeFromBufferFast(lbCoerce(value))
+	local function magAdd(a: string,b: string): string
+		local i,j,carry=#a,#b,0
+		local result={}
+		while i>0 or j>0 or carry>0 do
+			local d=carry
+			if i>0 then d+=B(a,i)-48;i-=1 end
+			if j>0 then d+=B(b,j)-48;j-=1 end
+			result[#result+1]=C(48+d%10);carry=F(d/10)
 		end
-		if not valid then
-			return false
-		end
-		local decoded = NanoNum.lbdecode(code)
-		local roundTrip = lbCodeFromBufferFast(decoded)
-		return roundTrip == code
+		local rev={}
+		for p=#result,1,-1 do rev[#rev+1]=result[p] end
+		return table.concat(rev)
 	end
-	function NanoNum.lbCompare(a: MathValue, b: MathValue): number
-		local ca, validA
-		local cb, validB
-		if typeof(a) == "buffer" then
-			ca, validA = lbCodeFromBufferFast(a)
+	-- Requires a >= b.
+	local function magSub(a: string,b: string): string
+		local i,j,borrow=#a,#b,0
+		local result={}
+		while i>0 do
+			local d=B(a,i)-48-borrow
+			if j>0 then d-=B(b,j)-48;j-=1 end
+			borrow=d<0 and 1 or 0
+			if borrow~=0 then d+=10 end
+			result[#result+1]=C(d+48);i-=1
+		end
+		while #result>1 and result[#result]=="0" do result[#result]=nil end
+		local rev={}
+		for p=#result,1,-1 do rev[#rev+1]=result[p] end
+		return table.concat(rev)
+	end
+	local function unpackSigned(v: string): (number,string)
+		local sign: number=1
+		if S(v,1,1)=="-" then sign=-1;v=S(v,2)
+		elseif S(v,1,1)=="+" then v=S(v,2) end
+		if #v==0 then error("NanoNum: empty integer") end
+		for i=1,#v do local d=B(v,i);if d<48 or d>57 then error("NanoNum: invalid decimal integer") end end
+		v=trim(v)
+		return v=="0" and 0 or sign,v
+	end
+	local function integerAdd(a: string,b: string): string
+		local sa,ma=unpackSigned(a)
+		local sb,mb=unpackSigned(b)
+		if sa==0 then return sb<0 and "-"..mb or mb end
+		if sb==0 then return sa<0 and "-"..ma or ma end
+		if sa==sb then local d=magAdd(ma,mb);return sa<0 and "-"..d or d end
+		local comparison=magCmp(ma,mb)
+		if comparison==0 then return "0" end
+		local d=comparison>0 and magSub(ma,mb) or magSub(mb,ma)
+		local sign=comparison>0 and sa or sb
+		return sign<0 and "-"..d or d
+	end
+	local function integerNeg(v: string): string
+		local sign,mag=unpackSigned(v)
+		return sign==0 and "0" or (sign<0 and mag or "-"..mag)
+	end
+	local function integerCompare(a: string,b: string): number
+		local sa,ma=unpackSigned(a)
+		local sb,mb=unpackSigned(b)
+		if sa~=sb then return sa>sb and 1 or -1 end
+		if sa==0 then return 0 end
+		return magCmp(ma,mb)*sa
+	end
+	local function canonical(sign: number,digits: string,exponent: string,approximate: boolean?): ExactDecimal
+		local nonzero=string.find(digits,"[1-9]")
+		if nonzero==nil then return {Sign=0,Digits="0",Exponent="0",Approximate=approximate==true} end
+		if nonzero>1 then exponent=integerAdd(exponent,"-"..tostring(nonzero-1));digits=S(digits,nonzero) end
+		digits=string.gsub(digits,"0+$","")
+		local es,em=unpackSigned(exponent)
+		return {Sign=sign<0 and -1 or 1,Digits=digits,Exponent=es<0 and "-"..em or em,Approximate=approximate==true}
+	end
+	local function parse(text: string): ExactDecimal
+		text = string.gsub(text, "^(%s*[%+%-]?)%.", "%10.")
+		local sign,whole,fraction,exponent=string.match(text,"^%s*([%+%-]?)(%d+)%.?(%d*)[eE]([%+%-]?%d+)%s*$")
+		if whole==nil then
+			sign,whole,fraction=string.match(text,"^%s*([%+%-]?)(%d+)%.?(%d*)%s*$")
+			exponent="0"
+		end
+		if whole==nil then error("NanoNum: invalid exact decimal string") end
+		local digits=whole..fraction
+		local first=string.find(digits,"[1-9]")
+		if first==nil then return {Sign=0,Digits="0",Exponent="0",Approximate=false} end
+		-- Normalized scientific exponent = supplied exponent + integer digits - first nonzero index.
+		return canonical(sign=="-" and -1 or 1,S(digits,first),integerAdd(exponent,tostring(#whole-first)),false)
+	end
+	local function validate(v: ExactDecimal): ExactDecimal
+		if type(v)~="table" or (v.Sign~=0 and v.Sign~=1 and v.Sign~=-1) or type(v.Digits)~="string" or type(v.Exponent)~="string" then
+			error("NanoNum: expected ExactDecimal record")
+		end
+		unpackSigned(v.Exponent)
+		for i=1,#v.Digits do local d=B(v.Digits,i);if d<48 or d>57 then error("NanoNum: invalid exact digits") end end
+		if #v.Digits==0 then error("NanoNum: empty exact digits") end
+		if v.Approximate~=nil and type(v.Approximate)~="boolean" then error("NanoNum: invalid approximation flag") end
+		if v.Sign==0 and string.find(v.Digits,"[1-9]") then error("NanoNum: zero sign with nonzero coefficient") end
+		return canonical(v.Sign,v.Digits,v.Exponent,v.Approximate)
+	end
+	local function formatExact(v: ExactDecimal,places: number?): string
+		v=validate(v)
+		if v.Sign==0 then return "0" end
+		if places~=nil and (places~=places or places==math.huge or places==-math.huge) then error("NanoNum: invalid precision") end
+		local decimals: number=clamp(F(places or 2),0,100)
+		local need=decimals+1
+		local chars: {number}={}
+		for i=1,need do chars[i]=i<=#v.Digits and B(v.Digits,i)-48 or 0 end
+		local exp=v.Exponent
+		if #v.Digits>need and B(v.Digits,need+1)>=53 then
+			local carry: number=1
+			for i=need,1,-1 do
+				local x=chars[i]+carry;chars[i]=x%10;carry=F(x/10)
+				if carry==0 then break end
+			end
+			if carry==1 then exp=integerAdd(exp,"1");chars[1]=1;for i=2,need do chars[i]=0 end end
+		end
+		local digits={}
+		for i=1,need do digits[i]=C(chars[i]+48) end
+		local mantissa=digits[1]
+		if decimals>0 then mantissa..="."..table.concat(digits,"",2) end
+		return (v.Sign<0 and "-" or "")..mantissa.."e"..exp
+	end
+	local function multiplyDigits(a: string,b: string): string
+		local values=table.create(#a+#b,0)
+		for i=#a,1,-1 do
+			local carry: number=0
+			local da=B(a,i)-48
+			for j=#b,1,-1 do
+				local index=i+j
+				local x=values[index]+da*(B(b,j)-48)+carry
+				values[index]=x%10;carry=F(x/10)
+			end
+			values[i]+=carry
+		end
+		local result={}
+		for i=1,#values do result[i]=C(values[i]+48) end
+		return trim(table.concat(result))
+	end
+	local function mulExact(a: ExactDecimal,b: ExactDecimal): ExactDecimal
+		a=validate(a);b=validate(b)
+		if a.Sign==0 or b.Sign==0 then return canonical(0,"0","0",a.Approximate or b.Approximate) end
+		local digits=multiplyDigits(a.Digits,b.Digits)
+		local exponent=integerAdd(a.Exponent,b.Exponent)
+		exponent=integerAdd(exponent,tostring(#digits-#a.Digits-#b.Digits+1))
+		return canonical(a.Sign*b.Sign,digits,exponent,a.Approximate or b.Approximate)
+	end
+	local function compareExact(a: ExactDecimal,b: ExactDecimal): number
+		a=validate(a);b=validate(b)
+		if a.Sign~=b.Sign then return a.Sign>b.Sign and 1 or -1 end
+		if a.Sign==0 then return 0 end
+		local comparison=integerCompare(a.Exponent,b.Exponent)
+		if comparison==0 then
+			local width=math.max(#a.Digits,#b.Digits)
+			for i=1,width do
+				local ad=i<=#a.Digits and B(a.Digits,i) or 48
+				local bd=i<=#b.Digits and B(b.Digits,i) or 48
+				if ad~=bd then comparison=ad>bd and 1 or -1;break end
+			end
+		end
+		return comparison*a.Sign
+	end
+	local MAX_SHIFT=100000 -- exact addition can require output proportional to exponent separation.
+	local function integerAsLimitedNumber(v: string,limit: number): number?
+		local s,m=unpackSigned(v)
+		if #m>6 then return nil end
+		local n=tonumber(m) :: number
+		return n<=limit and n*s or nil
+	end
+	local function addExact(a: ExactDecimal,b: ExactDecimal): ExactDecimal
+		a=validate(a);b=validate(b)
+		if a.Sign==0 then b.Approximate=a.Approximate or b.Approximate;return b end
+		if b.Sign==0 then a.Approximate=a.Approximate or b.Approximate;return a end
+		-- Rewrite each operand as integer coefficient * 10^(scientific exponent - digits+1).
+		local ae=integerAdd(a.Exponent,tostring(1-#a.Digits))
+		local be=integerAdd(b.Exponent,tostring(1-#b.Digits))
+		local cmp=integerCompare(ae,be)
+		local smallest=cmp<=0 and ae or be
+		local da=integerAsLimitedNumber(integerAdd(ae,integerNeg(smallest)),MAX_SHIFT)
+		local db=integerAsLimitedNumber(integerAdd(be,integerNeg(smallest)),MAX_SHIFT)
+		if da==nil or db==nil then error("NanoNum: exact add exceeds MAX_EXACT_SHIFT; use legacy approximate add or increase the limit") end
+		local ma=a.Digits..string.rep("0",da)
+		local mb=b.Digits..string.rep("0",db)
+		local sign=a.Sign
+		local digits
+		if a.Sign==b.Sign then digits=magAdd(ma,mb)
 		else
-			ca, validA = lbCodeFromBufferFast(lbCoerce(a))
+			local mag=magCmp(ma,mb)
+			if mag==0 then return canonical(0,"0","0",a.Approximate or b.Approximate) end
+			digits=mag>0 and magSub(ma,mb) or magSub(mb,ma)
+			sign=mag>0 and a.Sign or b.Sign
 		end
-		if typeof(b) == "buffer" then
-			cb, validB = lbCodeFromBufferFast(b)
-		else
-			cb, validB = lbCodeFromBufferFast(lbCoerce(b))
+		return canonical(sign,digits,integerAdd(smallest,tostring(#digits-1)),a.Approximate or b.Approximate)
+	end
+	local function subExact(a: ExactDecimal,b: ExactDecimal): ExactDecimal
+		b=validate(b)
+		return addExact(a,{Sign=-b.Sign,Digits=b.Digits,Exponent=b.Exponent,Approximate=b.Approximate})
+	end
+	-- Decimal long division. Exactly divides terminating quotients when within precision;
+	-- marks repeating/truncated quotients as approximate rather than pretending exactness.
+	local function divExact(a: ExactDecimal,b: ExactDecimal,precision: number?): ExactDecimal
+		a=validate(a);b=validate(b)
+		if b.Sign==0 then error("NanoNum: division by zero") end
+		if a.Sign==0 then return canonical(0,"0","0",a.Approximate or b.Approximate) end
+		if precision~=nil and (precision~=precision or precision==math.huge or precision==-math.huge) then error("NanoNum: invalid precision") end
+		local p: number=clamp(F(precision or 40),1,10000)
+		local numerator=a.Digits
+		local denominator=b.Digits
+		local quotient: {string}={}
+		local remainder: string="0"
+		local sourcePosition: number=1
+		-- Get significant quotient digits via long division without binary floating point.
+		local started: boolean=false
+		local decimalPosition: number=0
+		local steps: number=0
+		while #quotient<p+1 do
+			local digit=sourcePosition<=#numerator and S(numerator,sourcePosition,sourcePosition) or "0"
+			sourcePosition+=1;steps+=1
+			remainder=trim(remainder..digit)
+			local q: number=0
+			while magCmp(remainder,denominator)>=0 do remainder=magSub(remainder,denominator);q+=1 end
+			if q>9 then error("NanoNum: long division internal error") end
+			if started or q~=0 then
+				if not started then decimalPosition=sourcePosition-1;started=true end
+				quotient[#quotient+1]=C(q+48)
+			end
+			if started and remainder=="0" and sourcePosition>#numerator then break end
+			if steps>p+#numerator+#denominator+4 then error("NanoNum: long division iteration limit") end
 		end
-		if not validA or not validB then
-			return 0 / 0
+		local rounded: boolean=false
+		if #quotient>p then
+			rounded=true
+			local nextDigit=B(quotient[p+1])-48
+			quotient[p+1]=nil
+			if nextDigit>=5 then
+				local carry: number=1
+				for i=p,1,-1 do local x=B(quotient[i])-48+carry;quotient[i]=C(48+x%10);carry=F(x/10);if carry==0 then break end end
+				if carry==1 then table.insert(quotient,1,"1");decimalPosition-=1;quotient[#quotient]=nil end
+			end
 		end
-		if ca < cb then
-			return -1
-		elseif ca > cb then
-			return 1
+		local exponent=integerAdd(integerAdd(a.Exponent,integerNeg(b.Exponent)),tostring(#b.Digits-decimalPosition))
+		return canonical(a.Sign*b.Sign,table.concat(quotient),exponent,a.Approximate or b.Approximate or remainder~="0" or rounded)
+	end
+	local function powIntExact(a: ExactDecimal,power: number): ExactDecimal
+		a=validate(a)
+		if power~=F(power) or math.abs(power)>1000000 then error("NanoNum: exact power requires integer exponent <= 1,000,000") end
+		if power<0 then return divExact(parse("1"),powIntExact(a,-power)) end
+		if power==0 then return parse("1") end
+		local answer=parse("1")
+		while power>0 do
+			if power%2==1 then answer=mulExact(answer,a) end
+			power=F(power/2)
+			if power>0 then a=mulExact(a,a) end
 		end
-		return 0
+		return answer
+	end
+	-- Correct scalar classification: never assert arbitrary logarithmic/layer values are integers.
+	NanoNum.fromStringExact=parse
+	NanoNum.formatExact=formatExact
+	NanoNum.addExact=addExact
+	NanoNum.subExact=subExact
+	NanoNum.mulExact=mulExact
+	NanoNum.divExact=divExact
+	NanoNum.powIntExact=powIntExact
+	NanoNum.compareExact=compareExact
+	NanoNum.exponentAddExact=integerAdd
+	NanoNum.exponentCompareExact=integerCompare
+	NanoNum.EXACT_MAX_SHIFT=MAX_SHIFT
+	NanoNum.EXACT_SCIENTIFIC_VERSION=3
+	NanoNum.lbencodeChecked=function(v: MathValue): (number,boolean)
+		local ok,code=NanoNum.tryLBEncode(v)
+		if not ok then return code,false end
+		local original=NanoNum.compile(v)
+		return code,NanoNum.eq(original,NanoNum.lbdecode(code))
+	end
+	NanoNum.lbdecodeChecked=function(code: number): (boolean,buffer?)
+		if not NanoNum.isLBCode(code) then return false,nil end
+		return true,NanoNum.lbdecode(code)
 	end
 end)()
-local TYPECHECKED_NANONUM = NanoNum
-return TYPECHECKED_NANONUM
+
+return TYPECHECKED_NANONUM :: NanoNumAPI
