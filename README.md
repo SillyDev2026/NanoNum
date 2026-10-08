@@ -4,12 +4,12 @@
 
 NanoNum is designed for simulator, clicker, incremental, economy, and progression systems that need fast ordinary-number math while still supporting values far beyond the native Luau `number` range.
 
-> **Current release:** `v2.1.9`  
-> **Binary format:** `v3`  
-> **Leaderboard codec:** `LB v2`  
-> **Parser:** `v11`  
-> **Math:** `v27`  
-> **Compact kernel:** `v8`
+> **Latest source:** `v2.4.10-regression-fix` (Studio runtime validation pending)  
+> **Binary format:** `v6` (unchanged from v2.4.9)  
+> **Leaderboard codec:** `LB v3` (53-bit-safe quantized ranking keys)  
+> **Parser:** `v14`  
+> **Math:** `v34`  
+> **Compact kernel:** `v9`
 
 ---
 
@@ -31,7 +31,7 @@ It keeps ordinary finite values on fast native paths, stores supported integers 
 - 54 typed binary hot paths under `NanoNum.fast`
 - 5 typed unary buffer hot paths
 - Bit-level `packMany` / `unpackMany`
-- Monotonic 53-bit-safe `LB v2` ranking codec for `OrderedDataStore`
+- Monotonic 53-bit-safe `LB v3` ranking codec for `OrderedDataStore`
 - Standard, Extended, Hybrid, Alphabetic, Metric, Exponent, Scientific, Engineering, Roman, and Roman Extended formatting
 - Time, byte, rate, ordinal, and signed formatting helpers
 - Logs, roots, powers, interpolation, statistics, combinatorics, economy helpers, tetration, slog, gamma, beta, and more
@@ -43,10 +43,12 @@ It keeps ordinary finite values on fast native paths, stores supported integers 
 
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+- [v2.4.10 Bug Fixes](#v2410-bug-fixes)
 - [Current Engine Versions](#current-engine-versions)
 - [Number Model](#number-model)
 - [Constructing Values](#constructing-values)
 - [Core Math](#core-math)
+- [Exact Decimal Math](#exact-decimal-math)
 - [Fast Typed Math](#fast-typed-math)
 - [Hot-Loop Helpers](#hot-loop-helpers)
 - [Validation and Inspection](#validation-and-inspection)
@@ -65,6 +67,21 @@ It keeps ordinary finite values on fast native paths, stores supported integers 
 
 ---
 
+# v2.4.10 Bug Fixes
+
+This release updates the GitHub module from the older v2.1.9 baseline to the v2.4.10 regression-fix candidate based on v2.4.9.
+
+- **Scientific notation display:** when a source buffer comes directly from `fromString("2e1053")` or similar notation, the displayed coefficient can be preserved without reconstructing it from a rounded logarithmic coordinate. This display-only preservation does not survive arithmetic or serialization.
+- **Protected arithmetic:** `tryMath` rejects NaN results.
+- **Protected leaderboard encoding:** `tryLBEncode` guards both coercion and encoding of invalid values.
+- **Packed-stream validation:** `unpackMany` rejects a count/bit-length mismatch when an explicit `totalBits` is supplied.
+- **Time and storage formatting:** invalid nonfinite precision values are handled without creating malformed format specifications.
+
+**Validation:** static source and file integrity checks have passed. The Roblox Studio runtime test suite is provided but has not been run here. No performance improvement is claimed until measured under equivalent conditions.
+
+**Release files:** [`NanoNum.lua`](NanoNum.lua) · [`Regression tests`](tests/NanoNum_v2.4.10_RegressionTests.server.luau) · [`CHANGELOG.md`](CHANGELOG.md)
+
+---
 # Installation
 
 Place `NanoNum.lua` somewhere accessible to both the server and client if both environments need it.
@@ -132,61 +149,51 @@ end
 
 # Current Engine Versions
 
-`v2.1.9` exposes the following subsystem versions:
+The following versions correspond to the `v2.4.10` source. Individual components are versioned independently.
 
 | Component | Version |
 |---|---:|
-| NanoNum | **2.1.9** |
+| NanoNum | **2.4.10-regression-fix** |
 | Typecheck | 3 |
-| Binary format | **3** |
-| Parser | 11 |
-| Notation | 14 |
-| Suffix system | 5 |
+| Binary buffer format | **6** |
+| Parser | 14 |
+| Notation | 24 |
+| Suffix system | 7 |
 | Roman formatter | 2 |
 | Time formatter | 4 |
-| Utility formatter | 10 |
-| Performance layout | 19 |
-| Path architecture | 5 |
-| Math | 27 |
-| Math cleanup | 16 |
-| Math correctness | 20 |
-| Math safety | 10 |
-| Math performance | 16 |
-| Math path | 9 |
+| Utility formatter | 11 |
+| Performance layout | 23 |
+| Path architecture | 6 |
+| Math | 34 |
+| Math cleanup | 17 |
+| Math correctness | 42 |
+| Math safety | 18 |
+| Math performance | 18 |
+| Math path | 10 |
 | Direct call | 12 |
 | Call layer | 12 |
 | Bind | 7 |
 | Compile | 7 |
-| Tetration | 8 |
+| Tetration | 10 |
 | Slog | 6 |
-| Gamma / Beta | 6 |
-| Canonical representation | 4 |
+| Gamma / Beta | 7 |
+| Canonical representation | 5 |
 | Range promotion | 2 |
-| Compact kernel | **8** |
-| Fast unary API | 3 |
-| Hyper-layer | **1** |
-| Inline math | 2 |
+| Compact kernel | **9** |
+| Fast unary API | 4 |
+| Hyper-layer | 1 |
+| Inline math | 3 |
 | Cold fallback | 1 |
 | Register scope | 6 |
 | Register frame | 2 |
-| Leaderboard codec | **LB v2** |
-
-Subsystem versions are independent and may advance without a major NanoNum version change.
-
-You can inspect runtime metadata directly:
+| Leaderboard codec | **LB v3** |
 
 ```lua
 local info = NanoNum.engineInfo()
-
-print(info.Version)
-print(info.BinaryFormatVersion)
-print(info.CompactKernelVersion)
-print(info.HyperLayer)
-print(info.HyperLayerVersion)
+print(info.Version, info.BinaryFormatVersion, info.CompactKernelVersion)
 ```
 
 ---
-
 # Number Model
 
 NanoNum uses the smallest practical representation for the current magnitude class.
@@ -308,7 +315,7 @@ local value = NanoNum.fromLayerLog10(1000, 5)
 
 ## `fromLayerLog10Log10`
 
-`v2.1.9` includes an additional hyper-layer constructor for layer counts whose logarithm itself needs logarithmic representation.
+`v2.4.10` includes an additional hyper-layer constructor for layer counts whose logarithm itself needs logarithmic representation.
 
 ```lua
 local value = NanoNum.fromLayerLog10Log10(400, 5)
@@ -381,6 +388,23 @@ local result = NanoNum.fromString("10^(10^1e308)")
 
 ---
 
+# Exact Decimal Math
+
+NanoNum's compact `buffer` representation is designed for speed and wide symbolic range, not arbitrary-precision decimal calculations. Its separate exact-decimal API preserves decimal input digits:
+
+```lua
+local a = NanoNum.fromStringExact("0.1")
+local b = NanoNum.fromStringExact("0.2")
+local total = NanoNum.addExact(a, b)
+print(NanoNum.formatExact(total, 3))
+
+local result = NanoNum.mulExact(NanoNum.fromStringExact("12.5"), NanoNum.fromStringExact("8"))
+local quotient = NanoNum.divExact(NanoNum.fromStringExact("1"), NanoNum.fromStringExact("8"), 20)
+```
+
+Additional APIs: `subExact`, `powIntExact`, `compareExact`, `exponentAddExact`, and `exponentCompareExact`. Nonterminating division can set `Approximate = true`. Exact-decimal objects are distinct from the compact-buffer serialization format.
+
+---
 # Core Math
 
 ```lua
@@ -717,13 +741,13 @@ These helpers are useful for simulator UI, stat panels, rates, storage displays,
 
 # Leaderboard Codec
 
-NanoNum includes **LB v2**, a separate codec for Roblox ranking keys.
+NanoNum includes **LB v3**, a separate codec for Roblox ranking keys.
 
 The compact NanoNum buffer serializer is optimized for representation size. The LB codec instead maps values into a monotonic signed integer inside the safe 53-bit integer range so the result can be used with `OrderedDataStore`.
 
 ```lua
 print(NanoNum.lbcodecVersion())
--- 2
+-- 3
 ```
 
 Core API:
@@ -751,7 +775,7 @@ NanoNum.LB_ONE
 -- 4503599627370496
 ```
 
-LB v2 allocates ranking space across ordinary values, huge logs, layers, log-layer values, and hyper-layer values.
+LB v3 allocates ranking space across ordinary values, huge logs, layers, log-layer values, and hyper-layer values.
 
 It is intentionally quantized. Use it for **ordering**, not as a lossless replacement for NanoNum serialization.
 
@@ -950,7 +974,7 @@ NanoNum can promote base-10 tetration into layer, layer-log, and hyper-layer rep
 
 # Performance Guidance
 
-NanoNum `v2.1.9` separates common finite work from cold huge-number fallback logic.
+NanoNum `v2.4.10` separates common finite work from cold huge-number fallback logic.
 
 `NanoNum.mathPerfInfo()` reports the current architecture as:
 
@@ -990,7 +1014,7 @@ end
 
 Performance depends on hardware, Roblox runtime, Studio load, plugin activity, warmup, benchmark shape, and the exact NanoNum revision.
 
-Do not reuse benchmark numbers from an older release as current `v2.1.9` results.
+Do not reuse benchmark numbers from an older release as current `v2.4.10` results.
 
 For meaningful comparisons:
 
@@ -1053,9 +1077,13 @@ These constants limit representation metadata, not the intuitive size of the mat
 
 ## Current binary format
 
+**v2.4.9 → v2.4.10:** both use binary buffer format 6. Older persisted binary formats, including format 3 from v2.1.9, require explicit migration tests.
+
+**Leaderboard migration:** LB v3 keys are not compatible with LB v2 ranking keys. Do not mix older and newer `OrderedDataStore` values without a migration plan.
+
 ```lua
 NanoNum.BINARY_FORMAT_VERSION
--- 3
+-- 6
 ```
 
 Treat NanoNum's binary format as versioned persistent data.
@@ -1076,7 +1104,7 @@ If old persistent data may contain legacy Normal records, migrate it through a v
 
 ## Binary format upgrades
 
-Do not assume serialized buffers from older binary-format versions are wire-compatible with Binary Format v3 unless you have explicitly tested that migration path.
+Do not assume serialized buffers from older binary-format versions are wire-compatible with Binary Format v6 unless you have explicitly tested that migration path.
 
 Recommended deployment flow:
 
@@ -1439,11 +1467,16 @@ Before shipping a NanoNum update, test at least:
 - time formatting and parsing,
 - suffix formatting,
 - Roman formatting,
-- LB v2 ordering and round-trip stability,
+- LB v3 ordering and round-trip stability,
+- guarded error handling (`tryMath`, `tryLBEncode`, `tryUnpackMany`),
+- scientific notation display for very large exponents,
+- packed stream item-count and bit-length matching,
 - persisted-data migration,
 - and hot-path performance.
 
 Run correctness checks before using benchmark wins as release criteria.
+
+**Studio regression test:** copy `NanoNum.lua` into a ModuleScript named `NanoNum_v2.4.10`, place the test script from `tests/NanoNum_v2.4.10_RegressionTests.server.luau` as a sibling Script, then run Studio and inspect Output for PASS/FAIL.
 
 ---
 
