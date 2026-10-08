@@ -1,6 +1,6 @@
 --!native
 --!optimize 2
--- NanoNum v2.4.1: audited arithmetic, exact decimals, and versioned LB3.
+-- NanoNum v2.4.10: regression fixes for safe calls, packed streams and scientific display.
 -- One standalone ModuleScript. Binary buffer format 6 remains compatible.
 
 export type EngineInfo = {
@@ -263,7 +263,7 @@ export type BoundBinaryResult = buffer | number
 export type BoundBinaryFunction = (MathValue, MathValue) -> BoundBinaryResult
 export type BoundUnaryFunction = (MathValue) -> BoundBinaryResult
 NanoNum.TYPECHECK_VERSION = 3
-NanoNum.VERSION = "2.4.8-recursive-standard-scale"
+NanoNum.VERSION = "2.4.10-regression-fix"
 NanoNum.REGISTER_SCOPE_VERSION = 6
 NanoNum.MAX_LAYER = 1e308
 NanoNum.MAX_LAYER_LOG10 = 1e308
@@ -273,7 +273,7 @@ NanoNum.NORMAL_SIGNIFICAND_BITS = 16
 NanoNum.SCALAR_SIGNIFICAND_BITS = 14
 NanoNum.PARSER_VERSION = 14
 NanoNum.NOTATION_VERSION = 24
-NanoNum.PERF_VERSION = 22
+NanoNum.PERF_VERSION = 23
 NanoNum.PATH_VERSION = 6
 NanoNum.DEFAULT_PATH = 0
 NanoNum.MATH_SCOPE_VERSION = 10
@@ -286,7 +286,7 @@ NanoNum.COMPILE_VERSION = 7
 NanoNum.MATH_PERF_VERSION = 18
 NanoNum.MATH_PATH_VERSION = 10
 NanoNum.MATH_DEFAULT_PATH = 0
-NanoNum.MATH_CORRECTNESS_VERSION = 40
+NanoNum.MATH_CORRECTNESS_VERSION = 42
 NanoNum.TETRATION_VERSION = 10
 NanoNum.SLOG_VERSION = 6
 NanoNum.GAMMA_VERSION = 7
@@ -301,7 +301,7 @@ NanoNum.SCIENTIFIC_API_VERSION = 6
 NanoNum.FAST_UNARY_VERSION = 4
 NanoNum.COMPACT_KERNEL_VERSION = 9
 NanoNum.HYPER_LAYER_VERSION = 1
-NanoNum.STRING_PARSER_VERSION = 7
+NanoNum.STRING_PARSER_VERSION = 8
 NanoNum.INLINE_MATH_VERSION = 3
 NanoNum.COLD_FALLBACK_VERSION = 1
 NanoNum.REGISTER_FRAME_VERSION = 2
@@ -396,7 +396,7 @@ NanoNum.TIME_VERSION = 4
 NanoNum.UTILITY_FORMAT_VERSION = 11
 NanoNum.FORMAT_SCOPE_VERSION = 15
 NanoNum.UTILITY_SCOPE_VERSION = 2
-NanoNum.PACK_SCOPE_VERSION = 2
+NanoNum.PACK_SCOPE_VERSION = 3
 NanoNum.LB_SCOPE_VERSION = 2
 NanoNum.ROMAN_CLASSICAL_MAX = 3999
 NanoNum.ROMAN_EXTENDED_MAX = SAFE_INTEGER
@@ -913,9 +913,6 @@ end
 		if c == 45 then negative = true; first += 1
 		elseif c == 43 then first += 1 end
 		if first > last then return nil end
-		local value: number = 0
-		local fraction: number = 0
-		local fractionScale: number = 1
 		local sawDigit: boolean = false
 		local sawDot: boolean = false
 		local grouped: boolean = false
@@ -923,18 +920,8 @@ end
 		for i = first, last do
 			c = byte(text, i)
 			if c >= 48 and c <= 57 then
-				local digit = c - 48
 				sawDigit = true
-				if sawDot then
-					if fractionScale < 1e16 then
-						fraction = fraction * 10 + digit
-						fractionScale *= 10
-					end
-				else
-					groupDigits += 1
-					value = value * 10 + digit
-					-- Continue validating after overflow; trailing garbage must be rejected.
-				end
+				if not sawDot then groupDigits += 1 end
 			elseif c == 44 then
 				-- Commas are grouping separators, not ignorable characters. Reject 1,2 / 12,34 / 1,234.5,6.
 				if sawDot or groupDigits == 0 then return nil end
@@ -1531,15 +1518,33 @@ end)()
 local COMPACT_DISPLAY = setmetatable({}, {__mode = "k"}) :: {[buffer]: {mantissa: string, exponent: string, negative: boolean}}
 local legacyFromString = NanoNum.fromString
 NanoNum.fromString = function(value: string, suffixType: SuffixName?): buffer
+	-- Native conversion rounds ordinary finite decimals once. Retain the display
+	-- sidecar and underflow parser for scientific strings needing those paths.
+	local direct = toNumber(value)
+	if direct ~= nil and direct == direct and direct ~= huge and direct ~= -huge then
+		local hasExponent = find(value, "[eE]") ~= nil
+		if (direct ~= 0 or not hasExponent) and (#value < 17 or not hasExponent) then return encodeNumber(direct) end
+	end
 	-- Preserve original parser's fast path for ordinary values.
 	-- Exact decimal exponents with >15 digits are kept as source text for display.
 	local mant, exp = string.match(value, "^([+-]?%d+%.?%d*)[eE]([+-]?%d+)$")
-	if mant ~= nil and exp ~= nil and #exp >= 16 then
-		local out = legacyFromString(value, suffixType)
-		if NanoNum.isValid(out) and tonumber(mant) ~= 0 then
-			COMPACT_DISPLAY[out] = {mantissa = mant, exponent = exp, negative = string.byte(mant, 1) == 45}
+	if mant ~= nil and exp ~= nil then
+		local coefficient = tonumber(mant)
+		local exponentValue = tonumber(exp)
+		local magnitude = coefficient == nil and 0 or math.abs(coefficient)
+		-- Scientific buffers encode a logarithmic coordinate, which is not able to
+		-- reconstruct the input coefficient exactly for e.g. 2e1053. A weak-key
+		-- sidecar preserves the text only for direct formatting of parsed values.
+		-- Computed results never inherit this sidecar; arithmetic stays approximate.
+		local preserve = #exp >= 16 or (exponentValue ~= nil and exponentValue == exponentValue
+			and (exponentValue > 308 or exponentValue < -324) and magnitude >= 1 and magnitude < 10 and magnitude ~= 1)
+		if preserve then
+			local out = legacyFromString(value, suffixType)
+			if coefficient ~= nil and coefficient ~= 0 and NanoNum.isValid(out) then
+				COMPACT_DISPLAY[out] = {mantissa = mant, exponent = exp, negative = string.byte(mant, 1) == 45}
+			end
+			return out
 		end
-		return out
 	end
 	-- Accept compressed scientific input, e.g. 2e1.5e32, using approximate
 	-- exponent arithmetic; metadata preserves the original display coefficient.
@@ -2347,7 +2352,8 @@ end
 local function nativeInverseLerp(a: number, b: number, value: number): number?
 	local span = b - a
 	if span == 0 then return nil end
-	if span ~= huge and span ~= -huge then return (value - a) / span end
+	local numerator = value - a
+	if span ~= huge and span ~= -huge and numerator ~= huge and numerator ~= -huge then return numerator / span end
 	local scale: number = max(max(abs(a), abs(b)), abs(value))
 	if scale == 0 then return nil end
 	return (value / scale - a / scale) / (b / scale - a / scale)
@@ -3941,7 +3947,7 @@ function NanoNum.floor(value: MathValue): buffer
 		local n = floor(value)
 		if n >= 0 and n <= 127 then local data = bufferCreate(1); bufferWriteU8(data, 0, n * 2); return data end
 		if n < 0 and n >= -64 then local data = bufferCreate(1); bufferWriteU8(data, 0, 1 + (-n - 1) * 4); return data end
-		-- Preserve original encoding for larger integers through existing path.
+		return encodeNumber(n)
 	end
 	local k, a, b = decodeReg(value)
 	if abs(k) >= K_LOG and abs(k) <= K_HYPER_LAYER and a < 0 then return NanoNum.fromNumber(k < 0 and -1 or 0) end
@@ -3959,7 +3965,7 @@ function NanoNum.ceil(value: MathValue): buffer
 		local n = ceil(value)
 		if n >= 0 and n <= 127 then local data = bufferCreate(1); bufferWriteU8(data, 0, n * 2); return data end
 		if n < 0 and n >= -64 then local data = bufferCreate(1); bufferWriteU8(data, 0, 1 + (-n - 1) * 4); return data end
-		-- Preserve original encoding for larger integers through existing path.
+		return encodeNumber(n)
 	end
 	local k, a, b = decodeReg(value)
 	if abs(k) >= K_LOG and abs(k) <= K_HYPER_LAYER and a < 0 then return NanoNum.fromNumber(k < 0 and 0 or 1) end
@@ -3977,7 +3983,7 @@ function NanoNum.trunc(value: MathValue): buffer
 		local n = value < 0 and ceil(value) or floor(value)
 		if n >= 0 and n <= 127 then local data = bufferCreate(1); bufferWriteU8(data, 0, n * 2); return data end
 		if n < 0 and n >= -64 then local data = bufferCreate(1); bufferWriteU8(data, 0, 1 + (-n - 1) * 4); return data end
-		-- Preserve original encoding for larger integers through existing path.
+		return encodeNumber(n)
 	end
 	local k, a, b = decodeReg(value)
 	local n = regToNumber(k, a, b)
@@ -4009,8 +4015,9 @@ function NanoNum.round(value: MathValue, decimals: number?): buffer
 		local scale = digits <= 12 and POW10_DECIMAL[digits + 1] or 10 ^ digits
 		local scaled = n / scale
 		local rounded = math.round(scaled)
-		if rounded ~= 0 and abs(rounded) > huge / scale then return NanoNum.fromLog10(log10(abs(rounded)) - places, rounded < 0) end
-		return NanoNum.fromNumber(rounded * scale)
+		local result = rounded * scale
+		if result == huge or result == -huge then return NanoNum.fromLog10(log10(abs(rounded)) - places, rounded < 0) end
+		return encodeNumber(result)
 	end
 	local k, a, b = directDecode(value)
 	if abs(k) == K_LOG or abs(k) == K_LAYER or abs(k) == K_LAYER_LOG or abs(k) == K_HYPER_LAYER then
@@ -4072,8 +4079,9 @@ function NanoNum.divmod(a: MathValue, b: MathValue): (buffer, buffer)
 	local y = regToNumber(bk, ba, bb)
 	if x == x and y == y and x ~= huge and x ~= -huge and y ~= huge and y ~= -huge and y ~= 0 then
 		local r = x % y
-		local q: number = floor(x / y)
-		return NanoNum.fromNumber(q), NanoNum.fromNumber(r)
+		local quotient = x / y
+		if quotient == huge or quotient == -huge then return NanoNum.floor(NanoNum.div(a, b)), encodeNumber(r) end
+		return encodeNumber(floor(quotient)), encodeNumber(r)
 	end
 	local nan = makeSpecial(SPECIAL_NAN)
 	return nan, nan
@@ -4676,6 +4684,50 @@ function NanoNum.smootherstep(edge0: MathValue, edge1: MathValue, value: MathVal
 	local t3 = NanoNum.mul(t2, t)
 	return NanoNum.mul(t3, NanoNum.add(NanoNum.mul(t, NanoNum.sub(NanoNum.mul(6, t), 15)), 10))
 end
+-- Cold overflow path: cancel opposite signs before adding same-sign magnitudes.
+-- Keep subtraction residuals so large cancellation does not discard small terms.
+local function finiteCancellationSum(values: MathValueArray): buffer?
+	local positives, negatives, residuals = {}, {}, {}
+	for i = 1, #values do
+		local x = directFiniteNumber(values[i])
+		if x == nil then return nil end
+		if x > 0 then positives[#positives + 1] = x elseif x < 0 then negatives[#negatives + 1] = -x end
+	end
+	table.sort(positives)
+	table.sort(negatives)
+	local ip, im = #positives, #negatives
+	while ip > 0 and im > 0 do
+		local x, y = positives[ip], -negatives[im]
+		local sum = x + y
+		local residual = abs(x) >= abs(y) and ((x - sum) + y) or ((y - sum) + x)
+		if residual ~= 0 then residuals[#residuals + 1] = residual end
+		if sum > 0 then positives[ip] = sum; im -= 1
+		elseif sum < 0 then negatives[im] = -sum; ip -= 1
+		else ip -= 1; im -= 1 end
+	end
+	for j = 1, ip do residuals[#residuals + 1] = positives[j] end
+	for j = 1, im do residuals[#residuals + 1] = -negatives[j] end
+	local total, correction = 0, 0
+	for j = 1, #residuals do
+		local x = residuals[j]
+		local nextTotal = total + x
+		if nextTotal == huge or nextTotal == -huge then
+			local rk, ra, rb = regFromNumber(total)
+			local ck, ca, cb = regFromNumber(correction)
+			rk, ra, rb = regAdd(rk, ra, rb, ck, ca, cb)
+			for n = j, #residuals do
+				local vk, va, vb = regFromNumber(residuals[n])
+				rk, ra, rb = regAdd(rk, ra, rb, vk, va, vb)
+			end
+			return encodeReg(rk, ra, rb)
+		end
+		if abs(total) >= abs(x) then correction += (total - nextTotal) + x else correction += (x - nextTotal) + total end
+		total = nextTotal
+	end
+	local result = total + correction
+	if result ~= huge and result ~= -huge then return encodeNumber(result) end
+	return NanoNum.add(total, correction)
+end
 function NanoNum.sum(values: MathValueArray): buffer
 	local total, correction = 0, 0
 	local direct: boolean = true
@@ -4691,6 +4743,8 @@ function NanoNum.sum(values: MathValueArray): buffer
 		local corrected = total + correction
 		if corrected == corrected and corrected ~= huge and corrected ~= -huge then return NanoNum.fromNumber(corrected) end
 	end
+	local finite = finiteCancellationSum(values)
+	if finite ~= nil then return finite end
 	local rk, ra, rb = 0, 0, 0
 	for i = 1, #values do
 		local vk, va, vb = decodeReg(values[i])
@@ -4732,7 +4786,7 @@ function NanoNum.mean(values: MathValueArray): buffer
 	if direct then
 		local corrected = total + correction
 		local result = corrected / count
-		if corrected == corrected and corrected ~= huge and corrected ~= -huge and result == result and result ~= huge and result ~= -huge then return NanoNum.fromNumber(result) end
+		if corrected == corrected and corrected ~= huge and corrected ~= -huge and result == result and result ~= huge and result ~= -huge and (result ~= 0 or corrected == 0) then return NanoNum.fromNumber(result) end
 	end
 	return NanoNum.div(NanoNum.sum(values), count)
 end
@@ -4849,6 +4903,9 @@ local function nativeGCD(a: number, b: number): number
 end
 local function logGammaDirect(x: number): number
 	if x <= 0 then return NAN end
+	if x == 1 or x == 2 then return 0 end
+	-- Recurrence avoids cancellation in x-1 near zero inside Lanczos.
+	if x < 0.5 then return logGammaDirect(x + 1) - log(x) end
 	local z = x - 1
 	local a: number = 0.99999999999980993
 	a += 676.5203681218851 / (z + 1)
@@ -4889,8 +4946,8 @@ function NanoNum.logGamma(value: MathValue): buffer
 	local n = regToNumber(k, a, b)
 	if n == n and n ~= huge and n ~= -huge then
 		if n == 0 or (n < 0 and n == floor(n)) then return makeSpecial(SPECIAL_POS_INF) end
+		if abs(n) < 1e-8 then return encodeNumber(-log(abs(n)) - 0.5772156649015329 * n) end
 		if n > 0 then
-			if n < 1e-8 then return NanoNum.fromNumber(-log(n)) end
 			local native = logGammaDirect(n)
 			if native == native and native ~= huge and native ~= -huge then return NanoNum.fromNumber(native) end
 		else
@@ -5042,6 +5099,11 @@ function NanoNum.geometricSeries(first: MathValue, ratioValue: MathValue, countV
 	return NanoNum.mul(first, NanoNum.div(NanoNum.sub(NanoNum.pow(ratioValue, count), 1), NanoNum.sub(ratioValue, 1)))
 end
 function NanoNum.compound(principal: MathValue, rate: MathValue, periods: MathValue): buffer
+	-- Preserve tiny rates that disappear when added to 1 in binary64.
+	local r = directFiniteNumber(rate)
+	if r ~= nil and abs(r) < 1e-5 and r ~= 0 then
+		return NanoNum.mul(principal, NanoNum.exp(NanoNum.mul(periods, NanoNum.log1p(r))))
+	end
 	return NanoNum.mul(principal, NanoNum.pow(NanoNum.add(1, rate), periods))
 end
 function NanoNum.softcap(value: MathValue, start: MathValue, power: MathValue): buffer
@@ -5097,6 +5159,14 @@ function NanoNum.geometricCost(baseCost: MathValue, growth: MathValue, owned: Ma
 			local current = bc * gr ^ ow
 			if current ~= huge and current ~= 0 then
 				if am == 1 then return NanoNum.fromNumber(current) end
+				if gr == floor(gr) and am == floor(am) and am <= 64 and current == floor(current) and current <= SAFE_INTEGER then
+					local power = gr ^ am
+					if gr > 1 and power <= SAFE_INTEGER then
+						local series = (power - 1) / (gr - 1)
+						local exact = current * series
+						if exact <= SAFE_INTEGER then return encodeNumber(exact) end
+					end
+				end
 				if gr == 1 then
 					local native = current * am
 					if native ~= huge and native ~= 0 then return NanoNum.fromNumber(native) end
@@ -5129,7 +5199,7 @@ function NanoNum.geometricCost(baseCost: MathValue, growth: MathValue, owned: Ma
 	return NanoNum.mul(currentCost, NanoNum.div(numerator, delta))
 end
 function NanoNum.maxAffordableGeometric(currency: MathValue, baseCost: MathValue, growth: MathValue, owned: MathValue?): buffer
-	if NanoNum.isNaN(currency) or NanoNum.isNaN(baseCost) or NanoNum.isNaN(growth) then return makeSpecial(SPECIAL_NAN) end
+	if NanoNum.isNaN(currency) or NanoNum.isNaN(baseCost) or NanoNum.isNaN(growth) or NanoNum.isNaN(owned or 0) then return makeSpecial(SPECIAL_NAN) end
 	local levelsOwned = owned or 0
 	if NanoNum.lt(currency, 0) or NanoNum.lte(baseCost, 0) or NanoNum.lt(levelsOwned, 0) or NanoNum.lt(growth, 1) then return makeSpecial(SPECIAL_NAN) end
 	local currentCost = NanoNum.mul(baseCost, NanoNum.pow(growth, levelsOwned))
@@ -5341,14 +5411,50 @@ function NanoNum.betaSign(a: MathValue, b: MathValue): number
 	if sa ~= sa or sb ~= sb or ss ~= ss or sa == 0 or sb == 0 or ss == 0 then return NAN end
 	return sa * sb * ss
 end
+local function stirlingCorrection(inverse: number): number
+	local square = inverse * inverse
+	return inverse * (1 / 12 + square * (-1 / 360 + square * (1 / 1260 + square * (-1 / 1680 + square * (1 / 1188 - square * 691 / 360360)))))
+end
 function NanoNum.logBeta(a: MathValue, b: MathValue): buffer
+	local x, y = directFiniteNumber(a), directFiniteNumber(b)
+	if x ~= nil and y ~= nil and x > 0 and y > 0 then
+		if x > y then x, y = y, x end
+		if x == 1 then return encodeNumber(-log(y)) end
+		local shift = 0
+		-- B(x,y) = (x+y)/x * B(x+1,y); raise small arguments before Stirling.
+		while x < 8 do
+			shift += log(x + y) - log(x)
+			x += 1
+		end
+		while y < 8 do
+			shift += log(x + y) - log(y)
+			y += 1
+		end
+		if x > y then x, y = y, x end
+		local ratio = x / y
+		local logRatio = log(ratio)
+		local l1p
+		if ratio < 1e-4 then
+			l1p = ratio * (1 + ratio * (-0.5 + ratio * (1 / 3 + ratio * (-0.25 + ratio * 0.2))))
+		else l1p = log(1 + ratio) end
+		local left = (x - 0.5) * (logRatio - l1p)
+		local right = -(y - 0.5) * l1p
+		local correction = 0.5 * (log(TWO_PI) - log(y) - l1p) + stirlingCorrection(1 / x) + stirlingCorrection(1 / y) - stirlingCorrection((1 / y) / (1 + ratio)) + shift
+		local result = left + right + correction
+		if result ~= -huge then return encodeNumber(result) end
+		return NanoNum.add(NanoNum.add(left, right), correction)
+	end
 	local sign = NanoNum.betaSign(a, b)
 	if sign ~= sign then return makeSpecial(SPECIAL_NAN) end
+	if NanoNum.eq(a, 1) then return NanoNum.neg(NanoNum.ln(NanoNum.abs(b))) end
+	if NanoNum.eq(b, 1) then return NanoNum.neg(NanoNum.ln(NanoNum.abs(a))) end
 	return NanoNum.sub(NanoNum.add(NanoNum.logGamma(a), NanoNum.logGamma(b)), NanoNum.logGamma(NanoNum.add(a, b)))
 end
 function NanoNum.beta(a: MathValue, b: MathValue): buffer
 	local sign = NanoNum.betaSign(a, b)
 	if sign ~= sign then return makeSpecial(SPECIAL_NAN) end
+	if NanoNum.eq(a, 1) then return NanoNum.reciprocal(b) end
+	if NanoNum.eq(b, 1) then return NanoNum.reciprocal(a) end
 	local magnitude = NanoNum.exp(NanoNum.logBeta(a, b))
 	return sign < 0 and NanoNum.neg(magnitude) or magnitude
 end
@@ -6993,7 +7099,7 @@ function NanoNum.tryMath(operation: MathBinaryOperation, a: any, b: any): (boole
 	local fn = NanoNum[operation]
 	if fn == nil or (operation :: string) == "compare" or not NanoNum.isMathValue(a) or not NanoNum.isMathValue(b) then return false, nil end
 	local ok, result = fastPcall(fn, a, b)
-	if not ok or typeof(result) ~= "buffer" or not NanoNum.isValid(result) then return false, nil end
+	if not ok or typeof(result) ~= "buffer" or not NanoNum.isValid(result) or NanoNum.isNaN(result) then return false, nil end
 	return true, result
 end
 function NanoNum.tryCompare(a: any, b: any): (boolean, number?)
@@ -7547,6 +7653,8 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 		else
 			return "NaN"
 		end
+		if precision ~= nil and (typeof(precision) ~= "number" or precision ~= precision or precision == huge or precision == -huge) then return "NaN" end
+		if maxParts ~= nil and (typeof(maxParts) ~= "number" or maxParts ~= maxParts or maxParts == huge or maxParts == -huge) then return "NaN" end
 		local p = precision == nil and 2 or clamp(floor(precision), 0, 6)
 		local mode = lower(style or "compact")
 		if mode ~= "compact" and mode ~= "long" and mode ~= "clock" and mode ~= "seconds" then mode = "compact" end
@@ -7727,6 +7835,7 @@ local FIXED_FORMATS = {"%.0f", "%.1f", "%.2f", "%.3f", "%.4f", "%.5f", "%.6f", "
 		local compiled = NanoNum.compile(value)
 		local n = NanoNum.toNumber(compiled)
 		if n ~= n then return "NaN" end
+		if precision ~= nil and (typeof(precision) ~= "number" or precision ~= precision or precision == huge or precision == -huge) then return "NaN" end
 		local p = precision == nil and 2 or clamp(floor(precision), 0, 6)
 		local negative = NanoNum.isNegative(compiled)
 		local base = binary and 1024 or 1000
@@ -7817,6 +7926,9 @@ function NanoNum.unpackMany(packed: buffer, count: number, totalBits: number?): 
 		result[i] = out
 		offset = nextBit
 	end
+	-- An explicitly supplied bit count describes the entire encoded message,
+	-- not a prefix. Reject a wrong item count instead of silently dropping data.
+	if totalBits ~= nil and offset ~= limit then error("NanoNum: packed count and bit length disagree") end
 	return result
 end
 function NanoNum.tryUnpackMany(packed: buffer, count: number, totalBits: number?): (boolean, {buffer}?)
@@ -7839,7 +7951,7 @@ end
 --
 -- This is NanoNum's own codec generation. It is not wire-compatible with
 -- StrongNum LB7/LB8 even though it follows the same safe-integer envelope.
-NanoNum.LB_SCOPE_VERSION = 2
+NanoNum.LB_SCOPE_VERSION = 3
 -- LB internals live in their own function frame so their constants/helpers
 -- cannot consume the module chunk's 200-local Luau register budget.
 -- A plain `do ... end` block is not sufficient because it shares the same
@@ -8308,9 +8420,13 @@ NanoNum.LB_SCOPE_VERSION = 2
 		end
 		NanoNum.isLBCode = isLBCodeFast
 		function NanoNum.tryLBEncode(value: any): (boolean, number)
-			if typeof(value) == "buffer" and not NanoNum.isValid(value) then return false, 0 end
-			if typeof(value) ~= "buffer" and typeof(value) ~= "number" and typeof(value) ~= "string" then return false, 0 end
-			local ok, code, valid = fastPcall(lbCodeFromBufferFast, lbCoerce(value))
+			local kind = typeof(value)
+			if kind ~= "buffer" and kind ~= "number" and kind ~= "string" then return false, 0 end
+			if kind == "buffer" and not NanoNum.isValid(value) then return false, 0 end
+			-- Both coercion and encoding are guarded; a malformed input never throws.
+			local coerceOK, coerced = fastPcall(lbCoerce, value)
+			if not coerceOK then return false, 0 end
+			local ok, code, valid = fastPcall(lbCodeFromBufferFast, coerced)
 			if not ok or not valid then return false, 0 end
 			return true, code
 		end
@@ -8592,32 +8708,30 @@ local TYPECHECKED_NANONUM = NanoNum;
 	end
 	local function magAdd(a: string,b: string): string
 		local i,j,carry=#a,#b,0
-		local result={}
-		while i>0 or j>0 or carry>0 do
+		local width=math.max(i,j)+1
+		local result=table.create(width)
+		for p=width,1,-1 do
 			local d=carry
 			if i>0 then d+=B(a,i)-48;i-=1 end
 			if j>0 then d+=B(b,j)-48;j-=1 end
-			result[#result+1]=C(48+d%10);carry=F(d/10)
+			result[p]=C(48+d%10);carry=F(d/10)
 		end
-		local rev={}
-		for p=#result,1,-1 do rev[#rev+1]=result[p] end
-		return table.concat(rev)
+		return table.concat(result,"",result[1]=="0" and 2 or 1)
 	end
 	-- Requires a >= b.
 	local function magSub(a: string,b: string): string
-		local i,j,borrow=#a,#b,0
-		local result={}
-		while i>0 do
+		local j,borrow=#b,0
+		local result=table.create(#a)
+		for i=#a,1,-1 do
 			local d=B(a,i)-48-borrow
 			if j>0 then d-=B(b,j)-48;j-=1 end
 			borrow=d<0 and 1 or 0
 			if borrow~=0 then d+=10 end
-			result[#result+1]=C(d+48);i-=1
+			result[i]=C(d+48)
 		end
-		while #result>1 and result[#result]=="0" do result[#result]=nil end
-		local rev={}
-		for p=#result,1,-1 do rev[#rev+1]=result[p] end
-		return table.concat(rev)
+		local first=1
+		while first<#result and result[first]=="0" do first+=1 end
+		return table.concat(result,"",first)
 	end
 	local function unpackSigned(v: string): (number,string)
 		local sign: number=1
