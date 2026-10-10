@@ -263,7 +263,7 @@ export type BoundBinaryResult = buffer | number
 export type BoundBinaryFunction = (MathValue, MathValue) -> BoundBinaryResult
 export type BoundUnaryFunction = (MathValue) -> BoundBinaryResult
 NanoNum.TYPECHECK_VERSION = 3
-NanoNum.VERSION = "2.4.10-regression-fix"
+NanoNum.VERSION = "2.4.11-exact-purity"
 NanoNum.REGISTER_SCOPE_VERSION = 6
 NanoNum.MAX_LAYER = 1e308
 NanoNum.MAX_LAYER_LOG10 = 1e308
@@ -8869,8 +8869,8 @@ local TYPECHECKED_NANONUM = NanoNum;
 	end
 	local function addExact(a: ExactDecimal,b: ExactDecimal): ExactDecimal
 		a=validate(a);b=validate(b)
-		if a.Sign==0 then b.Approximate=a.Approximate or b.Approximate;return b end
-		if b.Sign==0 then a.Approximate=a.Approximate or b.Approximate;return a end
+		if a.Sign==0 then return canonical(b.Sign,b.Digits,b.Exponent,a.Approximate or b.Approximate) end
+		if b.Sign==0 then return canonical(a.Sign,a.Digits,a.Exponent,a.Approximate or b.Approximate) end
 		-- Rewrite each operand as integer coefficient * 10^(scientific exponent - digits+1).
 		local ae=integerAdd(a.Exponent,tostring(1-#a.Digits))
 		local be=integerAdd(b.Exponent,tostring(1-#b.Digits))
