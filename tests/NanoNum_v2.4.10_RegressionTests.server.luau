@@ -1,7 +1,7 @@
 --!strict
--- NanoNum v2.4.10 regression suite. Run as a Script in Roblox Studio.
--- Place NanoNum_v2.4.10 (ModuleScript) beside this Script.
-local N = require(script.Parent:WaitForChild("NanoNum_v2.4.10"))
+-- NanoNum v2.4.11 regression suite. Run as a Script in Roblox Studio.
+-- Place NanoNum_v2.4.11 (ModuleScript) beside this Script.
+local N = require(script.Parent:WaitForChild("NanoNum_v2.4.11"))
 local passed = 0
 local failed = 0
 
@@ -14,7 +14,7 @@ local function near(actual: number, expected: number, tolerance: number): boolea
     return actual == actual and math.abs(actual - expected) <= tolerance * math.max(1, math.abs(expected))
 end
 
-check("version", string.find(N.VERSION, "2.4.10", 1, true) ~= nil)
+check("version", string.find(N.VERSION, "2.4.11", 1, true) ~= nil)
 check("binary format compatible", N.BINARY_FORMAT_VERSION == 6)
 check("leaderboard version", N.LB_VERSION == 3)
 
@@ -79,6 +79,15 @@ end
 local a = N.fromStringExact("0.1")
 local c = N.fromStringExact("0.2")
 check("exact addition", N.formatExact(N.addExact(a, c), 3) == "3.000e-1")
+local zero = N.fromStringExact("0")
+local exactInput = N.fromStringExact("1.25")
+local combinedLeft = N.addExact(zero, exactInput)
+local combinedRight = N.addExact(exactInput, zero)
+check("exact add zero maintains value", N.compareExact(combinedLeft, exactInput) == 0 and N.compareExact(combinedRight, exactInput) == 0)
+check("exact add zero does not mutate input flags", zero.Approximate ~= true and exactInput.Approximate ~= true)
+combinedLeft.Approximate = true
+check("exact add does not alias operand", exactInput.Approximate ~= true)
+
 check("exact multiplication", N.formatExact(N.mulExact(N.fromStringExact("12.5"), N.fromStringExact("8")), 2) == "1.00e2")
 local quotient = N.divExact(N.fromStringExact("1"), N.fromStringExact("8"), 20)
 check("exact terminating division", N.formatExact(quotient, 3) == "1.250e-1" and not quotient.Approximate)
@@ -89,5 +98,5 @@ check("clock over one day", N.formatClock(2354235, 2) == "27d 05:57:15.00")
 check("invalid time precision", N.formatTime(1, "clock", math.huge) == "NaN")
 check("invalid byte precision", N.formatBytes(1024, math.huge, true) == "NaN")
 
-print(string.format("NanoNum v2.4.10 regression suite: %d passed, %d failed", passed, failed))
-if failed > 0 then error(string.format("NanoNum v2.4.10: %d regression tests failed", failed)) end
+print(string.format("NanoNum v2.4.11 regression suite: %d passed, %d failed", passed, failed))
+if failed > 0 then error(string.format("NanoNum v2.4.11: %d regression tests failed", failed)) end
