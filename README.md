@@ -1,10 +1,22 @@
 # NanoNum
 
+## v2.4.11 exact-decimal safety fix
+
+- `addExact(zero, value)` and `addExact(value, zero)` no longer mutate `Approximate` on either operand.
+- The returned exact decimal is independently canonicalized, preserving the mathematical result and approximate provenance.
+- Binary buffer format **6**, existing arithmetic signatures and approximate number representation are unchanged.
+- The existing Studio regression suite has been updated to check input immutability.
+
+**Luau validation:** This fix does not claim the entire 8,000+ line source passes `--!strict`; run Studio Script Analysis and the regression suite. Benchmarks are needed before claiming a speed gain.
+
+---
+
+
 **Huge-number math, formatting, serialization, and leaderboard utilities for Roblox Luau.**
 
 NanoNum is designed for simulator, clicker, incremental, economy, and progression systems that need fast ordinary-number math while still supporting values far beyond the native Luau `number` range.
 
-> **Latest source:** `v2.4.10-regression-fix` (Studio runtime validation pending)  
+> **Latest source:** `v2.4.11-regression-fix` (Studio runtime validation pending)  
 > **Binary format:** `v6` (unchanged from v2.4.9)  
 > **Leaderboard codec:** `LB v3` (53-bit-safe quantized ranking keys)  
 > **Parser:** `v14`  
@@ -43,7 +55,7 @@ It keeps ordinary finite values on fast native paths, stores supported integers 
 
 - [Installation](#installation)
 - [Quick Start](#quick-start)
-- [v2.4.10 Bug Fixes](#v2410-bug-fixes)
+- [v2.4.11 Bug Fixes](#v2410-bug-fixes)
 - [Current Engine Versions](#current-engine-versions)
 - [Number Model](#number-model)
 - [Constructing Values](#constructing-values)
@@ -67,9 +79,9 @@ It keeps ordinary finite values on fast native paths, stores supported integers 
 
 ---
 
-# v2.4.10 Bug Fixes
+# v2.4.11 Bug Fixes
 
-This release updates the GitHub module from the older v2.1.9 baseline to the v2.4.10 regression-fix candidate based on v2.4.9.
+This release updates the GitHub module from the older v2.1.9 baseline to the v2.4.11 regression-fix candidate based on v2.4.9.
 
 - **Scientific notation display:** when a source buffer comes directly from `fromString("2e1053")` or similar notation, the displayed coefficient can be preserved without reconstructing it from a rounded logarithmic coordinate. This display-only preservation does not survive arithmetic or serialization.
 - **Protected arithmetic:** `tryMath` rejects NaN results.
@@ -79,7 +91,7 @@ This release updates the GitHub module from the older v2.1.9 baseline to the v2.
 
 **Validation:** static source and file integrity checks have passed. The Roblox Studio runtime test suite is provided but has not been run here. No performance improvement is claimed until measured under equivalent conditions.
 
-**Release files:** [`NanoNum.lua`](NanoNum.lua) · [`Regression tests`](tests/NanoNum_v2.4.10_RegressionTests.server.luau) · [`CHANGELOG.md`](CHANGELOG.md)
+**Release files:** [`NanoNum.lua`](NanoNum.lua) · [`Regression tests`](tests/NanoNum_v2.4.11_RegressionTests.server.luau) · [`CHANGELOG.md`](CHANGELOG.md)
 
 ---
 # Installation
@@ -149,11 +161,11 @@ end
 
 # Current Engine Versions
 
-The following versions correspond to the `v2.4.10` source. Individual components are versioned independently.
+The following versions correspond to the `v2.4.11` source. Individual components are versioned independently.
 
 | Component | Version |
 |---|---:|
-| NanoNum | **2.4.10-regression-fix** |
+| NanoNum | **2.4.11-regression-fix** |
 | Typecheck | 3 |
 | Binary buffer format | **6** |
 | Parser | 14 |
@@ -315,7 +327,7 @@ local value = NanoNum.fromLayerLog10(1000, 5)
 
 ## `fromLayerLog10Log10`
 
-`v2.4.10` includes an additional hyper-layer constructor for layer counts whose logarithm itself needs logarithmic representation.
+`v2.4.11` includes an additional hyper-layer constructor for layer counts whose logarithm itself needs logarithmic representation.
 
 ```lua
 local value = NanoNum.fromLayerLog10Log10(400, 5)
@@ -974,7 +986,7 @@ NanoNum can promote base-10 tetration into layer, layer-log, and hyper-layer rep
 
 # Performance Guidance
 
-NanoNum `v2.4.10` separates common finite work from cold huge-number fallback logic.
+NanoNum `v2.4.11` separates common finite work from cold huge-number fallback logic.
 
 `NanoNum.mathPerfInfo()` reports the current architecture as:
 
@@ -1014,7 +1026,7 @@ end
 
 Performance depends on hardware, Roblox runtime, Studio load, plugin activity, warmup, benchmark shape, and the exact NanoNum revision.
 
-Do not reuse benchmark numbers from an older release as current `v2.4.10` results.
+Do not reuse benchmark numbers from an older release as current `v2.4.11` results.
 
 For meaningful comparisons:
 
@@ -1077,7 +1089,7 @@ These constants limit representation metadata, not the intuitive size of the mat
 
 ## Current binary format
 
-**v2.4.9 → v2.4.10:** both use binary buffer format 6. Older persisted binary formats, including format 3 from v2.1.9, require explicit migration tests.
+**v2.4.9 → v2.4.11:** both use binary buffer format 6. Older persisted binary formats, including format 3 from v2.1.9, require explicit migration tests.
 
 **Leaderboard migration:** LB v3 keys are not compatible with LB v2 ranking keys. Do not mix older and newer `OrderedDataStore` values without a migration plan.
 
@@ -1476,7 +1488,7 @@ Before shipping a NanoNum update, test at least:
 
 Run correctness checks before using benchmark wins as release criteria.
 
-**Studio regression test:** copy `NanoNum.lua` into a ModuleScript named `NanoNum_v2.4.10`, place the test script from `tests/NanoNum_v2.4.10_RegressionTests.server.luau` as a sibling Script, then run Studio and inspect Output for PASS/FAIL.
+**Studio regression test:** copy `NanoNum.lua` into a ModuleScript named `NanoNum_v2.4.11`, place the test script from `tests/NanoNum_v2.4.11_RegressionTests.server.luau` as a sibling Script, then run Studio and inspect Output for PASS/FAIL.
 
 ---
 
