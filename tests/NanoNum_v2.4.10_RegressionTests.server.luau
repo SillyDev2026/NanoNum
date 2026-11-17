@@ -1,7 +1,7 @@
 --!strict
 -- NanoNum v2.4.11 regression suite. Run as a Script in Roblox Studio.
--- Place NanoNum_v2.4.11 (ModuleScript) beside this Script.
-local N = require(script.Parent:WaitForChild("NanoNum_v2.4.11"))
+-- Place the repository's NanoNum.lua ModuleScript, named NanoNum, beside this Script.
+local N = require(script.Parent:WaitForChild("NanoNum"))
 local passed = 0
 local failed = 0
 
